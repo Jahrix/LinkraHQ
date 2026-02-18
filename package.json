@@ -1,0 +1,15 @@
+{
+  "name": "linkra-by-jahrix",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:shared\" \"npm:dev --workspace apps/server\" \"npm:dev --workspace apps/web\"",
+    "dev:shared": "npm run dev --workspace packages/shared",
+    "build": "npm run build --workspace packages/shared && npm run build --workspace apps/server && npm run build --workspace apps/web",
+    "start": "npm run start --workspace apps/server",
+    "lint": "npm run lint --workspace apps/server && npm run lint --workspace apps/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
