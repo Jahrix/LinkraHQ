@@ -69,14 +69,14 @@ function Shell() {
   const streak = state ? computeStreak(Object.values(state.dailyGoalsByDate)) : 0;
 
   return (
-    <div className="app-shell">
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[240px_1fr]">
       <Sidebar active={active} onChange={(item) => setActive(item)} />
-      <main className="main">
+      <main className="px-8 py-6 flex flex-col gap-6">
         <Header score={score} onOpenCommand={() => setCommandOpen(true)} />
-        {loading && <div className="glass panel">Loading Linkra data...</div>}
-        {error && <div className="glass panel">Error: {error}</div>}
+        {loading && <div className="panel">Loading Linkra data...</div>}
+        {error && <div className="panel">Error: {error}</div>}
         {state && !loading && (
-          <div style={{ display: "grid", gap: 24 }}>
+          <div className="grid gap-6">
             {active === "Dashboard" && <DashboardPage />}
             {active === "Daily Goals" && <DailyGoalsPage />}
             {active === "Roadmap" && <RoadmapPage />}
@@ -85,9 +85,7 @@ function Shell() {
             {active === "Settings" && <SettingsPage />}
           </div>
         )}
-        <div style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
-          Streak: {streak} days · Local-first mode active
-        </div>
+        <div className="text-xs text-white/50">Streak: {streak} days · Local-first mode active</div>
       </main>
       <CommandPalette open={commandOpen} commands={commands} onClose={() => setCommandOpen(false)} />
       <ToastHost />

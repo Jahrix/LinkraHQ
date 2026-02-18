@@ -74,12 +74,15 @@ export default function CommitsPage() {
 
   if (!state.github.loggedIn) {
     return (
-      <div className="glass panel">
-        <h3>Connect GitHub</h3>
-        <p style={{ color: "var(--muted)", marginTop: 6 }}>
+      <div className="panel space-y-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-white/50">GitHub</p>
+          <h2 className="text-lg font-semibold">Connect GitHub</h2>
+        </div>
+        <p className="text-sm text-white/60">
           Log in to GitHub to view latest commits. The app still works without it.
         </p>
-        <a className="button-primary" href="/auth/github/start" style={{ display: "inline-block", marginTop: 12 }}>
+        <a className="button-primary inline-flex w-fit" href="/auth/github/start">
           Log in with GitHub
         </a>
       </div>
@@ -87,9 +90,16 @@ export default function CommitsPage() {
   }
 
   return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <div className="glass panel">
-        <div className="filter-row">
+    <div className="space-y-6">
+      <div className="panel space-y-3">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Commits</p>
+            <h2 className="text-lg font-semibold">Latest activity</h2>
+          </div>
+          <span className="chip">{state.userSettings.selectedRepos.length} repos</span>
+        </div>
+        <div className="grid gap-2 md:grid-cols-[1.4fr_0.8fr_auto_auto]">
           <input
             className="input"
             placeholder="owner/repo"
@@ -109,10 +119,10 @@ export default function CommitsPage() {
             Refresh
           </button>
         </div>
-        {error && <p style={{ color: "salmon", marginTop: 8 }}>{error}</p>}
-        {loading && <p style={{ color: "var(--muted)", marginTop: 8 }}>Loading commits...</p>}
+        {error && <p className="text-sm text-red-300">{error}</p>}
+        {loading && <p className="text-sm text-white/60">Loading commits...</p>}
         {rateLimit && (
-          <p style={{ color: "var(--muted)", marginTop: 8 }}>
+          <p className="text-sm text-white/60">
             Rate limit remaining: {rateLimit.remaining} · resets at{" "}
             {new Date(rateLimit.reset * 1000).toLocaleTimeString()}
           </p>
@@ -122,30 +132,30 @@ export default function CommitsPage() {
       {state.userSettings.selectedRepos.map((repo) => {
         const key = `${repo.repo}#${repo.branch}`;
         return (
-          <div key={key} className="glass panel">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div key={key} className="panel space-y-4">
+            <div className="flex items-center justify-between gap-4">
               <div>
-                <h3>{repo.repo}</h3>
-                <p style={{ color: "var(--muted)" }}>Branch: {repo.branch}</p>
+                <h3 className="text-base font-semibold">{repo.repo}</h3>
+                <p className="text-sm text-white/60">Branch: {repo.branch}</p>
               </div>
               <button className="button-secondary" onClick={() => removeRepo(repo)}>
                 Remove
               </button>
             </div>
-            <div className="table" style={{ marginTop: 12 }}>
+            <div className="table">
               {(commits[key] || []).map((commit) => (
                 <div key={commit.sha} className="table-row">
                   <div>
                     <strong>{commit.message}</strong>
-                    <div style={{ color: "var(--muted)", fontSize: "0.8rem" }}>
+                    <div className="text-xs text-white/60">
                       {commit.author} · {formatDate(commit.date)} · {commit.shortSha}
                     </div>
-                    <div style={{ color: "var(--muted)", fontSize: "0.7rem" }}>{commit.url}</div>
+                    <div className="text-[11px] text-white/40">{commit.url}</div>
                   </div>
                   <span className="chip">{commit.shortSha}</span>
                 </div>
               ))}
-              {!commits[key] && <p style={{ color: "var(--muted)" }}>No commits loaded.</p>}
+              {!commits[key] && <p className="text-sm text-white/60">No commits loaded.</p>}
             </div>
           </div>
         );

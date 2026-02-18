@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { computeGoalMetrics, todayKey, type Goal } from "@linkra/shared";
 import { useAppState } from "../lib/state";
-import { formatDate } from "../lib/date";
+import { formatDate, formatDay } from "../lib/date";
 import { useToast } from "../lib/toast";
 
 export default function DailyGoalsPage() {
@@ -19,8 +19,10 @@ export default function DailyGoalsPage() {
   const key = todayKey();
   const todayEntry = state.dailyGoalsByDate[key];
   if (!todayEntry) {
-    return <div className="glass panel">Loading today&#39;s goals...</div>;
+    return <div className="panel">Loading today&#39;s goals...</div>;
   }
+  const todayLabel = formatDay(new Date());
+  const totalPoints = todayEntry.goals.reduce((sum, goal) => sum + goal.points, 0);
 
   const archive = useMemo(
     () => Object.values(state.dailyGoalsByDate).filter((entry) => entry.date !== key),
@@ -96,17 +98,29 @@ export default function DailyGoalsPage() {
   };
 
   return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <div className="glass panel">
-        <h3>Today&#39;s Goals</h3>
-        <div className="table" style={{ marginTop: 12 }}>
+    <div className="space-y-6">
+      <div className="panel space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Daily Goals</p>
+            <h2 className="text-lg font-semibold">{todayLabel}</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="pill">Auto-synced</span>
+            <span className="chip">
+              {todayEntry.completedPoints}/{totalPoints} pts
+            </span>
+            <span className="chip">Score {todayEntry.score}%</span>
+          </div>
+        </div>
+        <div className="table">
           {todayEntry.goals.map((goal) => (
-            <label key={goal.id} className="table-row" style={{ cursor: "pointer" }}>
-              <div>
+            <label key={goal.id} className="table-row hover-lift cursor-pointer">
+              <div className="flex flex-col gap-1">
                 <strong>{goal.title}</strong>
-                <div style={{ color: "var(--muted)", fontSize: "0.8rem" }}>{goal.category}</div>
+                <div className="text-xs text-white/60">{goal.category}</div>
               </div>
-              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <div className="flex items-center gap-3">
                 <span className="chip">{goal.points} pts</span>
                 <input
                   type="checkbox"
@@ -117,36 +131,38 @@ export default function DailyGoalsPage() {
             </label>
           ))}
         </div>
-        <div className="input-inline" style={{ marginTop: 16 }}>
+        <div className="grid gap-2 md:grid-cols-[1.4fr_1fr_120px_auto]">
           <input className="input" placeholder="New goal" value={title} onChange={(e) => setTitle(e.target.value)} />
           <input className="input" placeholder="Category" value={category} onChange={(e) => setCategory(e.target.value)} />
           <input
             className="input"
             type="number"
             min={1}
-            style={{ width: 100 }}
             value={points}
             onChange={(e) => setPoints(Number(e.target.value))}
           />
           <button className="button-primary" onClick={addGoal}>
-            Add
+            Add Goal
           </button>
         </div>
       </div>
 
-      <div className="glass panel">
-        <h3>Template Goals</h3>
-        <p style={{ color: "var(--muted)", marginTop: 6 }}>
-          These auto-populate each morning at midnight.
-        </p>
-        <div className="table" style={{ marginTop: 12 }}>
+      <div className="panel space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Template Goals</p>
+            <h3 className="text-base font-semibold">Midnight auto-rollover</h3>
+          </div>
+          <span className="chip">{state.userSettings.goalTemplate.length} templates</span>
+        </div>
+        <div className="table">
           {state.userSettings.goalTemplate.map((goal) => (
             <div key={goal.id} className="table-row">
-              <div>
+              <div className="flex flex-col gap-1">
                 <strong>{goal.title}</strong>
-                <div style={{ color: "var(--muted)", fontSize: "0.8rem" }}>{goal.category}</div>
+                <div className="text-xs text-white/60">{goal.category}</div>
               </div>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <div className="flex items-center gap-3">
                 <span className="chip">{goal.points} pts</span>
                 <button className="button-secondary" onClick={() => removeTemplateGoal(goal.id)}>
                   Remove
@@ -155,7 +171,7 @@ export default function DailyGoalsPage() {
             </div>
           ))}
         </div>
-        <div className="input-inline" style={{ marginTop: 16 }}>
+        <div className="grid gap-2 md:grid-cols-[1.4fr_1fr_120px_auto]">
           <input
             className="input"
             placeholder="Template goal"
@@ -172,7 +188,6 @@ export default function DailyGoalsPage() {
             className="input"
             type="number"
             min={1}
-            style={{ width: 100 }}
             value={templatePoints}
             onChange={(e) => setTemplatePoints(Number(e.target.value))}
           />
@@ -182,19 +197,25 @@ export default function DailyGoalsPage() {
         </div>
       </div>
 
-      <div className="glass panel">
-        <h3>Archive</h3>
-        <div className="table" style={{ marginTop: 12 }}>
-          {archive.length === 0 && <p style={{ color: "var(--muted)" }}>No archived days yet.</p>}
+      <div className="panel space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Archive</p>
+            <h3 className="text-base font-semibold">Past days</h3>
+          </div>
+          <span className="chip">{archive.length} days</span>
+        </div>
+        <div className="table">
+          {archive.length === 0 && <p className="text-sm text-white/60">No archived days yet.</p>}
           {archive.map((entry) => (
             <div key={entry.date} className="table-row">
               <div>
                 <strong>{entry.date}</strong>
-                <div style={{ color: "var(--muted)", fontSize: "0.8rem" }}>
+                <div className="text-xs text-white/60">
                   Archived {entry.archivedAt ? formatDate(entry.archivedAt) : "—"}
                 </div>
               </div>
-              <span className="chip">Score {entry.score}</span>
+              <span className="chip">Score {entry.score}%</span>
             </div>
           ))}
         </div>

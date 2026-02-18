@@ -9,21 +9,21 @@ export default function Header({
   onOpenCommand: () => void;
 }) {
   return (
-    <header className="header">
+    <header className="flex items-center justify-between gap-6">
       <div>
-        <h2 style={{ fontSize: "1.4rem" }}>Lock-in Dashboard</h2>
-        <p style={{ color: "var(--muted)", marginTop: 6 }}>{formatDay(new Date())}</p>
+        <h2 className="text-xl font-semibold">Lock-in Dashboard</h2>
+        <p className="text-sm text-white/60 mt-1">{formatDay(new Date())}</p>
       </div>
-      <div className="header-right">
-        <div className="glass panel">
-          <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>Lock-in Score</div>
-          <div style={{ fontSize: "1.4rem", fontWeight: 600 }}>{score}</div>
+      <div className="flex items-center gap-4">
+        <div className="panel">
+          <div className="text-xs text-white/50 uppercase tracking-[0.2em]">Score</div>
+          <div className="text-xl font-semibold">{score}</div>
         </div>
-        <button className="glass panel" onClick={onOpenCommand}>
-          <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>Command Palette</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button className="panel hover-lift" onClick={onOpenCommand}>
+          <div className="text-xs text-white/50 uppercase tracking-[0.2em]">Command</div>
+          <div className="flex items-center gap-2">
             <span>Open</span>
-            <span className="kbd">Ctrl/Cmd + K</span>
+            <span className="rounded-lg bg-white/10 px-2 py-1 text-xs">Ctrl/Cmd + K</span>
           </div>
         </button>
       </div>

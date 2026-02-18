@@ -13,25 +13,27 @@ export type NavItem = (typeof navItems)[number];
 
 export default function Sidebar({ active, onChange }: { active: NavItem; onChange: (item: NavItem) => void }) {
   return (
-    <aside className="sidebar">
-      <div className="brand">
-        <span>Linkra</span>
-        <h1>by Jahrix</h1>
+    <aside className="flex flex-row lg:flex-col gap-6 px-5 py-6 bg-white/5 border-b lg:border-b-0 lg:border-r border-white/10 backdrop-blur-2xl flex-wrap">
+      <div>
+        <p className="text-xs uppercase tracking-[0.4em] text-white/50">Linkra</p>
+        <h1 className="text-lg font-semibold">by Jahrix</h1>
       </div>
-      <nav className="nav">
+      <nav className="flex flex-row lg:flex-col gap-2 flex-wrap">
         {navItems.map((item) => (
           <button
             key={item}
-            className={active === item ? "active" : ""}
+            className={`text-left px-4 py-2 rounded-xl transition ${
+              active === item ? "bg-white/10 text-white" : "text-white/60 hover:text-white"
+            }`}
             onClick={() => onChange(item)}
           >
             {item}
           </button>
         ))}
       </nav>
-      <div className="glass panel">
-        <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Liquid Glass mode active.</p>
-        <p style={{ marginTop: 8, fontWeight: 600 }}>Lock in, stay local.</p>
+      <div className="panel">
+        <p className="text-xs text-white/60">Liquid Glass mode active.</p>
+        <p className="mt-2 font-semibold">Lock in, stay local.</p>
       </div>
     </aside>
   );

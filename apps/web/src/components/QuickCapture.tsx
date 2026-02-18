@@ -65,13 +65,16 @@ export default function QuickCapture() {
   };
 
   return (
-    <div className="glass panel" style={{ display: "grid", gap: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h3>Quick Capture</h3>
+    <div className="panel space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Quick Capture</p>
+          <h3 className="text-base font-semibold">Instant capture</h3>
+        </div>
         <span className="badge">Instant</span>
       </div>
-      <div className="filter-row">
-        <select value={type} onChange={(event) => setType(event.target.value as any)}>
+      <div className="grid gap-2 md:grid-cols-[160px_1fr_auto]">
+        <select className="input" value={type} onChange={(event) => setType(event.target.value as any)}>
           <option value="note">Note</option>
           <option value="task">Task</option>
           <option value="roadmap">Roadmap</option>

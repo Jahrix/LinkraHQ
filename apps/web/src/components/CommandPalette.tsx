@@ -24,20 +24,20 @@ export default function CommandPalette({
   if (!open) return null;
 
   return (
-    <div className="command-overlay" onClick={onClose}>
-      <div className="glass command-panel" onClick={(event) => event.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur" onClick={onClose}>
+      <div className="panel w-[min(640px,90vw)]" onClick={(event) => event.stopPropagation()}>
         <input
-          className="input"
+          className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none"
           placeholder="Search commands..."
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           autoFocus
         />
-        <div className="command-list">
+        <div className="mt-4 grid gap-2 max-h-72 overflow-auto">
           {filtered.map((cmd) => (
             <button
               key={cmd.label}
-              className="command-item"
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-left text-sm hover:border-white/30"
               onClick={() => {
                 cmd.action();
                 onClose();

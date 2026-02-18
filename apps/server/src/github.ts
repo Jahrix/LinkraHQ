@@ -104,3 +104,93 @@ export async function fetchGithubCommits({
   }));
   return { commits, rateLimit: { remaining, reset } };
 }
+
+const STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "into",
+  "this",
+  "that",
+  "then",
+  "than",
+  "your",
+  "you",
+  "are",
+  "was",
+  "were",
+  "has",
+  "have",
+  "had",
+  "add",
+  "fix",
+  "feat",
+  "refactor",
+  "update",
+  "remove",
+  "use",
+  "to",
+  "of",
+  "in",
+  "on",
+  "at",
+  "by",
+  "is",
+  "it",
+  "a",
+  "an"
+]);
+
+function tokenize(input: string) {
+  return input
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !STOPWORDS.has(token));
+}
+
+function matchScore(tokens: string[], message: string) {
+  if (!tokens.length) return { score: 0, matches: 0 };
+  const commitTokens = new Set(tokenize(message));
+  const matches = tokens.filter((token) => commitTokens.has(token));
+  const score = matches.length / tokens.length;
+  return { score, matches: matches.length };
+}
+
+export function findMatchingCommit({
+  repo,
+  text,
+  commits
+}: {
+  repo: string;
+  text: string;
+  commits: Array<{
+    sha: string;
+    shortSha: string;
+    message: string;
+    author: string;
+    date: string;
+    url: string;
+  }>;
+}) {
+  const repoTokens = tokenize(repo.replace("/", " "));
+  const tokens = Array.from(new Set([...tokenize(text), ...repoTokens]));
+  let best = null as null | { score: number; matches: number; commit: any };
+
+  for (const commit of commits) {
+    const { score, matches } = matchScore(tokens, commit.message);
+    if (!best || score > best.score || (score === best.score && matches > best.matches)) {
+      best = { score, matches, commit };
+    }
+  }
+
+  if (!best) return null;
+  const { score, matches, commit } = best;
+  const strongSingle = matches === 1 && tokens.some((token) => token.length >= 5);
+  if (matches >= 2 || score >= 0.3 || strongSingle) {
+    return { ...commit, score: Math.round(score * 100) };
+  }
+  return null;
+}

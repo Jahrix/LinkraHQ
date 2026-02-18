@@ -83,17 +83,29 @@ export default function RoadmapPage() {
   };
 
   return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <div className="glass panel">
-        <div className="filter-row">
-          <input className="input" placeholder="Search roadmap..." value={query} onChange={(e) => setQuery(e.target.value)} />
+    <div className="space-y-6">
+      <div className="panel flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-1">
+          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Roadmap</p>
+          <h2 className="text-lg font-semibold">Plan what ships next</h2>
+        </div>
+        <div className="flex flex-1 items-center gap-2 md:justify-end">
+          <input
+            className="input max-w-xs"
+            placeholder="Search roadmap..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
           <span className="chip">{filteredCards.length} cards</span>
         </div>
       </div>
 
-      <div className="glass panel" style={{ display: "grid", gap: 12 }}>
-        <h3>New Card</h3>
-        <div className="input-inline">
+      <div className="panel space-y-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-white/50">New Card</p>
+          <h3 className="text-base font-semibold">Capture an idea</h3>
+        </div>
+        <div className="grid gap-2 md:grid-cols-2">
           <input className="input" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
           <input className="input" placeholder="Project" value={project} onChange={(e) => setProject(e.target.value)} />
         </div>
@@ -104,8 +116,13 @@ export default function RoadmapPage() {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
-        <div className="input-inline">
-          <input className="input" placeholder="Tags (comma separated)" value={tags} onChange={(e) => setTags(e.target.value)} />
+        <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+          <input
+            className="input"
+            placeholder="Tags (comma separated)"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+          />
           <button className="button-primary" onClick={addCard}>
             Add Card
           </button>
@@ -116,36 +133,39 @@ export default function RoadmapPage() {
         {lanes.map((lane) => (
           <div
             key={lane.key}
-            className="kanban-column"
+            className="kanban-column glass"
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => onDrop(event, lane.key)}
           >
-            <h3>{lane.label}</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-white/70">{lane.label}</h3>
+              <span className="chip">
+                {filteredCards.filter((card) => card.lane === lane.key).length}
+              </span>
+            </div>
             {filteredCards
               .filter((card) => card.lane === lane.key)
               .map((card) => (
                 <div
                   key={card.id}
-                  className="kanban-card"
+                  className="kanban-card hover-lift"
                   draggable
                   onDragStart={(event) => onDragStart(event, card.id)}
                 >
                   <strong>{card.title}</strong>
-                  {card.description && <p style={{ marginTop: 6, color: "var(--muted)" }}>{card.description}</p>}
-                  <button
-                    className="button-secondary"
-                    style={{ marginTop: 8 }}
-                    onClick={() => copyLink(card.id)}
-                  >
-                    Copy Link
-                  </button>
-                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                  {card.description && <p className="mt-2 text-xs text-white/60">{card.description}</p>}
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <button className="button-secondary" onClick={() => copyLink(card.id)}>
+                      Copy Link
+                    </button>
+                    {card.project && <span className="tag">{card.project}</span>}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {card.tags.map((tag) => (
                       <span key={tag} className="tag">
                         {tag}
                       </span>
                     ))}
-                    {card.project && <span className="tag">{card.project}</span>}
                   </div>
                 </div>
               ))}

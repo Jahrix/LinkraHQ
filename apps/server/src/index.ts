@@ -17,9 +17,16 @@ import {
   mergeStates,
   normalizeState,
   wipeState
-} from "./store";
-import { githubAuthUrl, exchangeCodeForToken, fetchGithubCommits, fetchGithubUser } from "./github";
-import { createStartupAssets, detectOS, startupInstructions, getStartupDir } from "./startup";
+} from "./store.js";
+import {
+  githubAuthUrl,
+  exchangeCodeForToken,
+  fetchGithubCommits,
+  fetchGithubUser,
+  findMatchingCommit
+} from "./github.js";
+import { createStartupAssets, detectOS, startupInstructions, getStartupDir } from "./startup.js";
+import { getScanStatus, runGitScanNow, startGitScanScheduler, fetchLocalCommits } from "./gitScan.js";
 
 dotenv.config();
 
@@ -131,6 +138,59 @@ app.post("/api/startup/create", (req, res) => {
   });
 });
 
+app.get("/api/git/repos", (req, res) => {
+  const status = getScanStatus();
+  res.json({ repos: getState().localRepos, ...status });
+});
+
+app.post("/api/git/scan", async (req, res) => {
+  const result = await runGitScanNow();
+  res.json(result);
+});
+
+app.post("/api/git/link", async (req, res) => {
+  const { projectId, repoPath } = req.body as { projectId?: string; repoPath?: string };
+  if (!projectId || !repoPath) {
+    return res.status(400).json({ error: "projectId and repoPath required" });
+  }
+  const next = getState();
+  const project = next.projects.find((item) => item.id === projectId);
+  if (!project) {
+    return res.status(404).json({ error: "Project not found" });
+  }
+  project.localRepoPath = repoPath;
+  await saveState(next);
+  res.json({ state: attachGithubState(getState(), req) });
+});
+
+app.post("/api/git/unlink", async (req, res) => {
+  const { projectId } = req.body as { projectId?: string };
+  if (!projectId) {
+    return res.status(400).json({ error: "projectId required" });
+  }
+  const next = getState();
+  const project = next.projects.find((item) => item.id === projectId);
+  if (!project) {
+    return res.status(404).json({ error: "Project not found" });
+  }
+  project.localRepoPath = null;
+  await saveState(next);
+  res.json({ state: attachGithubState(getState(), req) });
+});
+
+app.get("/api/git/commits", async (req, res) => {
+  const { repoPath, limit = "10" } = req.query as Record<string, string>;
+  if (!repoPath) {
+    return res.status(400).json({ error: "repoPath required" });
+  }
+  try {
+    const commits = await fetchLocalCommits(repoPath, Number(limit) || 10);
+    res.json({ commits });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Local git fetch failed" });
+  }
+});
+
 app.get("/auth/github/start", (req, res) => {
   if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
     return res.status(400).send("GitHub OAuth is not configured.");
@@ -201,6 +261,37 @@ app.get("/api/github/commits", async (req, res) => {
   }
 });
 
+app.post("/api/github/commits/match", async (req, res) => {
+  const { repo, branch = "main", text, limit = 30 } = req.body as {
+    repo?: string;
+    branch?: string;
+    text?: string;
+    limit?: number;
+  };
+  if (!req.session.githubToken) {
+    return res.status(401).json({ error: "Not logged in" });
+  }
+  if (!repo || !text) {
+    return res.status(400).json({ error: "repo and text required" });
+  }
+  try {
+    const result = await fetchGithubCommits({
+      token: req.session.githubToken,
+      repo,
+      branch,
+      limit: Number(limit) || 30
+    });
+    const match = findMatchingCommit({ repo, text, commits: result.commits });
+    const state = getState();
+    state.github.lastSyncAt = new Date().toISOString();
+    state.github.rateLimit = result.rateLimit;
+    await saveState(state);
+    res.json({ match, rateLimit: result.rateLimit });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "GitHub fetch failed" });
+  }
+});
+
 const webDist = path.resolve(resolveRootDir(), "apps/web/dist");
 if (fs.existsSync(webDist)) {
   app.use(express.static(webDist));
@@ -212,6 +303,8 @@ if (fs.existsSync(webDist)) {
 async function start() {
   await loadStore();
   ensureDailyGoals();
+  await runGitScanNow();
+  startGitScanScheduler();
   app.listen(PORT, () => {
     console.log(`Linkra server running on http://localhost:${PORT}`);
   });

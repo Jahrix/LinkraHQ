@@ -1,4 +1,4 @@
-import { DailyGoalsEntry, Goal, STREAK_THRESHOLD } from "./schema";
+import { DailyGoalsEntry, Goal, STREAK_THRESHOLD } from "./schema.js";
 
 export function todayKey(date: Date = new Date()): string {
   const year = date.getFullYear();

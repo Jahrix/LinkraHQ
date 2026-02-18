@@ -82,14 +82,20 @@ export default function ToolsPage() {
   const secondsDisplay = String(secondsLeft % 60).padStart(2, "0");
 
   return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <div className="card-grid cols-2">
-        <div className="glass panel focus-timer">
-          <h3>Focus Timer</h3>
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="panel space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-white/50">Focus Timer</p>
+              <h2 className="text-lg font-semibold">Pomodoro session</h2>
+            </div>
+            <span className="chip">{state.focusSessions.length} sessions</span>
+          </div>
           <div className="focus-display">
             {minutesDisplay}:{secondsDisplay}
           </div>
-          <div className="filter-row">
+          <div className="grid gap-2 md:grid-cols-[120px_auto]">
             <input
               className="input"
               type="number"
@@ -102,7 +108,7 @@ export default function ToolsPage() {
                 setSecondsLeft(value * 60);
               }}
             />
-            <span className="chip">minutes</span>
+            <span className="chip self-center">minutes</span>
           </div>
           <div className="filter-row">
             <button className="button-primary" onClick={() => setRunning((prev) => !prev)}>
@@ -112,22 +118,25 @@ export default function ToolsPage() {
               Reset
             </button>
           </div>
-          <p style={{ color: "var(--muted)" }}>Completed sessions: {state.focusSessions.length}</p>
+          <p className="text-sm text-white/60">Completed sessions: {state.focusSessions.length}</p>
         </div>
 
-        <div className="glass panel">
-          <h3>Session Log</h3>
-          <div className="table" style={{ marginTop: 12 }}>
+        <div className="panel space-y-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Session Log</p>
+            <h2 className="text-lg font-semibold">What you did</h2>
+          </div>
+          <div className="table">
             {state.sessionLogs.slice(0, 6).map((log) => (
               <div key={log.id} className="table-row">
                 <div>
                   <strong>{log.text}</strong>
-                  <div style={{ color: "var(--muted)", fontSize: "0.8rem" }}>{formatTime(log.ts)}</div>
+                  <div className="text-xs text-white/60">{formatTime(log.ts)}</div>
                 </div>
               </div>
             ))}
           </div>
-          <div className="input-inline" style={{ marginTop: 12 }}>
+          <div className="grid gap-2 md:grid-cols-[1fr_auto]">
             <input
               className="input"
               placeholder="What did you just do?"

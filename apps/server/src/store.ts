@@ -10,7 +10,9 @@ import {
   SCHEMA_VERSION,
   DEFAULT_ACCENT,
   computeGoalMetrics,
-  todayKey
+  todayKey,
+  type Project,
+  type ProjectTask
 } from "@linkra/shared";
 
 interface Database {
@@ -20,7 +22,13 @@ interface Database {
 const DATA_DIR = process.env.LINKRA_DATA_DIR || path.join(os.homedir(), ".linkra");
 const DB_FILE = path.join(DATA_DIR, "linkra-db.json");
 
-const seedProjects = ["CruiseControl", "Indus Gaming Command", "Olympia Metropolis Web"];
+const seedProjects = [
+  { name: "CruiseControl", subtitle: "Ops control suite", color: "#60a5fa", icon: "🛰️" },
+  { name: "Indus Gaming Command", subtitle: "Gaming HQ dashboard", color: "#a855f7", icon: "🕹️" },
+  { name: "Olympia Metropolis Web", subtitle: "City web experience", color: "#22c55e", icon: "🌆" },
+  { name: "Video Editing", subtitle: "Post-production pipeline", color: "#f97316", icon: "🎬" },
+  { name: "Tools Lab", subtitle: "Internal tooling", color: "#14b8a6", icon: "🧪" }
+];
 
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -40,6 +48,53 @@ function newGoal(title: string, category: string, points: number) {
   };
 }
 
+function newTask(text: string, dueDate: string | null): ProjectTask {
+  return {
+    id: nanoid(),
+    text,
+    done: false,
+    dueDate,
+    milestone: null,
+    createdAt: new Date().toISOString(),
+    completedAt: null,
+    linkedCommit: null
+  };
+}
+
+function newProject({
+  name,
+  subtitle,
+  color,
+  icon,
+  status,
+  weeklyHours,
+  githubRepo
+}: {
+  name: string;
+  subtitle: string;
+  color: string;
+  icon: string;
+  status: "Not Started" | "In Progress" | "Review" | "On Hold" | "Done";
+  weeklyHours: number;
+  githubRepo: string | null;
+}): Project {
+  return {
+    id: nanoid(),
+    name,
+    subtitle,
+    icon,
+    color,
+    status,
+    progress: 0,
+    weeklyHours,
+    githubRepo,
+    remoteRepo: githubRepo,
+    localRepoPath: null,
+    healthScore: null,
+    tasks: [] as ProjectTask[]
+  };
+}
+
 function defaultState(): AppState {
   const now = new Date().toISOString();
   const goalTemplate = [
@@ -51,6 +106,71 @@ function defaultState(): AppState {
   const today = todayKey();
   const goals = goalTemplate.map((goal) => ({ ...goal, id: nanoid(), createdAt: now }));
   const metrics = computeGoalMetrics(goals);
+
+  const projects = [
+    newProject({
+      name: seedProjects[0].name,
+      subtitle: seedProjects[0].subtitle,
+      color: seedProjects[0].color,
+      icon: seedProjects[0].icon,
+      status: "In Progress",
+      weeklyHours: 8,
+      githubRepo: null
+    }),
+    newProject({
+      name: seedProjects[1].name,
+      subtitle: seedProjects[1].subtitle,
+      color: seedProjects[1].color,
+      icon: seedProjects[1].icon,
+      status: "In Progress",
+      weeklyHours: 6,
+      githubRepo: null
+    }),
+    newProject({
+      name: seedProjects[2].name,
+      subtitle: seedProjects[2].subtitle,
+      color: seedProjects[2].color,
+      icon: seedProjects[2].icon,
+      status: "Not Started",
+      weeklyHours: 4,
+      githubRepo: null
+    }),
+    newProject({
+      name: seedProjects[3].name,
+      subtitle: seedProjects[3].subtitle,
+      color: seedProjects[3].color,
+      icon: seedProjects[3].icon,
+      status: "In Progress",
+      weeklyHours: 3,
+      githubRepo: null
+    }),
+    newProject({
+      name: seedProjects[4].name,
+      subtitle: seedProjects[4].subtitle,
+      color: seedProjects[4].color,
+      icon: seedProjects[4].icon,
+      status: "Not Started",
+      weeklyHours: 2,
+      githubRepo: null
+    })
+  ];
+
+  projects[0].tasks = [
+    newTask("Define release checklist", null),
+    newTask("Audit logging pipeline", null),
+    newTask("Ship v0.1 release", null)
+  ];
+
+  projects[1].tasks = [
+    newTask("Draft dashboard layout", null),
+    newTask("Integrate OAuth flow", null)
+  ];
+
+  projects[3].tasks = [
+    newTask("Edit sequence A-roll", null)
+  ];
+
+  const defaultWatchDir = path.join(os.homedir(), "Developer");
 
   return {
     metadata: {
@@ -64,8 +184,13 @@ function defaultState(): AppState {
       startOnLogin: false,
       selectedRepos: [],
       goalTemplate,
+      repoWatchDirs: fs.existsSync(defaultWatchDir) ? [defaultWatchDir] : [],
+      repoScanIntervalMinutes: 15,
+      repoExcludePatterns: ["**/node_modules/**", "**/.git/**"],
       schemaVersion: SCHEMA_VERSION
     },
+    projects,
+    localRepos: [],
     dailyGoalsByDate: {
       [today]: {
         date: today,
@@ -84,7 +209,7 @@ function defaultState(): AppState {
         tags: ["linkra", "v0.1"],
         linkedRepo: null,
         dueDate: null,
-        project: seedProjects[0],
+        project: seedProjects[0].name,
         createdAt: now,
         updatedAt: now
       },
@@ -96,7 +221,7 @@ function defaultState(): AppState {
         tags: ["oauth", "github"],
         linkedRepo: null,
         dueDate: null,
-        project: seedProjects[1],
+        project: seedProjects[1].name,
         createdAt: now,
         updatedAt: now
       },
@@ -108,7 +233,7 @@ function defaultState(): AppState {
         tags: ["mobile"],
         linkedRepo: null,
         dueDate: null,
-        project: seedProjects[2],
+        project: seedProjects[2].name,
         createdAt: now,
         updatedAt: now
       }
@@ -134,7 +259,7 @@ function defaultState(): AppState {
 }
 
 const adapter = new JSONFile<Database>(DB_FILE);
-const db = new Low<Database>(adapter);
+const db = new Low<Database>(adapter, { state: defaultState() });
 
 export async function loadStore() {
   ensureDir();
@@ -216,6 +341,13 @@ export function normalizeState(state: AppState): AppState {
       ...fallback.userSettings,
       ...state.userSettings
     },
+    projects: (state.projects || fallback.projects).map((project) => ({
+      ...project,
+      remoteRepo: project.remoteRepo ?? project.githubRepo ?? null,
+      localRepoPath: project.localRepoPath ?? null,
+      healthScore: project.healthScore ?? null
+    })),
+    localRepos: state.localRepos || fallback.localRepos,
     dailyGoalsByDate: state.dailyGoalsByDate || fallback.dailyGoalsByDate,
     roadmapCards: state.roadmapCards || fallback.roadmapCards,
     sessionLogs: state.sessionLogs || fallback.sessionLogs,
@@ -238,12 +370,21 @@ export function mergeStates(current: AppState, incoming: AppState): AppState {
       goalTemplate: incoming.userSettings.goalTemplate.length ? incoming.userSettings.goalTemplate : current.userSettings.goalTemplate,
       accent: incoming.userSettings.accent || current.userSettings.accent,
       reduceMotion: incoming.userSettings.reduceMotion ?? current.userSettings.reduceMotion,
-      startOnLogin: incoming.userSettings.startOnLogin ?? current.userSettings.startOnLogin
+      startOnLogin: incoming.userSettings.startOnLogin ?? current.userSettings.startOnLogin,
+      repoWatchDirs: incoming.userSettings.repoWatchDirs?.length
+        ? incoming.userSettings.repoWatchDirs
+        : current.userSettings.repoWatchDirs,
+      repoScanIntervalMinutes: incoming.userSettings.repoScanIntervalMinutes ?? current.userSettings.repoScanIntervalMinutes,
+      repoExcludePatterns: incoming.userSettings.repoExcludePatterns?.length
+        ? incoming.userSettings.repoExcludePatterns
+        : current.userSettings.repoExcludePatterns
     },
     dailyGoalsByDate: {
       ...current.dailyGoalsByDate,
       ...incoming.dailyGoalsByDate
     },
+    projects: mergeArrayById(current.projects, incoming.projects),
+    localRepos: mergeArrayById(current.localRepos, incoming.localRepos),
     roadmapCards: mergeArrayById(current.roadmapCards, incoming.roadmapCards),
     sessionLogs: mergeArrayById(current.sessionLogs, incoming.sessionLogs),
     focusSessions: mergeArrayById(current.focusSessions, incoming.focusSessions),
