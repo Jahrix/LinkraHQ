@@ -15,6 +15,46 @@ let lastScanErrors: string[] = [];
 let watcher: FSWatcher | null = null;
 let watcherActive = false;
 
+function normalizeRepoPath(repoPath: string) {
+  try {
+    return fs.realpathSync.native(repoPath);
+  } catch {
+    return path.resolve(repoPath);
+  }
+}
+
+function scanTimeValue(scannedAt: string | null) {
+  if (!scannedAt) return 0;
+  const t = new Date(scannedAt).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function dedupeRepos(repos: LocalRepo[]) {
+  const map = new Map<string, LocalRepo>();
+  for (const repo of repos) {
+    const normalizedPath = normalizeRepoPath(repo.path);
+    const dedupeKey = `${repo.id}:${normalizedPath}`;
+    const normalizedRepo: LocalRepo = {
+      ...repo,
+      id: repo.id || repoId(normalizedPath),
+      path: normalizedPath
+    };
+    const existing = map.get(dedupeKey);
+    if (!existing || scanTimeValue(normalizedRepo.scannedAt) >= scanTimeValue(existing.scannedAt)) {
+      map.set(dedupeKey, normalizedRepo);
+    }
+  }
+
+  const byPath = new Map<string, LocalRepo>();
+  for (const repo of map.values()) {
+    const existing = byPath.get(repo.path);
+    if (!existing || scanTimeValue(repo.scannedAt) >= scanTimeValue(existing.scannedAt)) {
+      byPath.set(repo.path, repo);
+    }
+  }
+  return Array.from(byPath.values());
+}
+
 export function getScanStatus() {
   return {
     lastScanAt,
@@ -44,15 +84,23 @@ export async function runGitScanNow(repoPath?: string) {
 
   scanInProgress = true;
   const state = getState();
+  const existingRepos = dedupeRepos(state.localRepos);
   const excludeTokens = compileExcludeTokens(state.userSettings.repoExcludePatterns);
+  const targetRepoPath = repoPath ? normalizeRepoPath(repoPath) : undefined;
   const repoTargets = repoPath
-    ? [{ path: repoPath, watchDir: state.userSettings.repoWatchDirs.find((dir) => repoPath.startsWith(dir)) ?? null }]
+    ? [
+        {
+          path: targetRepoPath as string,
+          watchDir:
+            state.userSettings.repoWatchDirs.find((dir) => (targetRepoPath as string).startsWith(dir)) ?? null
+        }
+      ]
     : await discoverRepos(state.userSettings.repoWatchDirs, excludeTokens);
 
-  const previousMap = new Map(state.localRepos.map((repo) => [repo.path, repo]));
-  const repos: LocalRepo[] = repoPath ? [...state.localRepos] : [];
+  const previousMap = new Map(existingRepos.map((repo) => [normalizeRepoPath(repo.path), repo]));
+  const repos: LocalRepo[] = repoPath ? [...existingRepos] : [];
   for (const target of repoTargets) {
-    const nextPath = target.path;
+    const nextPath = normalizeRepoPath(target.path);
     const repo = await scanRepo(nextPath, previousMap.get(nextPath), target.watchDir);
     if (repoPath) {
       const index = repos.findIndex((item) => item.path === nextPath);
@@ -65,20 +113,23 @@ export async function runGitScanNow(repoPath?: string) {
       repos.push(repo);
     }
   }
+  const uniqueRepos = dedupeRepos(repos);
 
   const now = new Date().toISOString();
   lastScanAt = now;
-  lastScanErrors = repos.filter((repo) => repo.scanError).map((repo) => repo.scanError as string);
+  lastScanErrors = uniqueRepos
+    .filter((repo) => repo.scanError)
+    .map((repo) => repo.scanError as string);
 
   const next: AppState = {
     ...state,
-    localRepos: repos,
-    projects: state.projects.map((project) => applyHealthScore(project, repos))
+    localRepos: uniqueRepos,
+    projects: state.projects.map((project) => applyHealthScore(project, uniqueRepos))
   };
 
   await saveState(next);
   scanInProgress = false;
-  return { repos, lastScanAt, errors: lastScanErrors };
+  return { repos: uniqueRepos, lastScanAt, errors: lastScanErrors };
 }
 
 export function startGitScanScheduler() {
@@ -98,13 +149,23 @@ export function startGitWatcher() {
   if (watcher) return;
 
   const excludeTokens = compileExcludeTokens(state.userSettings.repoExcludePatterns);
-  const watchDirs = state.userSettings.repoWatchDirs.filter((dir) => fs.existsSync(dir));
-  if (watchDirs.length === 0) return;
+  const watchDirs = state.userSettings.repoWatchDirs
+    .filter((dir) => fs.existsSync(dir))
+    .map((dir) => normalizeRepoPath(dir));
 
-  watcher = chokidar.watch(watchDirs, {
+  const repoGitDirs = dedupeRepos(state.localRepos)
+    .map((repo) => path.join(repo.path, ".git"))
+    .filter((gitDir) => fs.existsSync(gitDir));
+
+  // Prefer watching discovered repos only; fallback to watch roots if repo list is empty.
+  const watchTargets = repoGitDirs.length > 0 ? repoGitDirs : watchDirs;
+  if (watchTargets.length === 0) return;
+
+  watcher = chokidar.watch(watchTargets, {
     ignored: (target) => isExcluded(target, excludeTokens),
     ignoreInitial: true,
-    persistent: true
+    persistent: true,
+    depth: 8
   });
 
   watcherActive = true;
@@ -113,8 +174,14 @@ export function startGitWatcher() {
     if (scanInProgress) return;
     const repoRoot = findRepoRoot(filepath);
     if (repoRoot) {
-      await runGitScanNow(repoRoot);
+      await runGitScanNow(normalizeRepoPath(repoRoot));
     }
+  });
+
+  watcher.on("error", (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    lastScanErrors = [...lastScanErrors, `Watcher error: ${message}`].slice(-20);
+    stopGitWatcher();
   });
 }
 
@@ -194,7 +261,10 @@ function isExcluded(targetPath: string, tokens: string[]) {
 
 async function discoverRepos(roots: string[], excludeTokens: string[]) {
   const repos: Array<{ path: string; watchDir: string }> = [];
-  const queue = roots.filter((root) => root && fs.existsSync(root));
+  const normalizedRoots = roots
+    .filter((root) => root && fs.existsSync(root))
+    .map((root) => normalizeRepoPath(root));
+  const queue = [...normalizedRoots];
 
   while (queue.length) {
     const current = queue.pop() as string;
@@ -210,8 +280,8 @@ async function discoverRepos(roots: string[], excludeTokens: string[]) {
 
     const gitEntry = entries.find((entry) => entry.name === ".git");
     if (gitEntry) {
-      const watchDir = roots.find((root) => current.startsWith(root)) ?? current;
-      repos.push({ path: current, watchDir });
+      const watchDir = normalizedRoots.find((root) => current.startsWith(root)) ?? current;
+      repos.push({ path: normalizeRepoPath(current), watchDir: normalizeRepoPath(watchDir) });
       continue;
     }
 
@@ -225,13 +295,14 @@ async function discoverRepos(roots: string[], excludeTokens: string[]) {
 }
 
 async function scanRepo(repoPath: string, previous?: LocalRepo, watchDir?: string | null): Promise<LocalRepo> {
-  const name = path.basename(repoPath);
+  const normalizedRepoPath = normalizeRepoPath(repoPath);
+  const name = path.basename(normalizedRepoPath);
   const scannedAt = new Date().toISOString();
   const start = Date.now();
 
   try {
-    const headSha = await runGitSafe(repoPath, ["rev-parse", "HEAD"]);
-    const statusRaw = await runGit(repoPath, ["status", "--porcelain"]);
+    const headSha = await runGitSafe(normalizedRepoPath, ["rev-parse", "HEAD"]);
+    const statusRaw = await runGit(normalizedRepoPath, ["status", "--porcelain"]);
     const statusHash = crypto.createHash("sha1").update(statusRaw).digest("hex");
 
     if (previous && previous.lastHeadSha === headSha && previous.lastStatusHash === statusHash) {
@@ -243,19 +314,21 @@ async function scanRepo(repoPath: string, previous?: LocalRepo, watchDir?: strin
       };
     }
 
-    const status = await runGit(repoPath, ["status", "--porcelain"]);
+    const status = await runGit(normalizedRepoPath, ["status", "--porcelain"]);
     const dirty = status.trim().length > 0;
     const untrackedCount = status
       .split("\n")
       .filter((line) => line.startsWith("??"))
       .length;
 
-    const branch = await runGitSafe(repoPath, ["symbolic-ref", "refs/remotes/origin/HEAD"]);
-    const defaultBranch = branch ? branch.split("/").pop() ?? null : await runGitSafe(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const branch = await runGitSafe(normalizedRepoPath, ["symbolic-ref", "refs/remotes/origin/HEAD"]);
+    const defaultBranch = branch
+      ? branch.split("/").pop() ?? null
+      : await runGitSafe(normalizedRepoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
 
-    const remoteUrl = await runGitSafe(repoPath, ["remote", "get-url", "origin"]);
+    const remoteUrl = await runGitSafe(normalizedRepoPath, ["remote", "get-url", "origin"]);
 
-    const lastCommitRaw = await runGitSafe(repoPath, [
+    const lastCommitRaw = await runGitSafe(normalizedRepoPath, [
       "log",
       "-1",
       "--pretty=%H|%an|%ad|%s",
@@ -264,17 +337,22 @@ async function scanRepo(repoPath: string, previous?: LocalRepo, watchDir?: strin
     const [sha, author, date, ...messageParts] = (lastCommitRaw || "").split("|");
     const lastCommitMessage = messageParts.join("|") || null;
 
-    const aheadBehind = await runGitSafe(repoPath, ["rev-list", "--left-right", "--count", "HEAD...@{u}"]);
+    const aheadBehind = await runGitSafe(normalizedRepoPath, [
+      "rev-list",
+      "--left-right",
+      "--count",
+      "HEAD...@{u}"
+    ]);
     const [aheadRaw, behindRaw] = aheadBehind ? aheadBehind.split(/\s+/) : ["0", "0"];
 
-    const todayLog = await runGitSafe(repoPath, ["log", "--since=midnight", "--pretty=oneline"]);
+    const todayLog = await runGitSafe(normalizedRepoPath, ["log", "--since=midnight", "--pretty=oneline"]);
     const todayCommitCount = todayLog ? todayLog.split("\n").filter(Boolean).length : 0;
 
     return {
-      id: repoId(repoPath),
+      id: repoId(normalizedRepoPath),
       name,
-      path: repoPath,
-      watchDir: watchDir ?? previous?.watchDir ?? null,
+      path: normalizedRepoPath,
+      watchDir: watchDir ? normalizeRepoPath(watchDir) : previous?.watchDir ?? null,
       remoteUrl: remoteUrl || null,
       defaultBranch: defaultBranch || null,
       lastCommitAt: date || null,
@@ -293,10 +371,10 @@ async function scanRepo(repoPath: string, previous?: LocalRepo, watchDir?: strin
     };
   } catch (err) {
     return {
-      id: repoId(repoPath),
+      id: repoId(normalizedRepoPath),
       name,
-      path: repoPath,
-      watchDir: watchDir ?? previous?.watchDir ?? null,
+      path: normalizedRepoPath,
+      watchDir: watchDir ? normalizeRepoPath(watchDir) : previous?.watchDir ?? null,
       remoteUrl: null,
       defaultBranch: null,
       lastCommitAt: null,
@@ -322,11 +400,11 @@ function repoId(repoPath: string) {
 
 function findRepoRoot(filePath: string) {
   let current = fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()
-    ? filePath
+    ? normalizeRepoPath(filePath)
     : path.dirname(filePath);
   for (let depth = 0; depth < 6; depth += 1) {
     if (fs.existsSync(path.join(current, ".git"))) {
-      return current;
+      return normalizeRepoPath(current);
     }
     const parent = path.dirname(current);
     if (parent === current) break;

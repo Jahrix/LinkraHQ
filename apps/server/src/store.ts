@@ -343,6 +343,7 @@ export function ensureDailyGoals() {
 export function normalizeState(state: AppState): AppState {
   const parsed = AppStateSchema.safeParse(state);
   if (parsed.success) {
+    parsed.data.localRepos = dedupeLocalRepos(parsed.data.localRepos);
     return parsed.data;
   }
 
@@ -364,7 +365,7 @@ export function normalizeState(state: AppState): AppState {
       localRepoPath: project.localRepoPath ?? null,
       healthScore: project.healthScore ?? null
     })),
-    localRepos: state.localRepos || fallback.localRepos,
+    localRepos: dedupeLocalRepos(state.localRepos || fallback.localRepos),
     dailyGoalsByDate: state.dailyGoalsByDate || fallback.dailyGoalsByDate,
     roadmapCards: state.roadmapCards || fallback.roadmapCards,
     sessionLogs: state.sessionLogs || fallback.sessionLogs,
@@ -380,6 +381,42 @@ export function normalizeState(state: AppState): AppState {
       ...state.github
     }
   } as AppState;
+}
+
+function normalizeRepoPath(repoPath: string) {
+  try {
+    return fs.realpathSync.native(repoPath);
+  } catch {
+    return path.resolve(repoPath);
+  }
+}
+
+function scanTime(scannedAt: string | null) {
+  if (!scannedAt) return 0;
+  const ms = new Date(scannedAt).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function dedupeLocalRepos(repos: AppState["localRepos"]) {
+  const map = new Map<string, (typeof repos)[number]>();
+  for (const repo of repos) {
+    const normalizedPath = normalizeRepoPath(repo.path);
+    const key = `${repo.id}:${normalizedPath}`;
+    const candidate = { ...repo, path: normalizedPath };
+    const existing = map.get(key);
+    if (!existing || scanTime(candidate.scannedAt) >= scanTime(existing.scannedAt)) {
+      map.set(key, candidate);
+    }
+  }
+
+  const byPath = new Map<string, (typeof repos)[number]>();
+  for (const repo of map.values()) {
+    const existing = byPath.get(repo.path);
+    if (!existing || scanTime(repo.scannedAt) >= scanTime(existing.scannedAt)) {
+      byPath.set(repo.path, repo);
+    }
+  }
+  return Array.from(byPath.values());
 }
 
 export function mergeStates(current: AppState, incoming: AppState, preferIncoming = true): AppState {

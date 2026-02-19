@@ -1,16 +1,82 @@
 import React, { useEffect, useState } from "react";
-import { todayKey, computeGoalMetrics, type RoadmapLane, type Insight } from "@linkra/shared";
+import {
+  todayKey,
+  computeGoalMetrics,
+  type RoadmapLane,
+  type Insight,
+  type LocalRepo
+} from "@linkra/shared";
 import { useAppState } from "../lib/state";
 import ProgressRing from "../components/ProgressRing";
 import StackedBar from "../components/StackedBar";
 import TabBar from "../components/TabBar";
 import TaskRow from "../components/TaskRow";
+import GlassPanel from "../components/GlassPanel";
+import SectionHeader from "../components/SectionHeader";
 import { api } from "../lib/api";
 import { useToast } from "../lib/toast";
 import { computeTodayPlan, isTaskBlocked } from "../lib/taskRules";
 import { formatDate } from "../lib/date";
 
 const tabs = ["Tasks", "Roadmap", "GitHub", "Journal", "Settings"];
+
+type InsightGroup = {
+  key: string;
+  ruleId: string;
+  projectId: string | null;
+  repoId: string | null;
+  title: string;
+  reason: string;
+  severity: "info" | "warn" | "crit";
+  items: Insight[];
+  relatedProjects: string[];
+  relatedRepos: string[];
+};
+
+function severityRank(level: "info" | "warn" | "crit") {
+  if (level === "crit") return 2;
+  if (level === "warn") return 1;
+  return 0;
+}
+
+function groupInsights(list: Insight[]): InsightGroup[] {
+  const map = new Map<string, InsightGroup>();
+  for (const insight of list) {
+    const key = `${insight.ruleId}:${insight.projectId ?? "none"}:${insight.repoId ?? "none"}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, {
+        key,
+        ruleId: insight.ruleId,
+        projectId: insight.projectId ?? null,
+        repoId: insight.repoId ?? null,
+        title: insight.title,
+        reason: insight.reason,
+        severity: insight.severity,
+        items: [insight],
+        relatedProjects: insight.projectId ? [insight.projectId] : [],
+        relatedRepos: insight.repoId ? [insight.repoId] : []
+      });
+    } else {
+      existing.items.push(insight);
+      if (severityRank(insight.severity) > severityRank(existing.severity)) {
+        existing.severity = insight.severity;
+      }
+      if (!existing.repoId && insight.repoId) {
+        existing.repoId = insight.repoId;
+      }
+      if (insight.projectId && !existing.relatedProjects.includes(insight.projectId)) {
+        existing.relatedProjects.push(insight.projectId);
+      }
+      if (insight.repoId && !existing.relatedRepos.includes(insight.repoId)) {
+        existing.relatedRepos.push(insight.repoId);
+      }
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => severityRank(b.severity) - severityRank(a.severity)
+  );
+}
 
 export default function DashboardPage() {
   const { state, save, refresh } = useAppState();
@@ -23,7 +89,9 @@ export default function DashboardPage() {
   const [localRepoInput, setLocalRepoInput] = useState("");
   const [commitFeed, setCommitFeed] = useState<any[]>([]);
   const [localCommitFeed, setLocalCommitFeed] = useState<any[]>([]);
-  const [insightFilter, setInsightFilter] = useState<"all" | "crit" | "warn" | "project">("all");
+  const [insightFilter, setInsightFilter] = useState<
+    "priority" | "all" | "crit" | "warn" | "project"
+  >("priority");
   const [todayPlanNotes, setTodayPlanNotes] = useState("");
   const [planSelection, setPlanSelection] = useState<string[]>([]);
   const [journalType, setJournalType] = useState<"note" | "decision" | "blocker" | "next" | "idea">("note");
@@ -35,7 +103,9 @@ export default function DashboardPage() {
   const todayEntry = state.dailyGoalsByDate[todayKey()];
   const projects = state.projects;
   const selectedProject = projects.find((p) => p.id === (selectedId ?? projects[0]?.id));
-  const repoByPath = new Map(state.localRepos.map((repo) => [repo.path, repo]));
+  const uniqueRepos = dedupeLocalRepos(state.localRepos);
+  const repoByPath = new Map(uniqueRepos.map((repo) => [repo.path, repo]));
+  const repoById = new Map(uniqueRepos.map((repo) => [repo.id, repo]));
   const linkedRemoteRepo = selectedProject?.remoteRepo ?? selectedProject?.githubRepo ?? null;
   const linkedLocalRepo = selectedProject?.localRepoPath
     ? repoByPath.get(selectedProject.localRepoPath)
@@ -43,12 +113,12 @@ export default function DashboardPage() {
   const insights = state.insights ?? [];
   const projectInsights = insights.filter((insight) => insight.projectId === selectedProject?.id);
   const lastScanAt =
-    state.localRepos
+    uniqueRepos
       .map((repo) => repo.scannedAt)
       .filter(Boolean)
       .sort()
       .pop() ?? null;
-  const scanErrorCount = state.localRepos.filter((repo) => repo.scanError).length;
+  const scanErrorCount = uniqueRepos.filter((repo) => repo.scanError).length;
   const dateLabel = new Intl.DateTimeFormat(undefined, {
     weekday: "short",
     day: "numeric",
@@ -318,11 +388,14 @@ export default function DashboardPage() {
   const todayPlan = state.todayPlanByDate?.[todayKey()] ?? null;
 
   const filteredInsights = insights.filter((insight) => {
+    if (insightFilter === "priority") return insight.severity !== "info";
     if (insightFilter === "crit") return insight.severity === "crit";
     if (insightFilter === "warn") return insight.severity === "warn";
     if (insightFilter === "project") return insight.projectId === selectedProject?.id;
     return true;
   });
+
+  const groupedInsights = groupInsights(filteredInsights);
 
   const generateTodayPlan = () => {
     const items = state.projects.flatMap((project) =>
@@ -368,93 +441,33 @@ export default function DashboardPage() {
     }
   };
 
+  const runGroupedAction = async (group: InsightGroup, action: any) => {
+    if (action.type === "SNOOZE_1D" || action.type === "SNOOZE_1W") {
+      for (const item of group.items) {
+        await api.insightAction({
+          ...action,
+          payload: { ...action.payload, insightId: item.id }
+        });
+      }
+      await refresh();
+      push("Insight snoozed.");
+      return;
+    }
+
+    const first = group.items[0];
+    if (first) {
+      await runInsightAction(first, action);
+    }
+  };
+
   return (
     <div className="grid gap-6">
-      <section className="panel">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Insights</p>
-            <h3 className="text-lg font-semibold">Signals → Actions</h3>
-          </div>
-          <div className="flex gap-2">
-            <button className="button-secondary" onClick={() => setInsightFilter("all")}>All</button>
-            <button className="button-secondary" onClick={() => setInsightFilter("crit")}>Critical</button>
-            <button className="button-secondary" onClick={() => setInsightFilter("warn")}>Warnings</button>
-            <button className="button-secondary" onClick={() => setInsightFilter("project")}>By Project</button>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3">
-          {filteredInsights.length === 0 && (
-            <p className="text-sm text-white/60">No insights right now.</p>
-          )}
-          {filteredInsights.map((insight) => (
-            <div key={insight.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold">{insight.title}</div>
-                  <div className="text-xs text-white/60">{insight.reason}</div>
-                </div>
-                <span className="chip">{insight.severity}</span>
-              </div>
-              {insight.projectId && (
-                <div className="mt-2 text-xs text-white/50">
-                  Project: {state.projects.find((p) => p.id === insight.projectId)?.name ?? "Unknown"}
-                </div>
-              )}
-              <details className="mt-2 text-xs text-white/50">
-                <summary className="cursor-pointer">Why?</summary>
-                <pre className="mt-2 whitespace-pre-wrap">{JSON.stringify(insight.metrics, null, 2)}</pre>
-              </details>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {insight.suggestedActions.map((action) => (
-                  <button
-                    key={action.id}
-                    className="button-secondary"
-                    onClick={() => runInsightAction(insight, action)}
-                  >
-                    {action.label}
-                  </button>
-                ))}
-                <button
-                  className="button-secondary"
-                  onClick={() =>
-                    runInsightAction(insight, {
-                      id: "snooze-1d",
-                      type: "SNOOZE_1D",
-                      label: "Snooze 1d",
-                      payload: {}
-                    })
-                  }
-                >
-                  Snooze 1d
-                </button>
-                <button
-                  className="button-secondary"
-                  onClick={() =>
-                    runInsightAction(insight, {
-                      id: "snooze-1w",
-                      type: "SNOOZE_1W",
-                      label: "Snooze 1w",
-                      payload: {}
-                    })
-                  }
-                >
-                  Snooze 1w
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Daily Goals</p>
-            <h3 className="text-lg font-semibold">{dateLabel}</h3>
-          </div>
-          <div className="text-2xl font-semibold text-white/70">{todayEntry?.score ?? 0}%</div>
-        </div>
+      <GlassPanel variant="hero">
+        <SectionHeader
+          title="Daily Goals"
+          subtitle={dateLabel}
+          rightControls={<div className="text-2xl font-semibold text-white/70">{todayEntry?.score ?? 0}%</div>}
+        />
         <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
           <div className="flex items-center gap-4">
             <input type="checkbox" checked={todayEntry?.goals[0]?.done ?? false} readOnly />
@@ -468,88 +481,14 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="mt-4 flex gap-3">
-          <button className="rounded-full bg-white/10 px-4 py-2 text-sm hover:bg-white/20" onClick={handleAddGoal}>
+          <button className="button-secondary" onClick={handleAddGoal}>
             + Add Goal
           </button>
-          <button className="rounded-full bg-white/5 px-4 py-2 text-sm hover:bg-white/15" onClick={handleSaveTemplate}>
+          <button className="button-secondary" onClick={handleSaveTemplate}>
             Save as Template
           </button>
         </div>
-      </section>
-
-      <section className="panel">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Local Git Status</p>
-            <h3 className="text-lg font-semibold">{state.localRepos.length} repos</h3>
-          </div>
-          <div className="text-sm text-white/60">
-            {lastScanAt ? `Last scan ${formatDate(lastScanAt)}` : "Scan not run yet"}
-          </div>
-        </div>
-        <div className="mt-3 flex items-center gap-3 text-sm text-white/60">
-          <span>Active today: {state.localRepos.filter((repo) => repo.todayCommitCount > 0).length}</span>
-          {scanErrorCount > 0 && <span className="text-amber-200">Errors: {scanErrorCount}</span>}
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Today Plan</p>
-            <h3 className="text-lg font-semibold">Focus lineup</h3>
-          </div>
-          <div className="flex gap-2">
-            <button className="button-secondary" onClick={() => applyTodayPlan("auto")}>
-              Auto-generate
-            </button>
-          </div>
-        </div>
-        <div className="mt-3 grid gap-2">
-          {(todayPlan?.taskIds ?? []).length === 0 && (
-            <p className="text-sm text-white/60">No tasks selected yet.</p>
-          )}
-          {(todayPlan?.taskIds ?? []).map((taskId) => {
-            const task = state.projects.flatMap((p) => p.tasks).find((t) => t.id === taskId);
-            return task ? (
-              <div key={taskId} className="table-row">
-                <span>{task.text}</span>
-                <span className="chip">{task.priority}</span>
-              </div>
-            ) : null;
-          })}
-        </div>
-        <div className="mt-3 grid gap-2">
-          <label className="text-xs text-white/60">Edit plan</label>
-          <select
-            multiple
-            className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
-            value={planSelection}
-            onChange={(event) =>
-              setPlanSelection(Array.from(event.target.selectedOptions).map((opt) => opt.value))
-            }
-          >
-            {state.projects.flatMap((project) =>
-              project.tasks.map((task) => (
-                <option key={task.id} value={task.id}>
-                  {project.name}: {task.text}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-        <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
-          <input
-            className="input"
-            placeholder="Notes for today..."
-            value={todayPlanNotes}
-            onChange={(event) => setTodayPlanNotes(event.target.value)}
-          />
-          <button className="button-primary" onClick={() => applyTodayPlan("manual")}>
-            Save Plan
-          </button>
-        </div>
-      </section>
+      </GlassPanel>
 
       <section className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         {projects.map((project) => {
@@ -562,8 +501,8 @@ export default function DashboardPage() {
           return (
             <button
               key={project.id}
-              className={`panel hover-lift text-left relative ${
-                selectedProject?.id === project.id ? "ring-2 ring-white/30" : ""
+              className={`card hover-lift text-left relative ${
+                selectedProject?.id === project.id ? "accent-glow" : ""
               }`}
               onClick={() => setSelectedId(project.id)}
             >
@@ -598,16 +537,18 @@ export default function DashboardPage() {
               </div>
               <div
                 className="absolute inset-x-0 bottom-0 h-1 rounded-b-xl"
-                style={{ background: project.color, opacity: 0.4 }}
+                style={{ background: project.color, opacity: selectedProject?.id === project.id ? 0.65 : 0.2 }}
               />
             </button>
           );
         })}
-        <div className="panel border-dashed border-white/20 flex items-center justify-center text-white/40">Add Project</div>
+        <div className="card border-dashed border-white/20 flex items-center justify-center text-white/40">
+          Add Project
+        </div>
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6">
-        <div className="panel">
+        <GlassPanel variant="standard" className="accent-glow">
           {selectedProject && (
             <div className="grid gap-4">
               <div className="flex items-center gap-3">
@@ -813,7 +754,7 @@ export default function DashboardPage() {
                             onChange={(event) => setLocalRepoInput(event.target.value)}
                           >
                             <option value="">Select local repo</option>
-                            {state.localRepos.map((repo) => (
+                            {uniqueRepos.map((repo) => (
                               <option key={repo.id} value={repo.path}>
                                 {repo.name} — {repo.path}
                               </option>
@@ -959,16 +900,14 @@ export default function DashboardPage() {
               )}
             </div>
           )}
-        </div>
+        </GlassPanel>
 
-        <div className="panel">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-white/50">Weekly Time Budget</p>
-              <h3 className="text-lg font-semibold">{totalHours}h / week</h3>
-            </div>
-            <div className="text-sm text-white/50">{tasksProgress}%</div>
-          </div>
+        <GlassPanel variant="standard">
+          <SectionHeader
+            title="Weekly Time Budget"
+            subtitle={`${totalHours}h / week`}
+            rightControls={<div className="text-sm text-white/50">{tasksProgress}%</div>}
+          />
           <div className="mt-4">
             <StackedBar
               segments={projects.map((p) => ({ color: p.color, value: p.weeklyHours }))}
@@ -999,8 +938,237 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-        </div>
+        </GlassPanel>
       </section>
+
+      <GlassPanel variant="standard">
+        <SectionHeader
+          title="Insights"
+          subtitle="Signals → Actions"
+          rightControls={
+            <>
+              <button
+                className={insightFilter === "priority" ? "button-primary" : "button-secondary"}
+                onClick={() => setInsightFilter("priority")}
+              >
+                Critical+Warnings
+              </button>
+              <button
+                className={insightFilter === "all" ? "button-primary" : "button-secondary"}
+                onClick={() => setInsightFilter("all")}
+              >
+                All
+              </button>
+              <button
+                className={insightFilter === "crit" ? "button-primary" : "button-secondary"}
+                onClick={() => setInsightFilter("crit")}
+              >
+                Critical
+              </button>
+              <button
+                className={insightFilter === "warn" ? "button-primary" : "button-secondary"}
+                onClick={() => setInsightFilter("warn")}
+              >
+                Warnings
+              </button>
+              <button
+                className={insightFilter === "project" ? "button-primary" : "button-secondary"}
+                onClick={() => setInsightFilter("project")}
+              >
+                By Project
+              </button>
+            </>
+          }
+        />
+        <div className="mt-4 grid gap-3">
+          {groupedInsights.length === 0 && (
+            <p className="text-sm text-white/60">No insights right now.</p>
+          )}
+          {groupedInsights.map((group) => {
+            const projectNames = group.relatedProjects
+              .map((id) => state.projects.find((p) => p.id === id)?.name)
+              .filter((name): name is string => Boolean(name));
+            const repoNames = group.relatedRepos
+              .map((id) => repoById.get(id)?.name)
+              .filter((name): name is string => Boolean(name));
+            const repoPath = group.repoId ? repoById.get(group.repoId)?.path ?? null : null;
+            return (
+              <GlassPanel key={group.key} variant="standard" className="p-0">
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
+                    <div>
+                      <div className="text-sm font-semibold">
+                        {group.title}
+                        {group.items.length > 1 ? ` x${group.items.length}` : ""}
+                      </div>
+                      <div className="text-xs text-white/60">{group.reason}</div>
+                    </div>
+                    <span className="chip">{group.severity}</span>
+                  </summary>
+                  <div className="border-t border-white/10 px-4 pb-4">
+                    <div className="mt-3 grid gap-1 text-xs text-white/60">
+                      {projectNames.length > 0 && (
+                        <div>Projects: {projectNames.join(", ")}</div>
+                      )}
+                      {repoNames.length > 0 && (
+                        <div>Repos: {repoNames.join(", ")}</div>
+                      )}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        className="button-secondary"
+                        onClick={() =>
+                          runGroupedAction(group, {
+                            id: "create-task",
+                            type: "CREATE_TASK",
+                            label: "Create task",
+                            payload: {
+                              projectId: group.projectId,
+                              title: `Follow up: ${group.title}`
+                            }
+                          })
+                        }
+                      >
+                        Create task
+                      </button>
+                      <button
+                        className="button-secondary"
+                        onClick={() =>
+                          runGroupedAction(group, {
+                            id: "schedule-focus",
+                            type: "SCHEDULE_FOCUS",
+                            label: "Schedule focus",
+                            payload: {
+                              projectId: group.projectId,
+                              minutes: 45,
+                              reason: group.title
+                            }
+                          })
+                        }
+                      >
+                        Schedule focus
+                      </button>
+                      {repoPath && (
+                        <button
+                          className="button-secondary"
+                          onClick={() =>
+                            runGroupedAction(group, {
+                              id: "open-repo",
+                              type: "OPEN_REPO",
+                              label: "Open repo",
+                              payload: { repoPath }
+                            })
+                          }
+                        >
+                          Open repo
+                        </button>
+                      )}
+                      <button
+                        className="button-secondary"
+                        onClick={() =>
+                          runGroupedAction(group, {
+                            id: "snooze-1d",
+                            type: "SNOOZE_1D",
+                            label: "Snooze 1d",
+                            payload: {}
+                          })
+                        }
+                      >
+                        Snooze 1d
+                      </button>
+                      <button
+                        className="button-secondary"
+                        onClick={() =>
+                          runGroupedAction(group, {
+                            id: "snooze-1w",
+                            type: "SNOOZE_1W",
+                            label: "Snooze 1w",
+                            payload: {}
+                          })
+                        }
+                      >
+                        Snooze 1w
+                      </button>
+                    </div>
+                  </div>
+                </details>
+              </GlassPanel>
+            );
+          })}
+        </div>
+      </GlassPanel>
+
+      <GlassPanel variant="quiet">
+        <SectionHeader
+          title="Local Git Status"
+          subtitle={`${uniqueRepos.length} repos`}
+          rightControls={
+            <div className="text-sm text-white/60">
+              {lastScanAt ? `Last scan ${formatDate(lastScanAt)}` : "Scan not run yet"}
+            </div>
+          }
+        />
+        <div className="mt-3 flex items-center gap-3 text-sm text-white/60">
+          <span>Active today: {uniqueRepos.filter((repo) => repo.todayCommitCount > 0).length}</span>
+          {scanErrorCount > 0 && <span className="text-amber-200">Errors: {scanErrorCount}</span>}
+        </div>
+      </GlassPanel>
+
+      <GlassPanel variant="standard">
+        <SectionHeader
+          title="Today Plan"
+          subtitle="Focus lineup"
+          rightControls={
+            <button className="button-secondary" onClick={() => applyTodayPlan("auto")}>
+              Auto-generate
+            </button>
+          }
+        />
+        <div className="mt-3 grid gap-2">
+          {(todayPlan?.taskIds ?? []).length === 0 && (
+            <p className="text-sm text-white/60">No tasks selected yet.</p>
+          )}
+          {(todayPlan?.taskIds ?? []).map((taskId) => {
+            const task = state.projects.flatMap((p) => p.tasks).find((t) => t.id === taskId);
+            return task ? (
+              <div key={taskId} className="table-row">
+                <span>{task.text}</span>
+                <span className="chip">{task.priority}</span>
+              </div>
+            ) : null;
+          })}
+        </div>
+        <div className="mt-3 grid gap-2">
+          <label className="text-xs text-white/60">Edit plan</label>
+          <select
+            multiple
+            className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
+            value={planSelection}
+            onChange={(event) =>
+              setPlanSelection(Array.from(event.target.selectedOptions).map((opt) => opt.value))
+            }
+          >
+            {state.projects.flatMap((project) =>
+              project.tasks.map((task) => (
+                <option key={task.id} value={task.id}>
+                  {project.name}: {task.text}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+          <input
+            className="input"
+            placeholder="Notes for today..."
+            value={todayPlanNotes}
+            onChange={(event) => setTodayPlanNotes(event.target.value)}
+          />
+          <button className="button-primary" onClick={() => applyTodayPlan("manual")}>
+            Save Plan
+          </button>
+        </div>
+      </GlassPanel>
     </div>
   );
 }
@@ -1012,4 +1180,22 @@ function deadlineLabel(dateStr: string) {
   if (diffDays < 0) return { text: `${Math.abs(diffDays)}d overdue`, tone: "overdue" as const };
   if (diffDays === 0) return { text: "Due today", tone: "normal" as const };
   return { text: `${diffDays}d left`, tone: "normal" as const };
+}
+
+function dedupeLocalRepos(repos: LocalRepo[]) {
+  const map = new Map<string, LocalRepo>();
+  for (const repo of repos) {
+    const key = repo.path;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, repo);
+      continue;
+    }
+    const existingTime = existing.scannedAt ? new Date(existing.scannedAt).getTime() : 0;
+    const nextTime = repo.scannedAt ? new Date(repo.scannedAt).getTime() : 0;
+    if (nextTime >= existingTime) {
+      map.set(key, repo);
+    }
+  }
+  return Array.from(map.values());
 }

@@ -5,20 +5,29 @@
 @layer base {
   :root {
     color-scheme: dark;
-    --bg: #0b0e16;
-    --bg-2: #111827;
-    --glass: rgba(255, 255, 255, 0.06);
-    --glass-strong: rgba(255, 255, 255, 0.12);
-    --stroke: rgba(255, 255, 255, 0.14);
-    --text: #f2f5ff;
-    --muted: rgba(233, 238, 255, 0.6);
+    --bg: #0a0b12;
+    --bg-2: #151420;
+    --glass: rgba(18, 22, 30, 0.82);
+    --glass-strong: rgba(28, 32, 42, 0.9);
+    --stroke: rgba(255, 255, 255, 0.08);
+    --stroke-strong: rgba(255, 255, 255, 0.16);
+    --text: #f3f6ff;
+    --muted: rgba(214, 222, 240, 0.65);
     --accent: #8b5cf6;
+    --accent-purple: rgba(124, 58, 237, 0.22);
+    --accent-purple-strong: rgba(139, 92, 246, 0.3);
+    --shadow-soft: 0 20px 45px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --shadow-lift: 0 12px 28px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 
   body {
     font-family: "Space Grotesk", system-ui, -apple-system, sans-serif;
     color: var(--text);
-    background: radial-gradient(circle at top, #1a2238 0%, #0b0e16 45%, #07080f 100%);
+    background:
+      radial-gradient(circle at 20% 12%, var(--accent-purple-strong), transparent 45%),
+      radial-gradient(circle at 80% 8%, rgba(64, 118, 255, 0.14), transparent 40%),
+      radial-gradient(circle at 55% 85%, rgba(60, 200, 170, 0.08), transparent 45%),
+      linear-gradient(180deg, #0a0b12 0%, #0c0e15 100%);
     min-height: 100vh;
   }
 
@@ -26,11 +35,11 @@
     content: "";
     position: fixed;
     inset: -50vmax;
-    background:
-      radial-gradient(circle at 20% 30%, rgba(93, 216, 255, 0.15), transparent 45%),
-      radial-gradient(circle at 80% 20%, rgba(157, 123, 255, 0.2), transparent 40%),
-      radial-gradient(circle at 60% 80%, rgba(52, 235, 173, 0.16), transparent 50%);
-    filter: blur(60px);
+    background-image: url("data:image/svg+xml,%3Csvg width='520' height='320' viewBox='0 0 520 320' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M-10 30 Q90 8 190 30 T390 30 T530 30' fill='none' stroke='rgba(124,58,237,0.5)' stroke-width='1.2'/%3E%3Cpath d='M-20 58 Q110 36 220 58 T440 58 T540 58' fill='none' stroke='rgba(124,58,237,0.45)' stroke-width='1.1'/%3E%3Cpath d='M-20 86 Q120 64 240 86 T470 86 T560 86' fill='none' stroke='rgba(124,58,237,0.42)' stroke-width='1.1'/%3E%3Cpath d='M-30 114 Q140 92 260 114 T500 114 T570 114' fill='none' stroke='rgba(124,58,237,0.4)' stroke-width='1'/%3E%3Cpath d='M-30 142 Q150 120 280 142 T520 142 T580 142' fill='none' stroke='rgba(124,58,237,0.38)' stroke-width='1'/%3E%3Cpath d='M-30 170 Q160 148 300 170 T540 170 T600 170' fill='none' stroke='rgba(124,58,237,0.36)' stroke-width='1'/%3E%3Cpath d='M-40 198 Q180 176 320 198 T560 198 T620 198' fill='none' stroke='rgba(124,58,237,0.34)' stroke-width='1'/%3E%3Cpath d='M-40 226 Q190 204 340 226 T580 226 T640 226' fill='none' stroke='rgba(124,58,237,0.32)' stroke-width='1'/%3E%3Cpath d='M-50 254 Q210 232 360 254 T600 254 T660 254' fill='none' stroke='rgba(124,58,237,0.3)' stroke-width='1'/%3E%3Cpath d='M-60 282 Q230 260 380 282 T620 282 T680 282' fill='none' stroke='rgba(124,58,237,0.28)' stroke-width='1'/%3E%3Cpath d='M-70 310 Q250 288 400 310 T640 310 T700 310' fill='none' stroke='rgba(124,58,237,0.26)' stroke-width='1'/%3E%3C/svg%3E");
+    background-size: 520px 320px;
+    opacity: 0.38;
+    filter: blur(0.3px);
+    mix-blend-mode: screen;
     z-index: -2;
   }
 
@@ -39,7 +48,7 @@
     position: fixed;
     inset: 0;
     background-image: url("data:image/svg+xml,%3Csvg width='160' height='160' viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.2'/%3E%3C/svg%3E");
-    opacity: 0.08;
+    opacity: 0.06;
     mix-blend-mode: soft-light;
     pointer-events: none;
     z-index: -1;
@@ -48,23 +57,133 @@
 
 @layer components {
   .glass {
-    @apply bg-[color:var(--glass)] border border-[color:var(--stroke)] backdrop-blur-[20px] shadow-glass;
+    background: var(--glass);
+    border: 1px solid var(--stroke);
+    backdrop-filter: blur(22px) saturate(120%);
+    box-shadow: var(--shadow-soft);
   }
 
   .glass-strong {
-    @apply bg-[color:var(--glass-strong)];
+    background: var(--glass-strong);
   }
 
   .pill {
-    @apply inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.2em] bg-white/10 text-white/70;
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.28em] text-white/70;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
 
   .panel {
-    @apply glass rounded-xl p-5;
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    padding: 16px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%),
+      var(--glass);
+    border: 1px solid var(--stroke);
+    backdrop-filter: blur(22px) saturate(120%);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .glass-standard {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    padding: 16px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%),
+      var(--glass);
+    border: 1px solid var(--stroke);
+    backdrop-filter: blur(22px) saturate(120%);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .glass-hero {
+    position: relative;
+    overflow: hidden;
+    border-radius: 20px;
+    padding: 16px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 100%),
+      rgba(22, 28, 40, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(24px) saturate(130%);
+    box-shadow: 0 22px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .glass-quiet {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    padding: 16px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%),
+      rgba(16, 20, 30, 0.76);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(18px) saturate(120%);
+    box-shadow: 0 14px 26px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    padding: 16px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%),
+      rgba(18, 22, 30, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    pointer-events: none;
+  }
+
+  .panel::before,
+  .glass-standard::before,
+  .glass-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, rgba(255, 255, 255, 0.06), transparent 35%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  .panel::after,
+  .glass-standard::after,
+  .glass-hero::after,
+  .glass-quiet::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    pointer-events: none;
   }
 
   .hover-lift {
-    @apply transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift hover:border-white/30;
+    @apply transition-all duration-200 hover:-translate-y-0.5 hover:border-white/20;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .hover-lift:hover {
+    box-shadow: var(--shadow-lift);
+  }
+
+  .accent-glow {
+    border-color: color-mix(in srgb, var(--accent) 55%, white 8%);
+    box-shadow:
+      0 18px 36px rgba(0, 0, 0, 0.45),
+      0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+      0 0 24px color-mix(in srgb, var(--accent) 30%, transparent);
   }
 
   .muted {
@@ -72,15 +191,30 @@
   }
 
   .button-primary {
-    @apply rounded-full bg-white/10 px-4 py-2 text-sm hover:bg-white/20 transition;
+    @apply rounded-full px-4 py-2 text-sm transition;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06));
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .button-primary:hover {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
   }
 
   .button-secondary {
-    @apply rounded-full bg-white/5 px-4 py-2 text-sm hover:bg-white/15 transition;
+    @apply rounded-full px-4 py-2 text-sm transition;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .button-secondary:hover {
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .input {
-    @apply w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none;
+    @apply w-full rounded-lg px-3 py-2 text-sm text-white outline-none;
+    background: linear-gradient(180deg, rgba(10, 12, 18, 0.8), rgba(8, 10, 14, 0.9));
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .table {
@@ -88,11 +222,15 @@
   }
 
   .table-row {
-    @apply flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2;
+    @apply flex items-center justify-between gap-3 rounded-lg px-3 py-2;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .chip {
-    @apply rounded-full bg-white/10 px-3 py-1 text-xs text-white/60;
+    @apply rounded-full px-3 py-1 text-xs text-white/60;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
 
   .input-inline {
@@ -109,11 +247,15 @@
   }
 
   .kanban-column {
-    @apply rounded-xl border border-white/10 bg-white/5 p-3 min-h-[240px] grid gap-2;
+    @apply rounded-xl p-3 min-h-[240px] grid gap-2;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .kanban-card {
-    @apply rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm;
+    @apply rounded-lg px-3 py-2 text-sm;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .kanban-card.dragging {
@@ -125,7 +267,9 @@
   }
 
   .badge {
-    @apply rounded-full bg-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-white/60;
+    @apply rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.28em] text-white/60;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
 
   .focus-display {
@@ -134,6 +278,16 @@
 
   .toggle {
     @apply flex items-center gap-2 text-sm;
+  }
+
+  .sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    padding-bottom: 12px;
+    background: linear-gradient(180deg, rgba(10, 11, 18, 0.85) 0%, rgba(10, 11, 18, 0.2) 100%);
+    backdrop-filter: blur(20px) saturate(120%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 }
 

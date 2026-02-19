@@ -73,8 +73,10 @@ function Shell() {
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[240px_1fr]">
       <Sidebar active={active} onChange={(item) => setActive(item)} />
-      <main className="px-8 py-6 flex flex-col gap-6">
-        <Header score={score} onOpenCommand={() => setCommandOpen(true)} />
+      <main className="px-6 py-6 flex flex-col gap-6">
+        <div className="sticky-header">
+          <Header score={score} onOpenCommand={() => setCommandOpen(true)} />
+        </div>
         {loading && <div className="panel">Loading Linkra data...</div>}
         {error && <div className="panel">Error: {error}</div>}
         {state && !loading && (
