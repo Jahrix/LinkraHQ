@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { todayKey, computeGoalMetrics, type RoadmapLane } from "@linkra/shared";
+import { todayKey, computeGoalMetrics, type RoadmapLane, type Insight } from "@linkra/shared";
 import { useAppState } from "../lib/state";
 import ProgressRing from "../components/ProgressRing";
 import StackedBar from "../components/StackedBar";
@@ -7,9 +7,10 @@ import TabBar from "../components/TabBar";
 import TaskRow from "../components/TaskRow";
 import { api } from "../lib/api";
 import { useToast } from "../lib/toast";
+import { computeTodayPlan, isTaskBlocked } from "../lib/taskRules";
 import { formatDate } from "../lib/date";
 
-const tabs = ["Tasks", "Roadmap", "GitHub", "Settings"];
+const tabs = ["Tasks", "Roadmap", "GitHub", "Journal", "Settings"];
 
 export default function DashboardPage() {
   const { state, save, refresh } = useAppState();
@@ -22,6 +23,12 @@ export default function DashboardPage() {
   const [localRepoInput, setLocalRepoInput] = useState("");
   const [commitFeed, setCommitFeed] = useState<any[]>([]);
   const [localCommitFeed, setLocalCommitFeed] = useState<any[]>([]);
+  const [insightFilter, setInsightFilter] = useState<"all" | "crit" | "warn" | "project">("all");
+  const [todayPlanNotes, setTodayPlanNotes] = useState("");
+  const [planSelection, setPlanSelection] = useState<string[]>([]);
+  const [journalType, setJournalType] = useState<"note" | "decision" | "blocker" | "next" | "idea">("note");
+  const [journalTitle, setJournalTitle] = useState("");
+  const [journalBody, setJournalBody] = useState("");
 
   if (!state) return null;
 
@@ -33,6 +40,8 @@ export default function DashboardPage() {
   const linkedLocalRepo = selectedProject?.localRepoPath
     ? repoByPath.get(selectedProject.localRepoPath)
     : null;
+  const insights = state.insights ?? [];
+  const projectInsights = insights.filter((insight) => insight.projectId === selectedProject?.id);
   const lastScanAt =
     state.localRepos
       .map((repo) => repo.scannedAt)
@@ -52,6 +61,10 @@ export default function DashboardPage() {
     setLocalRepoInput(selectedProject?.localRepoPath ?? "");
     setLocalCommitFeed([]);
   }, [selectedProject?.id]);
+
+  useEffect(() => {
+    setPlanSelection(state.todayPlanByDate?.[todayKey()]?.taskIds ?? []);
+  }, [state.todayPlanByDate]);
 
   useEffect(() => {
     if (!selectedId && projects[0]) {
@@ -112,6 +125,9 @@ export default function DashboardPage() {
       id: crypto.randomUUID(),
       text: taskText.trim(),
       done: false,
+      status: "todo",
+      dependsOnIds: [],
+      priority: "med",
       dueDate: taskDue || null,
       milestone: null,
       createdAt: new Date().toISOString(),
@@ -133,6 +149,7 @@ export default function DashboardPage() {
 
     if (!done) {
       task.done = false;
+      task.status = "todo";
       task.completedAt = null;
       task.linkedCommit = null;
       await save(next);
@@ -157,8 +174,48 @@ export default function DashboardPage() {
     }
 
     task.done = true;
+    task.status = "done";
     task.completedAt = new Date().toISOString();
     task.linkedCommit = linkedCommit;
+    await save(next);
+  };
+
+  const updateTaskStatus = async (taskId: string, status: "todo" | "doing" | "done") => {
+    if (!selectedProject) return;
+    const next = { ...state };
+    const project = next.projects.find((p) => p.id === selectedProject.id);
+    if (!project) return;
+    const task = project.tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    if (status === "doing" && isTaskBlocked(task, project.tasks)) {
+      const confirm = window.confirm("This task is blocked by dependencies. Mark as doing anyway?");
+      if (!confirm) return;
+    }
+    task.status = status;
+    task.done = status === "done";
+    task.completedAt = status === "done" ? new Date().toISOString() : null;
+    await save(next);
+  };
+
+  const updateTaskDependencies = async (taskId: string, deps: string[]) => {
+    if (!selectedProject) return;
+    const next = { ...state };
+    const project = next.projects.find((p) => p.id === selectedProject.id);
+    if (!project) return;
+    const task = project.tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    task.dependsOnIds = deps;
+    await save(next);
+  };
+
+  const updateTaskPriority = async (taskId: string, priority: "low" | "med" | "high") => {
+    if (!selectedProject) return;
+    const next = { ...state };
+    const project = next.projects.find((p) => p.id === selectedProject.id);
+    if (!project) return;
+    const task = project.tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    task.priority = priority;
     await save(next);
   };
 
@@ -207,6 +264,31 @@ export default function DashboardPage() {
     setLocalCommitFeed(response.commits ?? []);
   };
 
+  const addJournalEntry = async () => {
+    if (!journalBody.trim()) return;
+    const next = { ...state };
+    next.journalEntries.unshift({
+      id: crypto.randomUUID(),
+      projectId: selectedProject?.id ?? null,
+      ts: new Date().toISOString(),
+      type: journalType,
+      title: journalTitle.trim() || null,
+      body: journalBody.trim(),
+      links: {
+        taskIds: [],
+        roadmapCardIds: [],
+        repoIds: linkedLocalRepo ? [linkedLocalRepo.id] : [],
+        commitShas: []
+      },
+      tags: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    setJournalTitle("");
+    setJournalBody("");
+    await save(next);
+  };
+
   const filteredRoadmap = state.roadmapCards.filter(
     (card) => card.project === selectedProject?.name
   );
@@ -233,9 +315,138 @@ export default function DashboardPage() {
   };
 
   const tasksProgress = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
+  const todayPlan = state.todayPlanByDate?.[todayKey()] ?? null;
+
+  const filteredInsights = insights.filter((insight) => {
+    if (insightFilter === "crit") return insight.severity === "crit";
+    if (insightFilter === "warn") return insight.severity === "warn";
+    if (insightFilter === "project") return insight.projectId === selectedProject?.id;
+    return true;
+  });
+
+  const generateTodayPlan = () => {
+    const items = state.projects.flatMap((project) =>
+      project.tasks.map((task) => ({ task, projectName: project.name }))
+    );
+    const boostProjectNames = new Set<string>();
+    state.roadmapCards
+      .filter((card) => card.lane === "now" && card.project)
+      .forEach((card) => boostProjectNames.add(card.project as string));
+    insights
+      .filter((insight) => insight.projectId)
+      .forEach((insight) => {
+        const project = state.projects.find((p) => p.id === insight.projectId);
+        if (project) boostProjectNames.add(project.name);
+      });
+    return computeTodayPlan(items, { boostProjectNames: Array.from(boostProjectNames) });
+  };
+
+  const applyTodayPlan = async (source: "auto" | "manual") => {
+    const next = { ...state };
+    const taskIds = source === "auto" ? generateTodayPlan() : planSelection;
+    next.todayPlanByDate[todayKey()] = {
+      taskIds,
+      generatedAt: new Date().toISOString(),
+      source,
+      notes: todayPlanNotes || null
+    };
+    await save(next);
+  };
+
+  const runInsightAction = async (insight: Insight, action: any) => {
+    const payload = { ...action.payload, insightId: insight.id };
+    const result = await api.insightAction({ ...action, payload });
+    await refresh();
+    if (action.type === "COPY_REPO_PATH" && payload.repoPath) {
+      navigator.clipboard.writeText(payload.repoPath).catch(() => null);
+    }
+    if (action.type === "SNOOZE_1D" || action.type === "SNOOZE_1W") {
+      push("Insight snoozed.");
+    }
+    if (result.state) {
+      push("Action applied.");
+    }
+  };
 
   return (
     <div className="grid gap-6">
+      <section className="panel">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Insights</p>
+            <h3 className="text-lg font-semibold">Signals → Actions</h3>
+          </div>
+          <div className="flex gap-2">
+            <button className="button-secondary" onClick={() => setInsightFilter("all")}>All</button>
+            <button className="button-secondary" onClick={() => setInsightFilter("crit")}>Critical</button>
+            <button className="button-secondary" onClick={() => setInsightFilter("warn")}>Warnings</button>
+            <button className="button-secondary" onClick={() => setInsightFilter("project")}>By Project</button>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3">
+          {filteredInsights.length === 0 && (
+            <p className="text-sm text-white/60">No insights right now.</p>
+          )}
+          {filteredInsights.map((insight) => (
+            <div key={insight.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold">{insight.title}</div>
+                  <div className="text-xs text-white/60">{insight.reason}</div>
+                </div>
+                <span className="chip">{insight.severity}</span>
+              </div>
+              {insight.projectId && (
+                <div className="mt-2 text-xs text-white/50">
+                  Project: {state.projects.find((p) => p.id === insight.projectId)?.name ?? "Unknown"}
+                </div>
+              )}
+              <details className="mt-2 text-xs text-white/50">
+                <summary className="cursor-pointer">Why?</summary>
+                <pre className="mt-2 whitespace-pre-wrap">{JSON.stringify(insight.metrics, null, 2)}</pre>
+              </details>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {insight.suggestedActions.map((action) => (
+                  <button
+                    key={action.id}
+                    className="button-secondary"
+                    onClick={() => runInsightAction(insight, action)}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+                <button
+                  className="button-secondary"
+                  onClick={() =>
+                    runInsightAction(insight, {
+                      id: "snooze-1d",
+                      type: "SNOOZE_1D",
+                      label: "Snooze 1d",
+                      payload: {}
+                    })
+                  }
+                >
+                  Snooze 1d
+                </button>
+                <button
+                  className="button-secondary"
+                  onClick={() =>
+                    runInsightAction(insight, {
+                      id: "snooze-1w",
+                      type: "SNOOZE_1W",
+                      label: "Snooze 1w",
+                      payload: {}
+                    })
+                  }
+                >
+                  Snooze 1w
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="panel">
         <div className="flex items-center justify-between">
           <div>
@@ -279,6 +490,64 @@ export default function DashboardPage() {
         <div className="mt-3 flex items-center gap-3 text-sm text-white/60">
           <span>Active today: {state.localRepos.filter((repo) => repo.todayCommitCount > 0).length}</span>
           {scanErrorCount > 0 && <span className="text-amber-200">Errors: {scanErrorCount}</span>}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Today Plan</p>
+            <h3 className="text-lg font-semibold">Focus lineup</h3>
+          </div>
+          <div className="flex gap-2">
+            <button className="button-secondary" onClick={() => applyTodayPlan("auto")}>
+              Auto-generate
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-2">
+          {(todayPlan?.taskIds ?? []).length === 0 && (
+            <p className="text-sm text-white/60">No tasks selected yet.</p>
+          )}
+          {(todayPlan?.taskIds ?? []).map((taskId) => {
+            const task = state.projects.flatMap((p) => p.tasks).find((t) => t.id === taskId);
+            return task ? (
+              <div key={taskId} className="table-row">
+                <span>{task.text}</span>
+                <span className="chip">{task.priority}</span>
+              </div>
+            ) : null;
+          })}
+        </div>
+        <div className="mt-3 grid gap-2">
+          <label className="text-xs text-white/60">Edit plan</label>
+          <select
+            multiple
+            className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
+            value={planSelection}
+            onChange={(event) =>
+              setPlanSelection(Array.from(event.target.selectedOptions).map((opt) => opt.value))
+            }
+          >
+            {state.projects.flatMap((project) =>
+              project.tasks.map((task) => (
+                <option key={task.id} value={task.id}>
+                  {project.name}: {task.text}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+          <input
+            className="input"
+            placeholder="Notes for today..."
+            value={todayPlanNotes}
+            onChange={(event) => setTodayPlanNotes(event.target.value)}
+          />
+          <button className="button-primary" onClick={() => applyTodayPlan("manual")}>
+            Save Plan
+          </button>
         </div>
       </section>
 
@@ -348,6 +617,19 @@ export default function DashboardPage() {
                   <p className="text-sm text-white/50">{selectedProject.subtitle}</p>
                 </div>
               </div>
+              {projectInsights.length > 0 && (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="text-xs uppercase tracking-[0.3em] text-white/50">Project Insights</div>
+                  <div className="mt-2 grid gap-2">
+                    {projectInsights.slice(0, 3).map((insight) => (
+                      <div key={insight.id} className="flex items-center justify-between text-xs">
+                        <span>{insight.title}</span>
+                        <span className="chip">{insight.severity}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <TabBar tabs={tabs} active={activeTab} onChange={setActiveTab} />
 
               {activeTab === "Tasks" && (
@@ -357,20 +639,76 @@ export default function DashboardPage() {
                     {selectedProject.tasks.length === 0 && (
                       <p className="text-sm text-white/50">No tasks yet.</p>
                     )}
-                    {selectedProject.tasks.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        text={task.text}
-                        done={task.done}
-                        dueLabel={task.dueDate ? deadlineLabel(task.dueDate) : undefined}
-                        meta={
-                          task.linkedCommit
-                            ? `Verified by ${task.linkedCommit.shortSha} (${task.linkedCommit.score}%)`
-                            : undefined
-                        }
-                        onToggle={(next) => toggleTask(task.id, next)}
-                      />
-                    ))}
+                    {selectedProject.tasks.map((task) => {
+                      const blocked = isTaskBlocked(task, selectedProject.tasks);
+                      return (
+                      <div key={task.id} className="grid gap-2">
+                        <TaskRow
+                          text={task.text}
+                          done={task.done}
+                          dueLabel={task.dueDate ? deadlineLabel(task.dueDate) : undefined}
+                          meta={
+                            task.linkedCommit
+                              ? `Verified by ${task.linkedCommit.shortSha} (${task.linkedCommit.score}%)`
+                              : blocked
+                              ? "Blocked by dependencies"
+                              : task.status === "doing"
+                              ? "In progress"
+                              : undefined
+                          }
+                          onToggle={(next) => toggleTask(task.id, next)}
+                        />
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
+                          <label className="flex items-center gap-2">
+                            Status
+                            <select
+                              className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs"
+                              value={task.status}
+                              onChange={(event) => updateTaskStatus(task.id, event.target.value as any)}
+                            >
+                              <option value="todo">Todo</option>
+                              <option value="doing">Doing</option>
+                              <option value="done">Done</option>
+                            </select>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            Priority
+                            <select
+                              className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs"
+                              value={task.priority}
+                              onChange={(event) => updateTaskPriority(task.id, event.target.value as any)}
+                            >
+                              <option value="low">Low</option>
+                              <option value="med">Med</option>
+                              <option value="high">High</option>
+                            </select>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            Depends on
+                            <select
+                              multiple
+                              className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs"
+                              value={task.dependsOnIds}
+                              onChange={(event) =>
+                                updateTaskDependencies(
+                                  task.id,
+                                  Array.from(event.target.selectedOptions).map((opt) => opt.value)
+                                )
+                              }
+                            >
+                              {selectedProject.tasks
+                                .filter((candidate) => candidate.id !== task.id)
+                                .map((candidate) => (
+                                  <option key={candidate.id} value={candidate.id}>
+                                    {candidate.text}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                    );
+                    })}
                   </div>
                   <div className="mt-3 grid grid-cols-[1fr_140px_140px_44px] gap-2">
                     <input
@@ -524,6 +862,55 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === "Journal" && (
+                <div className="grid gap-3">
+                  <p className="text-xs uppercase tracking-[0.3em] text-white/50">Journal</p>
+                  <div className="grid gap-2">
+                    {state.journalEntries
+                      .filter((entry) => entry.projectId === selectedProject?.id)
+                      .slice(0, 6)
+                      .map((entry) => (
+                        <div key={entry.id} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                          <div className="text-xs text-white/50">{entry.type.toUpperCase()}</div>
+                          <div className="text-sm font-medium">{entry.title ?? "Untitled"}</div>
+                          <div className="text-xs text-white/60">{entry.body}</div>
+                        </div>
+                      ))}
+                  </div>
+                  <div className="grid gap-2">
+                    <div className="flex gap-2">
+                      <select
+                        className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                        value={journalType}
+                        onChange={(event) => setJournalType(event.target.value as any)}
+                      >
+                        <option value="note">Note</option>
+                        <option value="decision">Decision</option>
+                        <option value="blocker">Blocker</option>
+                        <option value="next">Next</option>
+                        <option value="idea">Idea</option>
+                      </select>
+                      <input
+                        className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                        placeholder="Title (optional)"
+                        value={journalTitle}
+                        onChange={(event) => setJournalTitle(event.target.value)}
+                      />
+                    </div>
+                    <textarea
+                      className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                      placeholder="Journal entry..."
+                      rows={3}
+                      value={journalBody}
+                      onChange={(event) => setJournalBody(event.target.value)}
+                    />
+                    <button className="rounded-lg bg-white/10 px-4 py-2 text-sm w-fit" onClick={addJournalEntry}>
+                      Add Entry
+                    </button>
                   </div>
                 </div>
               )}

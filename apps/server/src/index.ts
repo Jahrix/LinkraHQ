@@ -4,11 +4,14 @@ import dotenv from "dotenv";
 import path from "node:path";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   AppStateSchema,
   ExportBundleSchema,
   SCHEMA_VERSION
 } from "@linkra/shared";
+import { applyMigrations } from "@linkra/shared";
 import {
   loadStore,
   getState,
@@ -26,7 +29,18 @@ import {
   findMatchingCommit
 } from "./github.js";
 import { createStartupAssets, detectOS, startupInstructions, getStartupDir } from "./startup.js";
-import { getScanStatus, runGitScanNow, startGitScanScheduler, fetchLocalCommits } from "./gitScan.js";
+import {
+  getScanStatus,
+  runGitScanNow,
+  startGitScanScheduler,
+  fetchLocalCommits,
+  startGitWatcher,
+  stopGitWatcher,
+  getGitHealth
+} from "./gitScan.js";
+import { updateInsights, runInsightAction } from "./insights.js";
+import { runBackupNow, scheduleDailyBackups, getBackupDir } from "./backup.js";
+import { generateWeeklyReview } from "@linkra/shared";
 
 dotenv.config();
 
@@ -37,6 +51,7 @@ const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
 
 const app = express();
+const execFileAsync = promisify(execFile);
 
 app.use(
   session({
@@ -78,7 +93,12 @@ app.post("/api/state", async (req, res) => {
   }
   await saveState(parsed.data);
   ensureDailyGoals();
-  const state = getState();
+  const state = await updateInsights(getState());
+  if (state.userSettings.gitWatcherEnabled) {
+    startGitWatcher();
+  } else {
+    stopGitWatcher();
+  }
   res.json({ state: attachGithubState(state, req) });
 });
 
@@ -92,26 +112,28 @@ app.get("/api/export", (req, res) => {
 });
 
 app.post("/api/import", async (req, res) => {
-  const { mode, data } = req.body as { mode: "replace" | "merge"; data: any };
-  const parsed = ExportBundleSchema.safeParse(data);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.message });
-  }
-  const incoming = normalizeState(parsed.data.data);
-  if (mode === "merge") {
-    const merged = mergeStates(getState(), incoming);
+  const { mode, data } = req.body as { mode: "replace" | "merge" | "merge_keep" | "merge_overwrite"; data: any };
+  const migrated = applyMigrations(data);
+  const incoming = normalizeState(migrated.data);
+  if (mode === "merge" || mode === "merge_overwrite") {
+    const merged = mergeStates(getState(), incoming, true);
+    await saveState(merged);
+  } else if (mode === "merge_keep") {
+    const merged = mergeStates(getState(), incoming, false);
     await saveState(merged);
   } else {
     await saveState(incoming);
   }
   ensureDailyGoals();
-  res.json({ state: attachGithubState(getState(), req) });
+  const state = await updateInsights(getState());
+  res.json({ state: attachGithubState(state, req) });
 });
 
 app.post("/api/wipe", async (req, res) => {
   await wipeState();
   ensureDailyGoals();
-  res.json({ state: attachGithubState(getState(), req) });
+  const state = await updateInsights(getState());
+  res.json({ state: attachGithubState(state, req) });
 });
 
 app.get("/api/startup/status", (req, res) => {
@@ -125,6 +147,64 @@ app.get("/api/startup/status", (req, res) => {
     instructions: startupInstructions(osType, dir, PORT),
     files
   });
+});
+
+app.get("/api/startup/health", async (req, res) => {
+  const state = getState();
+  const lastScanAt = state.localRepos.map((repo) => repo.scannedAt).filter(Boolean).sort().pop() ?? null;
+  const scanStatus = getScanStatus();
+  const watchDirs = state.userSettings.repoWatchDirs.map((dir) => ({
+    dir,
+    exists: fs.existsSync(dir)
+  }));
+  let gitAvailable = false;
+  try {
+    await execFileAsync("git", ["--version"]);
+    gitAvailable = true;
+  } catch {
+    gitAvailable = false;
+  }
+  res.json({
+    apiReachable: true,
+    lastScanAt,
+    scanStatus,
+    gitAvailable,
+    watchDirs
+  });
+});
+
+app.post("/api/backup/run", (req, res) => {
+  const retentionDays = getState().userSettings.backupRetentionDays ?? 14;
+  const filepath = runBackupNow(retentionDays);
+  res.json({ filepath, dir: getBackupDir() });
+});
+
+app.post("/api/weekly/generate", (req, res) => {
+  const { weekStart } = req.body as { weekStart?: string };
+  if (!weekStart) {
+    return res.status(400).json({ error: "weekStart required" });
+  }
+  const review = generateWeeklyReview(getState(), weekStart);
+  res.json({ review });
+});
+
+app.post("/api/weekly/close", async (req, res) => {
+  const { weekStart } = req.body as { weekStart?: string };
+  if (!weekStart) {
+    return res.status(400).json({ error: "weekStart required" });
+  }
+  const review = generateWeeklyReview(getState(), weekStart);
+  const next = getState();
+  next.weeklyReviews = [review, ...next.weeklyReviews];
+  const weekEnd = review.weekEnd;
+  for (const entry of Object.values(next.dailyGoalsByDate)) {
+    if (entry.date >= weekStart && entry.date <= weekEnd && !entry.archivedAt) {
+      entry.archivedAt = new Date().toISOString();
+    }
+  }
+  await saveState(next);
+  const updated = await updateInsights(getState());
+  res.json({ review, state: attachGithubState(updated, req) });
 });
 
 app.post("/api/startup/create", (req, res) => {
@@ -143,8 +223,21 @@ app.get("/api/git/repos", (req, res) => {
   res.json({ repos: getState().localRepos, ...status });
 });
 
+app.get("/api/local-git/repos", (req, res) => {
+  const status = getScanStatus();
+  res.json({ repos: getState().localRepos, ...status });
+});
+
 app.post("/api/git/scan", async (req, res) => {
   const result = await runGitScanNow();
+  await updateInsights(getState());
+  res.json(result);
+});
+
+app.post("/api/local-git/scan", async (req, res) => {
+  const { repoPath } = req.body as { repoPath?: string };
+  const result = await runGitScanNow(repoPath);
+  await updateInsights(getState());
   res.json(result);
 });
 
@@ -160,7 +253,8 @@ app.post("/api/git/link", async (req, res) => {
   }
   project.localRepoPath = repoPath;
   await saveState(next);
-  res.json({ state: attachGithubState(getState(), req) });
+  const state = await updateInsights(getState());
+  res.json({ state: attachGithubState(state, req) });
 });
 
 app.post("/api/git/unlink", async (req, res) => {
@@ -175,7 +269,8 @@ app.post("/api/git/unlink", async (req, res) => {
   }
   project.localRepoPath = null;
   await saveState(next);
-  res.json({ state: attachGithubState(getState(), req) });
+  const state = await updateInsights(getState());
+  res.json({ state: attachGithubState(state, req) });
 });
 
 app.get("/api/git/commits", async (req, res) => {
@@ -189,6 +284,57 @@ app.get("/api/git/commits", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Local git fetch failed" });
   }
+});
+
+app.get("/api/local-git/commits", async (req, res) => {
+  const { repoId, repoPath, limit = "10", since } = req.query as Record<string, string>;
+  const repo = repoId
+    ? getState().localRepos.find((r) => r.id === repoId) ?? null
+    : repoPath
+    ? getState().localRepos.find((r) => r.path === repoPath) ?? null
+    : null;
+  const targetPath = repo?.path ?? repoPath;
+  if (!targetPath) {
+    return res.status(400).json({ error: "repoId or repoPath required" });
+  }
+  try {
+    const commits = await fetchLocalCommits(targetPath, Number(limit) || 10, since);
+    res.json({ commits });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Local git fetch failed" });
+  }
+});
+
+app.get("/api/local-git/health", (req, res) => {
+  res.json(getGitHealth());
+});
+
+app.get("/api/local-git/status", (req, res) => {
+  const { repoId, repoPath } = req.query as Record<string, string>;
+  const repo = repoId
+    ? getState().localRepos.find((r) => r.id === repoId)
+    : repoPath
+    ? getState().localRepos.find((r) => r.path === repoPath)
+    : null;
+  if (!repo) {
+    return res.status(404).json({ error: "Repo not found" });
+  }
+  res.json({ repo });
+});
+
+app.post("/api/insights/run", async (req, res) => {
+  const state = await updateInsights(getState());
+  res.json({ insights: state.insights });
+});
+
+app.post("/api/insights/action", async (req, res) => {
+  const { action } = req.body as { action: any };
+  if (!action) {
+    return res.status(400).json({ error: "action required" });
+  }
+  const state = await runInsightAction(getState(), action);
+  const updated = await updateInsights(state);
+  res.json({ state: attachGithubState(updated, req) });
 });
 
 app.get("/auth/github/start", (req, res) => {
@@ -304,7 +450,13 @@ async function start() {
   await loadStore();
   ensureDailyGoals();
   await runGitScanNow();
+  await updateInsights(getState());
   startGitScanScheduler();
+  startGitWatcher();
+  const settings = getState().userSettings;
+  if (settings.enableDailyBackup) {
+    scheduleDailyBackups(settings.backupRetentionDays ?? 14);
+  }
   app.listen(PORT, () => {
     console.log(`Linkra server running on http://localhost:${PORT}`);
   });

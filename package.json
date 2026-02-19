@@ -7,9 +7,11 @@
     "dev:shared": "npm run dev --workspace packages/shared",
     "build": "npm run build --workspace packages/shared && npm run build --workspace apps/server && npm run build --workspace apps/web",
     "start": "npm run start --workspace apps/server",
-    "lint": "npm run lint --workspace apps/server && npm run lint --workspace apps/web"
+    "lint": "npm run lint --workspace apps/server && npm run lint --workspace apps/web",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "vitest": "^1.6.0"
   }
 }

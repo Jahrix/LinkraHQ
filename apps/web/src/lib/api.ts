@@ -1,4 +1,4 @@
-import type { AppState, ExportBundle, LocalRepo } from "@linkra/shared";
+import type { AppState, ExportBundle, LocalRepo, Insight, WeeklyReview } from "@linkra/shared";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -28,7 +28,7 @@ export const api = {
       body: JSON.stringify({ state })
     }),
   exportState: () => request<ExportBundle>("/api/export"),
-  importState: (mode: "replace" | "merge", data: ExportBundle) =>
+  importState: (mode: "replace" | "merge" | "merge_keep" | "merge_overwrite", data: ExportBundle) =>
     request<{ state: AppState }>("/api/import", {
       method: "POST",
       body: JSON.stringify({ mode, data })
@@ -53,7 +53,29 @@ export const api = {
     }),
   gitLocalCommits: (repoPath: string, limit: number) =>
     request<{ commits: any[] }>(
-      `/api/git/commits?repoPath=${encodeURIComponent(repoPath)}&limit=${limit}`
+      `/api/local-git/commits?repoPath=${encodeURIComponent(repoPath)}&limit=${limit}`
+    ),
+  localGitHealth: () => request<{ repos: number; dirty: number; errors: number; lastScanAt: string | null; watcherActive: boolean }>("/api/local-git/health"),
+  runInsights: () => request<{ insights: Insight[] }>("/api/insights/run", { method: "POST" }),
+  insightAction: (action: any) =>
+    request<{ state: AppState }>("/api/insights/action", {
+      method: "POST",
+      body: JSON.stringify({ action })
+    }),
+  weeklyGenerate: (weekStart: string) =>
+    request<{ review: WeeklyReview }>("/api/weekly/generate", {
+      method: "POST",
+      body: JSON.stringify({ weekStart })
+    }),
+  weeklyClose: (weekStart: string) =>
+    request<{ review: WeeklyReview; state: AppState }>("/api/weekly/close", {
+      method: "POST",
+      body: JSON.stringify({ weekStart })
+    }),
+  backupRun: () => request<{ filepath: string; dir: string }>("/api/backup/run", { method: "POST" }),
+  startupHealth: () =>
+    request<{ apiReachable: boolean; lastScanAt: string | null; scanStatus: any; gitAvailable: boolean; watchDirs: { dir: string; exists: boolean }[] }>(
+      "/api/startup/health"
     ),
   startupStatus: () => request<{ os: string; instructions: string; files: string[] }>("/api/startup/status"),
   createStartup: () => request<{ os: string; instructions: string; files: string[] }>("/api/startup/create", { method: "POST" }),

@@ -53,6 +53,9 @@ function newTask(text: string, dueDate: string | null): ProjectTask {
     id: nanoid(),
     text,
     done: false,
+    status: "todo",
+    dependsOnIds: [],
+    priority: "med",
     dueDate,
     milestone: null,
     createdAt: new Date().toISOString(),
@@ -187,6 +190,10 @@ function defaultState(): AppState {
       repoWatchDirs: fs.existsSync(defaultWatchDir) ? [defaultWatchDir] : [],
       repoScanIntervalMinutes: 15,
       repoExcludePatterns: ["**/node_modules/**", "**/.git/**"],
+      gitWatcherEnabled: true,
+      disabledInsightRules: [],
+      enableDailyBackup: true,
+      backupRetentionDays: 14,
       schemaVersion: SCHEMA_VERSION
     },
     projects,
@@ -249,6 +256,11 @@ function defaultState(): AppState {
     ],
     focusSessions: [],
     quickCaptures: [],
+    journalEntries: [],
+    insights: [],
+    weeklyReviews: [],
+    weeklySnapshots: [],
+    todayPlanByDate: {},
     github: {
       loggedIn: false,
       user: null,
@@ -287,8 +299,7 @@ export async function wipeState() {
   await db.write();
 }
 
-export function ensureDailyGoals() {
-  const state = db.data!.state;
+export function applyDailyRollover(state: AppState) {
   const today = todayKey();
   const entry = state.dailyGoalsByDate[today];
 
@@ -321,6 +332,12 @@ export function ensureDailyGoals() {
   const metrics = computeGoalMetrics(state.dailyGoalsByDate[today].goals);
   state.dailyGoalsByDate[today].completedPoints = metrics.completedPoints;
   state.dailyGoalsByDate[today].score = metrics.score;
+  return state;
+}
+
+export function ensureDailyGoals() {
+  const state = db.data!.state;
+  db.data!.state = applyDailyRollover(state);
 }
 
 export function normalizeState(state: AppState): AppState {
@@ -353,6 +370,11 @@ export function normalizeState(state: AppState): AppState {
     sessionLogs: state.sessionLogs || fallback.sessionLogs,
     focusSessions: state.focusSessions || fallback.focusSessions,
     quickCaptures: state.quickCaptures || fallback.quickCaptures,
+    journalEntries: state.journalEntries || fallback.journalEntries,
+    insights: state.insights || fallback.insights,
+    weeklyReviews: state.weeklyReviews || fallback.weeklyReviews,
+    weeklySnapshots: state.weeklySnapshots || fallback.weeklySnapshots,
+    todayPlanByDate: state.todayPlanByDate || fallback.todayPlanByDate,
     github: {
       ...fallback.github,
       ...state.github
@@ -360,7 +382,7 @@ export function normalizeState(state: AppState): AppState {
   } as AppState;
 }
 
-export function mergeStates(current: AppState, incoming: AppState): AppState {
+export function mergeStates(current: AppState, incoming: AppState, preferIncoming = true): AppState {
   const merged: AppState = {
     ...current,
     ...incoming,
@@ -377,27 +399,43 @@ export function mergeStates(current: AppState, incoming: AppState): AppState {
       repoScanIntervalMinutes: incoming.userSettings.repoScanIntervalMinutes ?? current.userSettings.repoScanIntervalMinutes,
       repoExcludePatterns: incoming.userSettings.repoExcludePatterns?.length
         ? incoming.userSettings.repoExcludePatterns
-        : current.userSettings.repoExcludePatterns
+        : current.userSettings.repoExcludePatterns,
+      gitWatcherEnabled: incoming.userSettings.gitWatcherEnabled ?? current.userSettings.gitWatcherEnabled,
+      disabledInsightRules: incoming.userSettings.disabledInsightRules?.length
+        ? incoming.userSettings.disabledInsightRules
+        : current.userSettings.disabledInsightRules,
+      enableDailyBackup: incoming.userSettings.enableDailyBackup ?? current.userSettings.enableDailyBackup,
+      backupRetentionDays: incoming.userSettings.backupRetentionDays ?? current.userSettings.backupRetentionDays
     },
     dailyGoalsByDate: {
       ...current.dailyGoalsByDate,
       ...incoming.dailyGoalsByDate
     },
-    projects: mergeArrayById(current.projects, incoming.projects),
-    localRepos: mergeArrayById(current.localRepos, incoming.localRepos),
-    roadmapCards: mergeArrayById(current.roadmapCards, incoming.roadmapCards),
-    sessionLogs: mergeArrayById(current.sessionLogs, incoming.sessionLogs),
-    focusSessions: mergeArrayById(current.focusSessions, incoming.focusSessions),
-    quickCaptures: mergeArrayById(current.quickCaptures, incoming.quickCaptures)
+    projects: mergeArrayById(current.projects, incoming.projects, preferIncoming),
+    localRepos: mergeArrayById(current.localRepos, incoming.localRepos, preferIncoming),
+    roadmapCards: mergeArrayById(current.roadmapCards, incoming.roadmapCards, preferIncoming),
+    sessionLogs: mergeArrayById(current.sessionLogs, incoming.sessionLogs, preferIncoming),
+    focusSessions: mergeArrayById(current.focusSessions, incoming.focusSessions, preferIncoming),
+    quickCaptures: mergeArrayById(current.quickCaptures, incoming.quickCaptures, preferIncoming),
+    journalEntries: mergeArrayById(current.journalEntries, incoming.journalEntries, preferIncoming),
+    insights: mergeArrayById(current.insights, incoming.insights, preferIncoming),
+    weeklyReviews: mergeArrayById(current.weeklyReviews, incoming.weeklyReviews, preferIncoming),
+    weeklySnapshots: mergeArrayById(current.weeklySnapshots, incoming.weeklySnapshots, preferIncoming),
+    todayPlanByDate: {
+      ...(preferIncoming ? current.todayPlanByDate : incoming.todayPlanByDate),
+      ...(preferIncoming ? incoming.todayPlanByDate : current.todayPlanByDate)
+    }
   };
 
   return normalizeState(merged);
 }
 
-function mergeArrayById<T extends { id: string }>(base: T[], incoming: T[]): T[] {
+function mergeArrayById<T extends { id: string }>(base: T[], incoming: T[], preferIncoming = true): T[] {
   const map = new Map(base.map((item) => [item.id, item]));
   for (const item of incoming) {
-    map.set(item.id, item);
+    if (preferIncoming || !map.has(item.id)) {
+      map.set(item.id, item);
+    }
   }
   return Array.from(map.values());
 }

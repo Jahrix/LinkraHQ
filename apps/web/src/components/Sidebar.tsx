@@ -4,6 +4,7 @@ const navItems = [
   "Dashboard",
   "Daily Goals",
   "Roadmap",
+  "Weekly Review",
   "Commits",
   "Tools",
   "Settings"

@@ -6,7 +6,7 @@ import { useToast } from "../lib/toast";
 export default function QuickCapture() {
   const { state, save } = useAppState();
   const { push } = useToast();
-  const [type, setType] = useState<"note" | "task" | "roadmap">("note");
+  const [type, setType] = useState<"note" | "task" | "roadmap" | "journal">("note");
   const [text, setText] = useState("");
 
   if (!state) return null;
@@ -59,6 +59,29 @@ export default function QuickCapture() {
       next.roadmapCards = [card, ...next.roadmapCards];
     }
 
+    if (type === "journal") {
+      next.journalEntries = [
+        {
+          id: crypto.randomUUID(),
+          projectId: null,
+          ts: now,
+          type: "note",
+          title: null,
+          body: text.trim(),
+          links: {
+            taskIds: [],
+            roadmapCardIds: [],
+            repoIds: [],
+            commitShas: []
+          },
+          tags: [],
+          createdAt: now,
+          updatedAt: now
+        },
+        ...next.journalEntries
+      ];
+    }
+
     setText("");
     await save(next);
     push("Captured.");
@@ -78,6 +101,7 @@ export default function QuickCapture() {
           <option value="note">Note</option>
           <option value="task">Task</option>
           <option value="roadmap">Roadmap</option>
+          <option value="journal">Journal</option>
         </select>
         <input
           className="input"

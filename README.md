@@ -60,8 +60,10 @@ launchctl load -w ~/Library/LaunchAgents/linkra_macos.plist
 ## Data Model
 - All data stored locally at `~/.linkra/linkra-db.json`.
 - Export/Import in Settings uses a single JSON bundle with `schema_version` and `created_at`.
+- Daily backups stored at `~/.linkra/backups` (default retention 14 days).
 
 ## Troubleshooting
 - **OAuth callback mismatch**: ensure the GitHub OAuth app uses `http://localhost:4170/auth/github/callback`.
 - **Port already in use**: change `PORT` in `apps/server/.env` and restart.
 - **GitHub login fails**: verify `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `SESSION_SECRET`.
+- **Git scan not running**: check Settings → Local Git and ensure watch dirs exist and Git CLI is installed.

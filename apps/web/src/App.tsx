@@ -12,6 +12,7 @@ import RoadmapPage from "./pages/RoadmapPage";
 import CommitsPage from "./pages/CommitsPage";
 import ToolsPage from "./pages/ToolsPage";
 import SettingsPage from "./pages/SettingsPage";
+import WeeklyReviewPage from "./pages/WeeklyReviewPage";
 import { computeStreak, todayKey } from "@linkra/shared";
 
 function Shell() {
@@ -22,7 +23,7 @@ function Shell() {
   useEffect(() => {
     const hash = window.location.hash.replace("#", "");
     if (hash) {
-      const match = ["Dashboard", "Daily Goals", "Roadmap", "Commits", "Tools", "Settings"].find(
+      const match = ["Dashboard", "Daily Goals", "Roadmap", "Weekly Review", "Commits", "Tools", "Settings"].find(
         (item) => item.toLowerCase().replace(" ", "-") === hash
       ) as NavItem | undefined;
       if (match) setActive(match);
@@ -58,6 +59,7 @@ function Shell() {
       { label: "Go to Dashboard", action: () => setActive("Dashboard") },
       { label: "Go to Daily Goals", action: () => setActive("Daily Goals") },
       { label: "Go to Roadmap", action: () => setActive("Roadmap") },
+      { label: "Go to Weekly Review", action: () => setActive("Weekly Review") },
       { label: "Go to Commits", action: () => setActive("Commits") },
       { label: "Go to Tools", action: () => setActive("Tools") },
       { label: "Go to Settings", action: () => setActive("Settings") },
@@ -80,6 +82,7 @@ function Shell() {
             {active === "Dashboard" && <DashboardPage />}
             {active === "Daily Goals" && <DailyGoalsPage />}
             {active === "Roadmap" && <RoadmapPage />}
+            {active === "Weekly Review" && <WeeklyReviewPage />}
             {active === "Commits" && <CommitsPage />}
             {active === "Tools" && <ToolsPage />}
             {active === "Settings" && <SettingsPage />}

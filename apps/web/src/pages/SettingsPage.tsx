@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { ExportBundleSchema, SCHEMA_VERSION, type ExportBundle } from "@linkra/shared";
+import { ExportBundleSchema, SCHEMA_VERSION, type ExportBundle, insightRules } from "@linkra/shared";
 import { api } from "../lib/api";
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
+import { computeImportDiff } from "../lib/importDiff";
 import { formatDate } from "../lib/date";
 
 interface ImportPreview {
@@ -16,6 +17,12 @@ interface ImportPreview {
     focus: number;
     dateRange: string;
   };
+  diff: {
+    projects: { added: number; changed: number; removed: number };
+    tasks: { added: number; changed: number; removed: number };
+    roadmap: { added: number; changed: number; removed: number };
+    journal: { added: number; changed: number; removed: number };
+  };
 }
 
 export default function SettingsPage() {
@@ -24,6 +31,13 @@ export default function SettingsPage() {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [startupInfo, setStartupInfo] = useState<{ os: string; instructions: string; files: string[] } | null>(null);
+  const [startupHealth, setStartupHealth] = useState<{
+    apiReachable: boolean;
+    lastScanAt: string | null;
+    scanStatus: any;
+    gitAvailable: boolean;
+    watchDirs: { dir: string; exists: boolean }[];
+  } | null>(null);
   const [watchDir, setWatchDir] = useState("");
   const [excludePattern, setExcludePattern] = useState("");
   const [scanStatus, setScanStatus] = useState<{ lastScanAt: string | null; errors: string[] } | null>(null);
@@ -31,6 +45,7 @@ export default function SettingsPage() {
   useEffect(() => {
     api.startupStatus().then(setStartupInfo).catch(() => null);
     api.gitRepos().then((result) => setScanStatus({ lastScanAt: result.lastScanAt, errors: result.errors })).catch(() => null);
+    api.startupHealth().then(setStartupHealth).catch(() => null);
   }, []);
 
   if (!state) return null;
@@ -64,14 +79,15 @@ export default function SettingsPage() {
         focus: parsed.data.focusSessions.length,
         dateRange
       };
-      setPreview({ bundle: parsed, counts });
+      const diff = computeImportDiff(state, parsed.data);
+      setPreview({ bundle: parsed, counts, diff });
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Invalid JSON schema");
       setPreview(null);
     }
   };
 
-  const applyImport = async (mode: "replace" | "merge") => {
+  const applyImport = async (mode: "replace" | "merge_keep" | "merge_overwrite") => {
     if (!preview) return;
     const result = await api.importState(mode, preview.bundle);
     await save(result.state);
@@ -116,6 +132,41 @@ export default function SettingsPage() {
   const logout = async () => {
     await api.logout();
     await refresh();
+  };
+
+  const toggleInsightRule = async (ruleId: string) => {
+    const next = { ...state };
+    const disabled = new Set(next.userSettings.disabledInsightRules ?? []);
+    if (disabled.has(ruleId)) {
+      disabled.delete(ruleId);
+    } else {
+      disabled.add(ruleId);
+    }
+    next.userSettings.disabledInsightRules = Array.from(disabled);
+    await save(next);
+    await api.runInsights();
+  };
+
+  const toggleWatcher = async (enabled: boolean) => {
+    const next = { ...state };
+    next.userSettings.gitWatcherEnabled = enabled;
+    await save(next);
+  };
+
+  const updateBackupSettings = async (key: "enableDailyBackup" | "backupRetentionDays", value: boolean | number) => {
+    const next = { ...state };
+    if (key === "enableDailyBackup" && typeof value === "boolean") {
+      next.userSettings.enableDailyBackup = value;
+    }
+    if (key === "backupRetentionDays" && typeof value === "number") {
+      next.userSettings.backupRetentionDays = value;
+    }
+    await save(next);
+  };
+
+  const runBackup = async () => {
+    const result = await api.backupRun();
+    push(`Backup saved to ${result.filepath}`);
   };
 
   const runScan = async () => {
@@ -183,6 +234,7 @@ export default function SettingsPage() {
     localRepos
       .map((repo) => repo.scanError)
       .filter((error): error is string => Boolean(error));
+
 
   return (
     <div className="space-y-6">
@@ -260,6 +312,14 @@ export default function SettingsPage() {
               <option value={60}>Every 60 min</option>
             </select>
           </label>
+          <label className="toggle">
+            Watcher enabled
+            <input
+              type="checkbox"
+              checked={state.userSettings.gitWatcherEnabled}
+              onChange={(e) => toggleWatcher(e.target.checked)}
+            />
+          </label>
           <div className="flex items-center gap-2">
             <button className="button-secondary" onClick={runScan}>
               Rescan Now
@@ -295,6 +355,31 @@ export default function SettingsPage() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="panel space-y-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Insights</p>
+          <h2 className="text-lg font-semibold">Signals → Actions</h2>
+        </div>
+        <div className="grid gap-2">
+          {insightRules.map((rule) => {
+            const disabled = state.userSettings.disabledInsightRules?.includes(rule.id);
+            return (
+              <label key={rule.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">
+                <div>
+                  <div className="font-medium">{rule.title}</div>
+                  <div className="text-xs text-white/50">{rule.description}</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!disabled}
+                  onChange={() => toggleInsightRule(rule.id)}
+                />
+              </label>
+            );
+          })}
+        </div>
       </div>
 
       <div className="panel space-y-4">
@@ -340,16 +425,64 @@ export default function SettingsPage() {
               <div className="table-row">Focus sessions: {preview.counts.focus}</div>
               <div className="table-row">Date range: {preview.counts.dateRange}</div>
             </div>
+            <div className="table">
+              <div className="table-row">
+                Projects Δ: +{preview.diff.projects.added} / ~{preview.diff.projects.changed} / -{preview.diff.projects.removed}
+              </div>
+              <div className="table-row">
+                Tasks Δ: +{preview.diff.tasks.added} / ~{preview.diff.tasks.changed} / -{preview.diff.tasks.removed}
+              </div>
+              <div className="table-row">
+                Roadmap Δ: +{preview.diff.roadmap.added} / ~{preview.diff.roadmap.changed} / -{preview.diff.roadmap.removed}
+              </div>
+              <div className="table-row">
+                Journal Δ: +{preview.diff.journal.added} / ~{preview.diff.journal.changed} / -{preview.diff.journal.removed}
+              </div>
+            </div>
             <div className="filter-row">
               <button className="button-primary" onClick={() => applyImport("replace")}>
                 Replace All
               </button>
-              <button className="button-secondary" onClick={() => applyImport("merge")}>
-                Merge
+              <button className="button-secondary" onClick={() => applyImport("merge_keep")}>
+                Merge (Keep Local)
+              </button>
+              <button className="button-secondary" onClick={() => applyImport("merge_overwrite")}>
+                Merge (Overwrite)
               </button>
             </div>
           </div>
         )}
+      </div>
+
+      <div className="panel space-y-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Backups</p>
+          <h2 className="text-lg font-semibold">Auto-backup</h2>
+        </div>
+        <div className="filter-row flex-wrap">
+          <label className="toggle">
+            Enable daily backups
+            <input
+              type="checkbox"
+              checked={state.userSettings.enableDailyBackup}
+              onChange={(e) => updateBackupSettings("enableDailyBackup", e.target.checked)}
+            />
+          </label>
+          <label className="toggle">
+            Retention (days)
+            <input
+              type="number"
+              min={1}
+              className="input w-24"
+              value={state.userSettings.backupRetentionDays}
+              onChange={(e) => updateBackupSettings("backupRetentionDays", Number(e.target.value))}
+            />
+          </label>
+          <button className="button-secondary" onClick={runBackup}>
+            Run Backup Now
+          </button>
+        </div>
+        <p className="text-xs text-white/50">Backups stored in ~/.linkra/backups.</p>
       </div>
 
       <div className="panel space-y-3">
@@ -386,6 +519,22 @@ export default function SettingsPage() {
                   <li key={file}>{file}</li>
                 ))}
               </ul>
+            </div>
+          </div>
+        )}
+        {startupHealth && (
+          <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/60">
+            <div>API reachable: {startupHealth.apiReachable ? "Yes" : "No"}</div>
+            <div>Git available: {startupHealth.gitAvailable ? "Yes" : "No"}</div>
+            <div>Last scan: {startupHealth.lastScanAt ? formatDate(startupHealth.lastScanAt) : "Never"}</div>
+            <div>Watcher: {startupHealth.scanStatus?.watcherActive ? "On" : "Off"}</div>
+            <div>
+              Watch dirs:
+              {startupHealth.watchDirs.map((dir) => (
+                <div key={dir.dir}>
+                  {dir.dir} — {dir.exists ? "OK" : "Missing"}
+                </div>
+              ))}
             </div>
           </div>
         )}

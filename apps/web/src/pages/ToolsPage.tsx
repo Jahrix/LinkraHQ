@@ -42,7 +42,10 @@ export default function ToolsPage() {
         id: crypto.randomUUID(),
         startedAt: new Date(Date.now() - minutes * 60000).toISOString(),
         durationMinutes: minutes,
-        completedAt: now
+        completedAt: now,
+        planned: false,
+        projectId: null,
+        reason: "Timer"
       },
       ...next.focusSessions
     ];
@@ -147,6 +150,29 @@ export default function ToolsPage() {
               Log
             </button>
           </div>
+        </div>
+      </div>
+
+      <div className="panel space-y-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Planned Focus</p>
+          <h2 className="text-lg font-semibold">Queued sessions</h2>
+        </div>
+        <div className="table">
+          {state.focusSessions.filter((s) => s.planned).length === 0 && (
+            <p className="text-sm text-white/60">No planned sessions.</p>
+          )}
+          {state.focusSessions
+            .filter((s) => s.planned)
+            .slice(0, 6)
+            .map((session) => (
+              <div key={session.id} className="table-row">
+                <div>
+                  <strong>{session.durationMinutes}m focus</strong>
+                  <div className="text-xs text-white/60">{session.reason ?? "Insight"}</div>
+                </div>
+              </div>
+            ))}
         </div>
       </div>
 

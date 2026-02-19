@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const DEFAULT_ACCENT = "#5DD8FF";
 export const STREAK_THRESHOLD = 5;
 
@@ -55,6 +55,9 @@ export const ProjectTaskSchema = z.object({
   id: z.string(),
   text: z.string().min(1),
   done: z.boolean(),
+  status: z.enum(["todo", "doing", "done"]).default("todo"),
+  dependsOnIds: z.array(z.string()).default([]),
+  priority: z.enum(["low", "med", "high"]).default("med"),
   dueDate: z.string().nullable(),
   milestone: z.string().nullable(),
   createdAt: z.string(),
@@ -97,6 +100,7 @@ export const LocalRepoSchema = z.object({
   id: z.string(),
   name: z.string(),
   path: z.string(),
+  watchDir: z.string().nullable().default(null),
   remoteUrl: z.string().nullable(),
   defaultBranch: z.string().nullable(),
   lastCommitAt: z.string().nullable(),
@@ -107,6 +111,9 @@ export const LocalRepoSchema = z.object({
   ahead: z.number(),
   behind: z.number(),
   todayCommitCount: z.number(),
+  lastHeadSha: z.string().nullable().default(null),
+  lastStatusHash: z.string().nullable().default(null),
+  lastScanDurationMs: z.number().nullable().default(null),
   scanError: z.string().nullable(),
   scannedAt: z.string().nullable()
 });
@@ -127,14 +134,17 @@ export const FocusSessionSchema = z.object({
   id: z.string(),
   startedAt: z.string(),
   durationMinutes: z.number(),
-  completedAt: z.string().nullable()
+  completedAt: z.string().nullable(),
+  planned: z.boolean().default(false),
+  projectId: z.string().nullable().default(null),
+  reason: z.string().nullable().default(null)
 });
 
 export type FocusSession = z.infer<typeof FocusSessionSchema>;
 
 export const QuickCaptureSchema = z.object({
   id: z.string(),
-  type: z.enum(["note", "task", "roadmap"]),
+  type: z.enum(["note", "task", "roadmap", "journal"]),
   text: z.string(),
   createdAt: z.string()
 });
@@ -151,6 +161,10 @@ export const UserSettingsSchema = z.object({
   repoWatchDirs: z.array(z.string()).default([]),
   repoScanIntervalMinutes: z.number().default(15),
   repoExcludePatterns: z.array(z.string()).default(["**/node_modules/**", "**/.git/**"]),
+  gitWatcherEnabled: z.boolean().default(true),
+  disabledInsightRules: z.array(z.string()).default([]),
+  enableDailyBackup: z.boolean().default(true),
+  backupRetentionDays: z.number().default(14),
   schemaVersion: z.number().default(SCHEMA_VERSION)
 });
 
@@ -176,6 +190,103 @@ export const GithubStateSchema = z.object({
 
 export type GithubState = z.infer<typeof GithubStateSchema>;
 
+export const SuggestedActionSchema = z.object({
+  id: z.string(),
+  type: z.enum([
+    "CREATE_TASK",
+    "SCHEDULE_FOCUS",
+    "MOVE_ROADMAP_NOW",
+    "COPY_REPO_PATH",
+    "OPEN_REPO",
+    "SNOOZE_1D",
+    "SNOOZE_1W",
+    "CREATE_JOURNAL"
+  ]),
+  label: z.string(),
+  payload: z.record(z.any()).default({})
+});
+
+export type SuggestedAction = z.infer<typeof SuggestedActionSchema>;
+
+export const InsightSchema = z.object({
+  id: z.string(),
+  ts: z.string(),
+  severity: z.enum(["info", "warn", "crit"]),
+  projectId: z.string().nullable().default(null),
+  repoId: z.string().nullable().default(null),
+  ruleId: z.string(),
+  title: z.string(),
+  reason: z.string(),
+  metrics: z.record(z.any()).default({}),
+  suggestedActions: z.array(SuggestedActionSchema).default([]),
+  dismissedUntil: z.string().nullable().default(null),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export type Insight = z.infer<typeof InsightSchema>;
+
+export const WeeklyReviewSchema = z.object({
+  id: z.string(),
+  weekStart: z.string(),
+  weekEnd: z.string(),
+  stats: z.object({
+    goalsCompleted: z.number(),
+    points: z.number(),
+    tasksDone: z.number(),
+    tasksCreated: z.number(),
+    roadmapMoved: z.number(),
+    commitsCount: z.number(),
+    focusMinutes: z.number(),
+    journalCount: z.number(),
+    streakDelta: z.number()
+  }),
+  highlights: z.array(z.string()).default([]),
+  markdown: z.string(),
+  createdAt: z.string(),
+  closedAt: z.string().nullable().default(null)
+});
+
+export type WeeklyReview = z.infer<typeof WeeklyReviewSchema>;
+
+export const WeekSnapshotSchema = z.object({
+  id: z.string(),
+  weekStart: z.string(),
+  weekEnd: z.string(),
+  data: z.record(z.any())
+});
+
+export type WeekSnapshot = z.infer<typeof WeekSnapshotSchema>;
+
+export const JournalEntrySchema = z.object({
+  id: z.string(),
+  projectId: z.string().nullable().default(null),
+  ts: z.string(),
+  type: z.enum(["note", "decision", "blocker", "next", "idea"]),
+  title: z.string().nullable().default(null),
+  body: z.string(),
+  links: z.object({
+    taskIds: z.array(z.string()).default([]),
+    roadmapCardIds: z.array(z.string()).default([]),
+    repoIds: z.array(z.string()).default([]),
+    commitShas: z.array(z.string()).default([])
+  }),
+  tags: z.array(z.string()).default([]),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export type JournalEntry = z.infer<typeof JournalEntrySchema>;
+
+export const TodayPlanSchema = z.object({
+  taskIds: z.array(z.string()).default([]),
+  generatedAt: z.string(),
+  source: z.enum(["manual", "auto"]).default("auto"),
+  notes: z.string().nullable().default(null)
+});
+
+export type TodayPlan = z.infer<typeof TodayPlanSchema>;
+
 export const AppStateSchema = z.object({
   metadata: z.object({
     schema_version: z.number(),
@@ -189,6 +300,11 @@ export const AppStateSchema = z.object({
   sessionLogs: z.array(SessionLogSchema),
   focusSessions: z.array(FocusSessionSchema),
   quickCaptures: z.array(QuickCaptureSchema),
+  journalEntries: z.array(JournalEntrySchema).default([]),
+  insights: z.array(InsightSchema).default([]),
+  weeklyReviews: z.array(WeeklyReviewSchema).default([]),
+  weeklySnapshots: z.array(WeekSnapshotSchema).default([]),
+  todayPlanByDate: z.record(TodayPlanSchema).default({}),
   github: GithubStateSchema
 });
 

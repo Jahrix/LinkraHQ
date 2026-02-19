@@ -26,10 +26,13 @@ export function createStartupAssets(rootDir: string, port: number) {
 
   const taskXml = `<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n<Task version=\"1.4\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n  <RegistrationInfo>\n    <Name>LinkraLocal</Name>\n  </RegistrationInfo>\n  <Triggers>\n    <LogonTrigger>\n      <Enabled>true</Enabled>\n    </LogonTrigger>\n  </Triggers>\n  <Principals>\n    <Principal id=\"Author\">\n      <RunLevel>LeastPrivilege</RunLevel>\n    </Principal>\n  </Principals>\n  <Settings>\n    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n    <AllowHardTerminate>false</AllowHardTerminate>\n    <StartWhenAvailable>true</StartWhenAvailable>\n  </Settings>\n  <Actions Context=\"Author\">\n    <Exec>\n      <Command>${path.join(dir, "linkra_start.cmd")}</Command>\n    </Exec>\n  </Actions>\n</Task>\n`;
 
+  const systemdService = `[Unit]\nDescription=Linkra Local Dashboard\n\n[Service]\nType=simple\nWorkingDirectory=${rootDir}\nExecStart=/usr/bin/env bash -lc \"npm run build && npm run start\"\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n`;
+
   fs.writeFileSync(path.join(dir, "linkra_start.sh"), macScript, { mode: 0o755 });
   fs.writeFileSync(path.join(dir, "linkra_start.cmd"), winScript);
   fs.writeFileSync(path.join(dir, "linkra_macos.plist"), plist);
   fs.writeFileSync(path.join(dir, "linkra_windows.xml"), taskXml);
+  fs.writeFileSync(path.join(dir, "linkra_systemd.service"), systemdService);
 
   return {
     dir,
@@ -37,7 +40,8 @@ export function createStartupAssets(rootDir: string, port: number) {
       path.join(dir, "linkra_start.sh"),
       path.join(dir, "linkra_start.cmd"),
       path.join(dir, "linkra_macos.plist"),
-      path.join(dir, "linkra_windows.xml")
+      path.join(dir, "linkra_windows.xml"),
+      path.join(dir, "linkra_systemd.service")
     ]
   };
 }
@@ -49,5 +53,5 @@ export function startupInstructions(osType: string, dir: string, port: number) {
   if (osType === "windows") {
     return `1. Open Task Scheduler\n2. Import task: ${path.join(dir, "linkra_windows.xml")}\n3. When prompted, keep "Run only when user is logged on".\n4. Linkra will open at http://localhost:${port} on login.`;
   }
-  return `Linux detected. Use a user-level systemd service or cron @reboot to run ${path.join(dir, "linkra_start.sh")} and open http://localhost:${port}.`;
+  return `Linux detected. Copy ${path.join(dir, "linkra_systemd.service")} to ~/.config/systemd/user/\nThen run: systemctl --user enable --now linkra_systemd.service\nLinkra will open at http://localhost:${port} on login.`;
 }
