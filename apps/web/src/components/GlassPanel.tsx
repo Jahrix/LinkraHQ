@@ -3,10 +3,12 @@ import React from "react";
 export default function GlassPanel({
   variant = "standard",
   className = "",
+  as: Tag = "div",
   children
 }: {
   variant?: "hero" | "standard" | "quiet" | "card";
   className?: string;
+  as?: keyof JSX.IntrinsicElements;
   children: React.ReactNode;
 }) {
   const base =
@@ -17,5 +19,5 @@ export default function GlassPanel({
       : variant === "card"
       ? "card"
       : "glass-standard";
-  return <div className={`${base} ${className}`.trim()}>{children}</div>;
+  return <Tag className={`${base} ${className}`.trim()}>{children}</Tag>;
 }
