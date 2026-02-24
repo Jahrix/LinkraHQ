@@ -3,11 +3,12 @@ import React, { createContext, useContext, useMemo, useState } from "react";
 export interface Toast {
   id: string;
   message: string;
+  tone: "success" | "error" | "info" | "warning";
 }
 
 interface ToastContextValue {
   toasts: Toast[];
-  push: (message: string) => void;
+  push: (message: string, tone?: Toast["tone"]) => void;
   remove: (id: string) => void;
 }
 
@@ -16,9 +17,9 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const push = (message: string) => {
+  const push = (message: string, tone: Toast["tone"] = "info") => {
     const id = crypto.randomUUID();
-    setToasts((prev) => [...prev, { id, message }]);
+    setToasts((prev) => [...prev, { id, message, tone }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 4000);

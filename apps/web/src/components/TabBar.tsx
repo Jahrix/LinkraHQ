@@ -10,10 +10,12 @@ export default function TabBar({
   onChange: (tab: string) => void;
 }) {
   return (
-    <div className="flex gap-2 border-b border-white/10">
+    <div className="flex gap-2 border-b border-white/10" role="tablist" aria-label="Project sections">
       {tabs.map((tab) => (
         <button
           key={tab}
+          role="tab"
+          aria-selected={active === tab}
           className={`px-3 pb-2 text-sm transition ${
             active === tab ? "text-white border-b-2 border-white/60" : "text-white/50"
           }`}
