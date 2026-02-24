@@ -7,7 +7,7 @@ describe("daily rollover", () => {
   it("archives previous day and creates today entry", () => {
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const state = AppStateSchema.parse({
-      metadata: { schema_version: 2, created_at: new Date().toISOString() },
+      metadata: { schema_version: 3, created_at: new Date().toISOString() },
       userSettings: {
         theme: "dark",
         accent: "#5DD8FF",
@@ -22,7 +22,7 @@ describe("daily rollover", () => {
         disabledInsightRules: [],
         enableDailyBackup: true,
         backupRetentionDays: 14,
-        schemaVersion: 2
+        schemaVersion: 3
       },
       projects: [],
       localRepos: [],

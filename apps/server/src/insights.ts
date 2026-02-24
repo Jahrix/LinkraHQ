@@ -76,6 +76,7 @@ export function computeInsights(state: AppState): Insight[] {
   const rules = insightRules.filter((rule) => !disabled.has(rule.id));
   const now = new Date();
   const insights: Insight[] = [];
+  const activeProjects = state.projects.filter((project) => project.status !== "Archived");
 
   const scanTimes = state.localRepos
     .map((repo) => repo.scannedAt)
@@ -91,7 +92,7 @@ export function computeInsights(state: AppState): Insight[] {
         if (!lastCommit) continue;
         const ageDays = (now.getTime() - lastCommit.getTime()) / (1000 * 60 * 60 * 24);
         if (ageDays >= days) {
-          const project = state.projects.find((p) => p.localRepoPath === repo.path);
+          const project = activeProjects.find((p) => p.localRepoPath === repo.path);
           const existing = findExisting(state, rule.id, project?.id, repo.id);
           if (isDismissed(existing)) continue;
           insights.push(
@@ -128,7 +129,7 @@ export function computeInsights(state: AppState): Insight[] {
         if (!lastCommit) continue;
         const ageDays = (now.getTime() - lastCommit.getTime()) / (1000 * 60 * 60 * 24);
         if (ageDays >= days) {
-          const project = state.projects.find((p) => p.localRepoPath === repo.path);
+          const project = activeProjects.find((p) => p.localRepoPath === repo.path);
           const existing = findExisting(state, rule.id, project?.id, repo.id);
           if (isDismissed(existing)) continue;
           insights.push(
@@ -154,7 +155,7 @@ export function computeInsights(state: AppState): Insight[] {
     }
 
     if (rule.id === "OVERDUE_TASKS") {
-      const overdue = state.projects.flatMap((project) =>
+      const overdue = activeProjects.flatMap((project) =>
         project.tasks
           .filter((task) => task.dueDate && !task.done && new Date(task.dueDate) < now)
           .map((task) => ({ project, task }))
@@ -188,7 +189,12 @@ export function computeInsights(state: AppState): Insight[] {
     }
 
     if (rule.id === "NO_NOW_ROADMAP") {
-      const nowCards = state.roadmapCards.filter((card) => card.lane === "now");
+      const activeProjectIds = new Set(activeProjects.map((project) => project.id));
+      const nowCards = state.roadmapCards.filter((card) => {
+        if (card.lane !== "now") return false;
+        if (!card.project) return true;
+        return activeProjectIds.has(card.project) || activeProjects.some((project) => project.name === card.project);
+      });
       if (nowCards.length === 0) {
         const existing = findExisting(state, rule.id, null, null);
         if (!isDismissed(existing)) {
@@ -269,18 +275,28 @@ export async function updateInsights(state: AppState) {
   const next = { ...state };
   const computed = computeInsights(state);
   const existingMap = new Map(state.insights.map((insight) => [insight.id, insight]));
-  next.insights = computed
+  const activeInsights = computed
     .map((insight) => {
-    const existing = existingMap.get(insight.id);
-    if (existing && isDismissed(existing)) {
-      return null;
-    }
-    if (existing) {
-      return { ...existing, ...insight, updatedAt: nowIso() };
-    }
-    return insight;
-  })
+      const existing = existingMap.get(insight.id);
+      if (existing && isDismissed(existing)) {
+        return null;
+      }
+      if (existing) {
+        return { ...existing, ...insight, updatedAt: nowIso() };
+      }
+      return insight;
+    })
     .filter((item): item is Insight => Boolean(item));
+
+  const retainedDismissed = state.insights.filter((insight) => isDismissed(insight));
+  const merged = new Map<string, Insight>();
+  for (const insight of retainedDismissed) {
+    merged.set(insight.id, insight);
+  }
+  for (const insight of activeInsights) {
+    merged.set(insight.id, insight);
+  }
+  next.insights = Array.from(merged.values()).sort((a, b) => (a.ts < b.ts ? 1 : -1));
   await saveState(next);
   return next;
 }
@@ -291,7 +307,7 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
 
   if (action.type === "CREATE_TASK") {
     const project = next.projects.find((p) => p.id === action.payload.projectId);
-    if (project && action.payload.title) {
+    if (project && project.status !== "Archived" && action.payload.title) {
       project.tasks.unshift({
         id: crypto.randomUUID(),
         text: action.payload.title,
@@ -305,6 +321,7 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
         completedAt: null,
         linkedCommit: null
       });
+      project.updatedAt = now;
     }
   }
 
@@ -326,6 +343,16 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
     const card = next.roadmapCards.find((c) => c.id === cardId) ?? next.roadmapCards[0];
     if (card) {
       card.lane = "now";
+      card.updatedAt = now;
+    }
+  }
+
+  if (action.type === "MOVE_ROADMAP_CARD") {
+    const cardId = action.payload.cardId;
+    const lane = action.payload.lane ?? "now";
+    const card = next.roadmapCards.find((c) => c.id === cardId) ?? next.roadmapCards[0];
+    if (card) {
+      card.lane = lane;
       card.updatedAt = now;
     }
   }
@@ -376,6 +403,15 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
       until.setDate(until.getDate() + days);
       insight.dismissedUntil = until.toISOString();
       insight.updatedAt = now;
+    }
+  }
+
+  if (action.type === "DISMISS") {
+    const insight = next.insights.find((item) => item.id === action.payload.insightId);
+    if (insight) {
+      insight.dismissedUntil = null;
+      insight.updatedAt = now;
+      next.insights = next.insights.filter((item) => item.id !== insight.id);
     }
   }
 

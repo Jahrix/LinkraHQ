@@ -35,9 +35,31 @@ export const api = {
     }),
   wipeState: () => request<{ state: AppState }>("/api/wipe", { method: "POST" }),
   gitRepos: () =>
-    request<{ repos: LocalRepo[]; lastScanAt: string | null; errors: string[]; running: boolean }>("/api/git/repos"),
+    request<{
+      repos: LocalRepo[];
+      lastScanAt: string | null;
+      lastRunAt: string | null;
+      lastDurationMs: number | null;
+      reposScanned: number;
+      reposChanged: number;
+      state: "idle" | "running" | "error";
+      errors: string[];
+      running: boolean;
+      watcherActive: boolean;
+    }>("/api/git/repos"),
   gitScan: () =>
-    request<{ repos: LocalRepo[]; lastScanAt: string | null; errors: string[]; running?: boolean }>(
+    request<{
+      repos: LocalRepo[];
+      lastScanAt: string | null;
+      lastRunAt: string | null;
+      lastDurationMs: number | null;
+      reposScanned: number;
+      reposChanged: number;
+      state: "idle" | "running" | "error";
+      errors: string[];
+      running: boolean;
+      watcherActive: boolean;
+    }>(
       "/api/git/scan",
       { method: "POST" }
     ),
@@ -55,7 +77,18 @@ export const api = {
     request<{ commits: any[] }>(
       `/api/local-git/commits?repoPath=${encodeURIComponent(repoPath)}&limit=${limit}`
     ),
-  localGitHealth: () => request<{ repos: number; dirty: number; errors: number; lastScanAt: string | null; watcherActive: boolean }>("/api/local-git/health"),
+  localGitHealth: () =>
+    request<{
+      repos: number;
+      dirty: number;
+      errors: number;
+      lastScanAt: string | null;
+      scanState: "idle" | "running" | "error";
+      durationMs: number | null;
+      reposScanned: number;
+      reposChanged: number;
+      watcherActive: boolean;
+    }>("/api/local-git/health"),
   runInsights: () => request<{ insights: Insight[] }>("/api/insights/run", { method: "POST" }),
   insightAction: (action: any) =>
     request<{ state: AppState }>("/api/insights/action", {

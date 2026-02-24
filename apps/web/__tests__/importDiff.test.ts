@@ -5,7 +5,7 @@ import { AppStateSchema } from "@linkra/shared";
 describe("import diff", () => {
   it("detects added projects", () => {
     const base = AppStateSchema.parse({
-      metadata: { schema_version: 2, created_at: new Date().toISOString() },
+      metadata: { schema_version: 3, created_at: new Date().toISOString() },
       userSettings: {
         theme: "dark",
         accent: "#5DD8FF",
@@ -20,7 +20,7 @@ describe("import diff", () => {
         disabledInsightRules: [],
         enableDailyBackup: true,
         backupRetentionDays: 14,
-        schemaVersion: 2
+        schemaVersion: 3
       },
       projects: [],
       localRepos: [],
@@ -53,6 +53,9 @@ describe("import diff", () => {
           remoteRepo: null,
           localRepoPath: null,
           healthScore: null,
+          archivedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
           tasks: []
         }
       ]

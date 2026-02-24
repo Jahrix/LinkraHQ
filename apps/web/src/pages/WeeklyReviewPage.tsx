@@ -24,18 +24,27 @@ export default function WeeklyReviewPage() {
 
   if (!state) return null;
 
-  const perProject = state.projects.map((project) => {
-    const tasksDone = project.tasks.filter((t) => t.done).length;
-    const tasksTotal = project.tasks.length;
-    const repo = state.localRepos.find((r) => r.path === project.localRepoPath);
-    return {
-      id: project.id,
-      name: project.name,
-      tasksDone,
-      tasksTotal,
-      commits: repo?.todayCommitCount ?? 0
-    };
-  });
+  const perProject =
+    review?.perProject?.length
+      ? review.perProject.map((entry) => ({
+          id: entry.projectId,
+          name: entry.projectName,
+          tasksDone: entry.tasksDone,
+          tasksTotal: entry.tasksCreated,
+          commits: entry.commitsCount
+        }))
+      : state.projects.map((project) => {
+          const tasksDone = project.tasks.filter((t) => t.done).length;
+          const tasksTotal = project.tasks.length;
+          const repo = state.localRepos.find((r) => r.path === project.localRepoPath);
+          return {
+            id: project.id,
+            name: project.name,
+            tasksDone,
+            tasksTotal,
+            commits: repo?.todayCommitCount ?? 0
+          };
+        });
 
   const shippedTasks = state.projects.flatMap((project) =>
     project.tasks.filter((task) => task.done).map((task) => `${project.name}: ${task.text}`)

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ExportBundleSchema, SCHEMA_VERSION, type ExportBundle, insightRules } from "@linkra/shared";
+import { SCHEMA_VERSION, applyMigrations, type ExportBundle, insightRules } from "@linkra/shared";
 import { api } from "../lib/api";
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
@@ -66,7 +66,7 @@ export default function SettingsPage() {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      const parsed = ExportBundleSchema.parse(data);
+      const parsed = applyMigrations(data);
       const tasks = parsed.data.projects.reduce((sum, project) => sum + project.tasks.length, 0);
       const dates = Object.keys(parsed.data.dailyGoalsByDate).sort();
       const dateRange = dates.length ? `${dates[0]} → ${dates[dates.length - 1]}` : "No dates";

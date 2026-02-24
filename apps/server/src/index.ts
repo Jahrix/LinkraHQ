@@ -36,7 +36,8 @@ import {
   fetchLocalCommits,
   startGitWatcher,
   stopGitWatcher,
-  getGitHealth
+  getGitHealth,
+  isPathWithinWatchDirs
 } from "./gitScan.js";
 import { updateInsights, runInsightAction } from "./insights.js";
 import { runBackupNow, scheduleDailyBackups, getBackupDir } from "./backup.js";
@@ -196,6 +197,20 @@ app.post("/api/weekly/close", async (req, res) => {
   const review = generateWeeklyReview(getState(), weekStart);
   const next = getState();
   next.weeklyReviews = [review, ...next.weeklyReviews];
+  next.weeklySnapshots = [
+    {
+      id: crypto.randomUUID(),
+      weekStart: review.weekStart,
+      weekEnd: review.weekEnd,
+      data: {
+        review,
+        projects: next.projects,
+        goals: next.dailyGoalsByDate,
+        roadmapCards: next.roadmapCards
+      }
+    },
+    ...next.weeklySnapshots
+  ];
   const weekEnd = review.weekEnd;
   for (const entry of Object.values(next.dailyGoalsByDate)) {
     if (entry.date >= weekStart && entry.date <= weekEnd && !entry.archivedAt) {
@@ -220,23 +235,34 @@ app.post("/api/startup/create", (req, res) => {
 
 app.get("/api/git/repos", (req, res) => {
   const status = getScanStatus();
-  res.json({ repos: getState().localRepos, ...status });
+  res.json({
+    repos: getState().localRepos,
+    ...status,
+    lastScanAt: status.lastRunAt
+  });
 });
 
 app.get("/api/local-git/repos", (req, res) => {
   const status = getScanStatus();
-  res.json({ repos: getState().localRepos, ...status });
+  res.json({
+    repos: getState().localRepos,
+    ...status,
+    lastScanAt: status.lastRunAt
+  });
 });
 
 app.post("/api/git/scan", async (req, res) => {
-  const result = await runGitScanNow();
+  const { repoPath } = req.body as { repoPath?: string };
+  const result = await runGitScanNow(repoPath);
   await updateInsights(getState());
   res.json(result);
 });
 
 app.post("/api/local-git/scan", async (req, res) => {
-  const { repoPath } = req.body as { repoPath?: string };
-  const result = await runGitScanNow(repoPath);
+  const { repoId, repoPath } = req.body as { repoId?: string; repoPath?: string };
+  const repoFromId = repoId ? getState().localRepos.find((repo) => repo.id === repoId)?.path : null;
+  const targetPath = repoFromId ?? repoPath;
+  const result = await runGitScanNow(targetPath);
   await updateInsights(getState());
   res.json(result);
 });
@@ -247,11 +273,20 @@ app.post("/api/git/link", async (req, res) => {
     return res.status(400).json({ error: "projectId and repoPath required" });
   }
   const next = getState();
+  const watchDirs = next.userSettings.repoWatchDirs;
+  if (!isPathWithinWatchDirs(repoPath, watchDirs)) {
+    return res.status(400).json({ error: "repoPath must be inside configured watch directories" });
+  }
+  const knownRepo = next.localRepos.find((repo) => repo.path === repoPath);
+  if (!knownRepo) {
+    return res.status(404).json({ error: "Repository not found. Scan repos first." });
+  }
   const project = next.projects.find((item) => item.id === projectId);
   if (!project) {
     return res.status(404).json({ error: "Project not found" });
   }
   project.localRepoPath = repoPath;
+  project.updatedAt = new Date().toISOString();
   await saveState(next);
   const state = await updateInsights(getState());
   res.json({ state: attachGithubState(state, req) });
@@ -268,6 +303,7 @@ app.post("/api/git/unlink", async (req, res) => {
     return res.status(404).json({ error: "Project not found" });
   }
   project.localRepoPath = null;
+  project.updatedAt = new Date().toISOString();
   await saveState(next);
   const state = await updateInsights(getState());
   res.json({ state: attachGithubState(state, req) });
@@ -277,6 +313,10 @@ app.get("/api/git/commits", async (req, res) => {
   const { repoPath, limit = "10" } = req.query as Record<string, string>;
   if (!repoPath) {
     return res.status(400).json({ error: "repoPath required" });
+  }
+  const watchDirs = getState().userSettings.repoWatchDirs;
+  if (!isPathWithinWatchDirs(repoPath, watchDirs)) {
+    return res.status(400).json({ error: "repoPath must be inside configured watch directories" });
   }
   try {
     const commits = await fetchLocalCommits(repoPath, Number(limit) || 10);
@@ -297,6 +337,10 @@ app.get("/api/local-git/commits", async (req, res) => {
   if (!targetPath) {
     return res.status(400).json({ error: "repoId or repoPath required" });
   }
+  const watchDirs = getState().userSettings.repoWatchDirs;
+  if (!isPathWithinWatchDirs(targetPath, watchDirs)) {
+    return res.status(400).json({ error: "repo path must be inside configured watch directories" });
+  }
   try {
     const commits = await fetchLocalCommits(targetPath, Number(limit) || 10, since);
     res.json({ commits });
@@ -311,6 +355,9 @@ app.get("/api/local-git/health", (req, res) => {
 
 app.get("/api/local-git/status", (req, res) => {
   const { repoId, repoPath } = req.query as Record<string, string>;
+  if (!repoId && !repoPath) {
+    return res.json(getScanStatus());
+  }
   const repo = repoId
     ? getState().localRepos.find((r) => r.id === repoId)
     : repoPath

@@ -15,7 +15,7 @@ export default function RoadmapPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
-  const [project, setProject] = useState("");
+  const [projectId, setProjectId] = useState("");
 
   if (!state) return null;
 
@@ -45,7 +45,7 @@ export default function RoadmapPage() {
         .filter(Boolean),
       linkedRepo: null,
       dueDate: null,
-      project: project.trim() || null,
+      project: projectId || null,
       createdAt: now,
       updatedAt: now
     };
@@ -53,7 +53,7 @@ export default function RoadmapPage() {
     setTitle("");
     setDescription("");
     setTags("");
-    setProject("");
+    setProjectId("");
     await save(next);
   };
 
@@ -82,6 +82,9 @@ export default function RoadmapPage() {
     await navigator.clipboard.writeText(url);
   };
 
+  const activeProjects = state.projects.filter((project) => project.status !== "Archived");
+  const projectNameById = new Map(state.projects.map((project) => [project.id, project.name]));
+
   return (
     <div className="space-y-6">
       <div className="panel flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -107,7 +110,14 @@ export default function RoadmapPage() {
         </div>
         <div className="grid gap-2 md:grid-cols-2">
           <input className="input" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <input className="input" placeholder="Project" value={project} onChange={(e) => setProject(e.target.value)} />
+          <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <option value="">No linked project</option>
+            {activeProjects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
         </div>
         <textarea
           className="input"
@@ -158,7 +168,9 @@ export default function RoadmapPage() {
                     <button className="button-secondary" onClick={() => copyLink(card.id)}>
                       Copy Link
                     </button>
-                    {card.project && <span className="tag">{card.project}</span>}
+                    {card.project && (
+                      <span className="tag">{projectNameById.get(card.project) ?? card.project}</span>
+                    )}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {card.tags.map((tag) => (

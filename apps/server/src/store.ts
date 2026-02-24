@@ -30,6 +30,15 @@ const seedProjects = [
   { name: "Tools Lab", subtitle: "Internal tooling", color: "#14b8a6", icon: "🧪" }
 ];
 
+const VALID_PROJECT_STATUSES = new Set([
+  "Not Started",
+  "In Progress",
+  "Review",
+  "On Hold",
+  "Done",
+  "Archived"
+]);
+
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -77,10 +86,11 @@ function newProject({
   subtitle: string;
   color: string;
   icon: string;
-  status: "Not Started" | "In Progress" | "Review" | "On Hold" | "Done";
+  status: "Not Started" | "In Progress" | "Review" | "On Hold" | "Done" | "Archived";
   weeklyHours: number;
   githubRepo: string | null;
 }): Project {
+  const now = new Date().toISOString();
   return {
     id: nanoid(),
     name,
@@ -94,6 +104,9 @@ function newProject({
     remoteRepo: githubRepo,
     localRepoPath: null,
     healthScore: null,
+    archivedAt: status === "Archived" ? now : null,
+    createdAt: now,
+    updatedAt: now,
     tasks: [] as ProjectTask[]
   };
 }
@@ -216,7 +229,7 @@ function defaultState(): AppState {
         tags: ["linkra", "v0.1"],
         linkedRepo: null,
         dueDate: null,
-        project: seedProjects[0].name,
+        project: projects[0].id,
         createdAt: now,
         updatedAt: now
       },
@@ -228,7 +241,7 @@ function defaultState(): AppState {
         tags: ["oauth", "github"],
         linkedRepo: null,
         dueDate: null,
-        project: seedProjects[1].name,
+        project: projects[1].id,
         createdAt: now,
         updatedAt: now
       },
@@ -240,7 +253,7 @@ function defaultState(): AppState {
         tags: ["mobile"],
         linkedRepo: null,
         dueDate: null,
-        project: seedProjects[2].name,
+        project: projects[2].id,
         createdAt: now,
         updatedAt: now
       }
@@ -361,9 +374,13 @@ export function normalizeState(state: AppState): AppState {
     },
     projects: (state.projects || fallback.projects).map((project) => ({
       ...project,
+      status: VALID_PROJECT_STATUSES.has(project.status) ? project.status : "Not Started",
       remoteRepo: project.remoteRepo ?? project.githubRepo ?? null,
       localRepoPath: project.localRepoPath ?? null,
-      healthScore: project.healthScore ?? null
+      healthScore: project.healthScore ?? null,
+      archivedAt: project.status === "Archived" ? project.archivedAt ?? new Date().toISOString() : null,
+      createdAt: project.createdAt ?? state.metadata?.created_at ?? fallback.metadata.created_at,
+      updatedAt: project.updatedAt ?? new Date().toISOString()
     })),
     localRepos: dedupeLocalRepos(state.localRepos || fallback.localRepos),
     dailyGoalsByDate: state.dailyGoalsByDate || fallback.dailyGoalsByDate,

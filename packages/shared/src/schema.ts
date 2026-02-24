@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const DEFAULT_ACCENT = "#5DD8FF";
 export const STREAK_THRESHOLD = 5;
 
@@ -84,13 +84,18 @@ export const ProjectSchema = z.object({
   subtitle: z.string().default(""),
   icon: z.string().default("🧩"),
   color: z.string().default("#8b5cf6"),
-  status: z.enum(["Not Started", "In Progress", "Review", "On Hold", "Done"]).default("Not Started"),
+  status: z
+    .enum(["Not Started", "In Progress", "Review", "On Hold", "Done", "Archived"])
+    .default("Not Started"),
   progress: z.number().min(0).max(100).default(0),
   weeklyHours: z.number().min(0).default(0),
   githubRepo: z.string().nullable(),
   remoteRepo: z.string().nullable().default(null),
   localRepoPath: z.string().nullable().default(null),
   healthScore: z.number().min(0).max(100).nullable().default(null),
+  archivedAt: z.string().nullable().default(null),
+  createdAt: z.string(),
+  updatedAt: z.string(),
   tasks: z.array(ProjectTaskSchema).default([])
 });
 
@@ -196,10 +201,12 @@ export const SuggestedActionSchema = z.object({
     "CREATE_TASK",
     "SCHEDULE_FOCUS",
     "MOVE_ROADMAP_NOW",
+    "MOVE_ROADMAP_CARD",
     "COPY_REPO_PATH",
     "OPEN_REPO",
     "SNOOZE_1D",
     "SNOOZE_1W",
+    "DISMISS",
     "CREATE_JOURNAL"
   ]),
   label: z.string(),
@@ -241,6 +248,19 @@ export const WeeklyReviewSchema = z.object({
     journalCount: z.number(),
     streakDelta: z.number()
   }),
+  perProject: z
+    .array(
+      z.object({
+        projectId: z.string(),
+        projectName: z.string(),
+        tasksDone: z.number(),
+        tasksCreated: z.number(),
+        commitsCount: z.number(),
+        focusMinutes: z.number(),
+        journalCount: z.number()
+      })
+    )
+    .default([]),
   highlights: z.array(z.string()).default([]),
   markdown: z.string(),
   createdAt: z.string(),

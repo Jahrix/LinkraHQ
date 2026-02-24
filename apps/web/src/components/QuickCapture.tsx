@@ -8,6 +8,8 @@ export default function QuickCapture() {
   const { push } = useToast();
   const [type, setType] = useState<"note" | "task" | "roadmap" | "journal">("note");
   const [text, setText] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [journalType, setJournalType] = useState<"note" | "decision" | "blocker" | "next" | "idea">("note");
 
   if (!state) return null;
 
@@ -22,24 +24,45 @@ export default function QuickCapture() {
     ];
 
     if (type === "task") {
-      const key = todayKey();
-      const entry = next.dailyGoalsByDate[key];
-      if (entry) {
-        entry.goals = [
-          {
-            id: crypto.randomUUID(),
-            title: text.trim(),
-            category: "Quick",
-            points: 1,
-            done: false,
-            createdAt: now,
-            completedAt: null
-          },
-          ...entry.goals
-        ];
-        const metrics = computeGoalMetrics(entry.goals);
-        entry.completedPoints = metrics.completedPoints;
-        entry.score = metrics.score;
+      const activeProject =
+        next.projects.find((project) => project.id === projectId && project.status !== "Archived") ??
+        next.projects.find((project) => project.status !== "Archived");
+
+      if (activeProject) {
+        activeProject.tasks.unshift({
+          id: crypto.randomUUID(),
+          text: text.trim(),
+          done: false,
+          status: "todo",
+          dependsOnIds: [],
+          priority: "med",
+          dueDate: null,
+          milestone: null,
+          createdAt: now,
+          completedAt: null,
+          linkedCommit: null
+        });
+        activeProject.updatedAt = now;
+      } else {
+        const key = todayKey();
+        const entry = next.dailyGoalsByDate[key];
+        if (entry) {
+          entry.goals = [
+            {
+              id: crypto.randomUUID(),
+              title: text.trim(),
+              category: "Quick",
+              points: 1,
+              done: false,
+              createdAt: now,
+              completedAt: null
+            },
+            ...entry.goals
+          ];
+          const metrics = computeGoalMetrics(entry.goals);
+          entry.completedPoints = metrics.completedPoints;
+          entry.score = metrics.score;
+        }
       }
     }
 
@@ -52,7 +75,7 @@ export default function QuickCapture() {
         tags: [],
         linkedRepo: null,
         dueDate: null,
-        project: null,
+        project: projectId || null,
         createdAt: now,
         updatedAt: now
       };
@@ -63,9 +86,9 @@ export default function QuickCapture() {
       next.journalEntries = [
         {
           id: crypto.randomUUID(),
-          projectId: null,
+          projectId: projectId || null,
           ts: now,
-          type: "note",
+          type: journalType,
           title: null,
           body: text.trim(),
           links: {
@@ -96,12 +119,22 @@ export default function QuickCapture() {
         </div>
         <span className="badge">Instant</span>
       </div>
-      <div className="grid gap-2 md:grid-cols-[160px_1fr_auto]">
+      <div className="grid gap-2 md:grid-cols-[150px_190px_1fr_auto]">
         <select className="input" value={type} onChange={(event) => setType(event.target.value as any)}>
           <option value="note">Note</option>
           <option value="task">Task</option>
           <option value="roadmap">Roadmap</option>
           <option value="journal">Journal</option>
+        </select>
+        <select className="input" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+          <option value="">No project</option>
+          {state.projects
+            .filter((project) => project.status !== "Archived")
+            .map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
         </select>
         <input
           className="input"
@@ -113,6 +146,18 @@ export default function QuickCapture() {
           Add
         </button>
       </div>
+      {type === "journal" && (
+        <div className="grid gap-2 md:grid-cols-[200px_1fr]">
+          <select className="input" value={journalType} onChange={(event) => setJournalType(event.target.value as any)}>
+            <option value="note">Note</option>
+            <option value="decision">Decision</option>
+            <option value="blocker">Blocker</option>
+            <option value="next">Next</option>
+            <option value="idea">Idea</option>
+          </select>
+          <p className="text-xs text-white/50 self-center">Journal capture type</p>
+        </div>
+      )}
     </div>
   );
 }

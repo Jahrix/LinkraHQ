@@ -4,7 +4,7 @@ import { computeInsights } from "../src/insights";
 
 function baseState() {
   return AppStateSchema.parse({
-    metadata: { schema_version: 2, created_at: new Date().toISOString() },
+    metadata: { schema_version: 3, created_at: new Date().toISOString() },
     userSettings: {
       theme: "dark",
       accent: "#5DD8FF",
@@ -19,7 +19,7 @@ function baseState() {
       disabledInsightRules: [],
       enableDailyBackup: true,
       backupRetentionDays: 14,
-      schemaVersion: 2
+      schemaVersion: 3
     },
     projects: [
       {
@@ -32,12 +32,15 @@ function baseState() {
         progress: 0,
         weeklyHours: 5,
         githubRepo: null,
-        remoteRepo: null,
-        localRepoPath: "/tmp/repo-a",
-        healthScore: null,
-        tasks: []
-      }
-    ],
+          remoteRepo: null,
+          localRepoPath: "/tmp/repo-a",
+          healthScore: null,
+          archivedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          tasks: []
+        }
+      ],
     localRepos: [
       {
         id: "r1",
