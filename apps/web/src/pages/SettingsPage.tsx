@@ -3,11 +3,12 @@ import { SCHEMA_VERSION, applyMigrations, type ExportBundle, insightRules } from
 import { api } from "../lib/api";
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
-import { computeImportDiff } from "../lib/importDiff";
+import { computeImportDiff, type ImportDiffResult } from "../lib/importDiff";
 import { formatDate } from "../lib/date";
 
 interface ImportPreview {
   bundle: ExportBundle;
+  sourceSchemaVersion: number;
   counts: {
     projects: number;
     tasks: number;
@@ -15,14 +16,13 @@ interface ImportPreview {
     roadmap: number;
     logs: number;
     focus: number;
+    journal: number;
+    weeklyReviews: number;
+    weeklySnapshots: number;
+    localRepos: number;
     dateRange: string;
   };
-  diff: {
-    projects: { added: number; changed: number; removed: number };
-    tasks: { added: number; changed: number; removed: number };
-    roadmap: { added: number; changed: number; removed: number };
-    journal: { added: number; changed: number; removed: number };
-  };
+  diff: ImportDiffResult;
 }
 
 export default function SettingsPage() {
@@ -66,6 +66,7 @@ export default function SettingsPage() {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
+      const sourceSchemaVersion = typeof data?.schema_version === "number" ? data.schema_version : 1;
       const parsed = applyMigrations(data);
       const tasks = parsed.data.projects.reduce((sum, project) => sum + project.tasks.length, 0);
       const dates = Object.keys(parsed.data.dailyGoalsByDate).sort();
@@ -77,10 +78,14 @@ export default function SettingsPage() {
         roadmap: parsed.data.roadmapCards.length,
         logs: parsed.data.sessionLogs.length,
         focus: parsed.data.focusSessions.length,
+        journal: parsed.data.journalEntries.length,
+        weeklyReviews: parsed.data.weeklyReviews.length,
+        weeklySnapshots: parsed.data.weeklySnapshots.length,
+        localRepos: parsed.data.localRepos.length,
         dateRange
       };
       const diff = computeImportDiff(state, parsed.data);
-      setPreview({ bundle: parsed, counts, diff });
+      setPreview({ bundle: parsed, counts, diff, sourceSchemaVersion });
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Invalid JSON schema");
       setPreview(null);
@@ -413,19 +418,34 @@ export default function SettingsPage() {
             <div>
               <h4 className="text-base font-semibold">Import Preview</h4>
               <p className="text-sm text-white/60">
-                Schema {preview.bundle.schema_version} → {SCHEMA_VERSION}
+                Schema {preview.sourceSchemaVersion} → {SCHEMA_VERSION}
               </p>
             </div>
+            {preview.sourceSchemaVersion !== SCHEMA_VERSION && (
+              <div className="rounded-lg border border-amber-300/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+                Older export detected. Linkra will import the migrated v{SCHEMA_VERSION} shape shown below.
+              </div>
+            )}
             <div className="table">
               <div className="table-row">Projects: {preview.counts.projects}</div>
               <div className="table-row">Tasks: {preview.counts.tasks}</div>
               <div className="table-row">Goals: {preview.counts.goals}</div>
               <div className="table-row">Roadmap cards: {preview.counts.roadmap}</div>
+              <div className="table-row">Journal entries: {preview.counts.journal}</div>
               <div className="table-row">Session logs: {preview.counts.logs}</div>
               <div className="table-row">Focus sessions: {preview.counts.focus}</div>
+              <div className="table-row">Weekly reviews: {preview.counts.weeklyReviews}</div>
+              <div className="table-row">Weekly snapshots: {preview.counts.weeklySnapshots}</div>
+              <div className="table-row">Local repos: {preview.counts.localRepos}</div>
               <div className="table-row">Date range: {preview.counts.dateRange}</div>
             </div>
             <div className="table">
+              <div className="table-row">
+                Summary Δ: +{preview.diff.summary.additions} / ~{preview.diff.summary.changes} / -{preview.diff.summary.removals}
+              </div>
+              <div className="table-row">
+                Conflicts on merge: {preview.diff.summary.conflicts}
+              </div>
               <div className="table-row">
                 Projects Δ: +{preview.diff.projects.added} / ~{preview.diff.projects.changed} / -{preview.diff.projects.removed}
               </div>
@@ -438,7 +458,23 @@ export default function SettingsPage() {
               <div className="table-row">
                 Journal Δ: +{preview.diff.journal.added} / ~{preview.diff.journal.changed} / -{preview.diff.journal.removed}
               </div>
+              <div className="table-row">
+                Weekly reviews Δ: +{preview.diff.weeklyReviews.added} / ~{preview.diff.weeklyReviews.changed} / -{preview.diff.weeklyReviews.removed}
+              </div>
+              <div className="table-row">
+                Weekly snapshots Δ: +{preview.diff.weeklySnapshots.added} / ~{preview.diff.weeklySnapshots.changed} / -{preview.diff.weeklySnapshots.removed}
+              </div>
             </div>
+            {preview.diff.warnings.length > 0 && (
+              <div className="rounded-lg border border-amber-300/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+                <div className="font-medium">Warnings</div>
+                <div className="mt-2 grid gap-2">
+                  {preview.diff.warnings.map((warning) => (
+                    <div key={warning}>{warning}</div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="filter-row">
               <button className="button-primary" onClick={() => applyImport("replace")}>
                 Replace All
@@ -449,6 +485,17 @@ export default function SettingsPage() {
               <button className="button-secondary" onClick={() => applyImport("merge_overwrite")}>
                 Merge (Overwrite)
               </button>
+            </div>
+            <div className="grid gap-2 text-sm text-white/60 md:grid-cols-3">
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                Replace All swaps your local state for the imported file.
+              </div>
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                Merge (Keep Local) adds missing items and keeps your current copy for {preview.diff.summary.conflicts} conflicts.
+              </div>
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                Merge (Overwrite) adds missing items and replaces your current copy for {preview.diff.summary.conflicts} conflicts.
+              </div>
             </div>
           </div>
         )}

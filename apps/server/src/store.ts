@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import {
   AppState,
   AppStateSchema,
@@ -401,11 +402,28 @@ export function normalizeState(state: AppState): AppState {
 }
 
 function normalizeRepoPath(repoPath: string) {
-  try {
-    return fs.realpathSync.native(repoPath);
-  } catch {
-    return path.resolve(repoPath);
+  const resolvedPath = path.resolve(repoPath);
+  const suffix: string[] = [];
+  let current = resolvedPath;
+
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return resolvedPath;
+    }
+    suffix.unshift(path.basename(current));
+    current = parent;
   }
+
+  try {
+    return path.join(fs.realpathSync.native(current), ...suffix);
+  } catch {
+    return resolvedPath;
+  }
+}
+
+function stableRepoId(repoPath: string) {
+  return crypto.createHash("sha1").update(normalizeRepoPath(repoPath)).digest("hex");
 }
 
 function scanTime(scannedAt: string | null) {
@@ -415,22 +433,18 @@ function scanTime(scannedAt: string | null) {
 }
 
 function dedupeLocalRepos(repos: AppState["localRepos"]) {
-  const map = new Map<string, (typeof repos)[number]>();
+  const byPath = new Map<string, (typeof repos)[number]>();
   for (const repo of repos) {
     const normalizedPath = normalizeRepoPath(repo.path);
-    const key = `${repo.id}:${normalizedPath}`;
-    const candidate = { ...repo, path: normalizedPath };
-    const existing = map.get(key);
+    const candidate = {
+      ...repo,
+      id: stableRepoId(normalizedPath),
+      path: normalizedPath,
+      watchDir: repo.watchDir ? normalizeRepoPath(repo.watchDir) : null
+    };
+    const existing = byPath.get(normalizedPath);
     if (!existing || scanTime(candidate.scannedAt) >= scanTime(existing.scannedAt)) {
-      map.set(key, candidate);
-    }
-  }
-
-  const byPath = new Map<string, (typeof repos)[number]>();
-  for (const repo of map.values()) {
-    const existing = byPath.get(repo.path);
-    if (!existing || scanTime(repo.scannedAt) >= scanTime(existing.scannedAt)) {
-      byPath.set(repo.path, repo);
+      byPath.set(normalizedPath, candidate);
     }
   }
   return Array.from(byPath.values());

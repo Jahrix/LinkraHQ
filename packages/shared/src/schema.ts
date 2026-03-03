@@ -237,27 +237,30 @@ export const WeeklyReviewSchema = z.object({
   id: z.string(),
   weekStart: z.string(),
   weekEnd: z.string(),
-  stats: z.object({
-    goalsCompleted: z.number(),
-    points: z.number(),
-    tasksDone: z.number(),
-    tasksCreated: z.number(),
-    roadmapMoved: z.number(),
-    commitsCount: z.number(),
-    focusMinutes: z.number(),
-    journalCount: z.number(),
-    streakDelta: z.number()
-  }),
+  stats: z
+    .object({
+      goalsCompleted: z.number().default(0),
+      points: z.number().default(0),
+      tasksDone: z.number().default(0),
+      tasksCreated: z.number().default(0),
+      roadmapMoved: z.number().default(0),
+      commitsCount: z.number().default(0),
+      focusMinutes: z.number().default(0),
+      journalCount: z.number().default(0),
+      streakDelta: z.number().default(0)
+    })
+    .default({}),
   perProject: z
     .array(
       z.object({
         projectId: z.string(),
         projectName: z.string(),
-        tasksDone: z.number(),
-        tasksCreated: z.number(),
-        commitsCount: z.number(),
-        focusMinutes: z.number(),
-        journalCount: z.number()
+        tasksDone: z.number().default(0),
+        tasksCreated: z.number().default(0),
+        commitsCount: z.number().default(0),
+        focusMinutes: z.number().default(0),
+        journalCount: z.number().default(0),
+        roadmapMoved: z.number().default(0)
       })
     )
     .default([]),
@@ -273,7 +276,7 @@ export const WeekSnapshotSchema = z.object({
   id: z.string(),
   weekStart: z.string(),
   weekEnd: z.string(),
-  data: z.record(z.any())
+  data: z.record(z.any()).default({})
 });
 
 export type WeekSnapshot = z.infer<typeof WeekSnapshotSchema>;
@@ -285,12 +288,14 @@ export const JournalEntrySchema = z.object({
   type: z.enum(["note", "decision", "blocker", "next", "idea"]),
   title: z.string().nullable().default(null),
   body: z.string(),
-  links: z.object({
-    taskIds: z.array(z.string()).default([]),
-    roadmapCardIds: z.array(z.string()).default([]),
-    repoIds: z.array(z.string()).default([]),
-    commitShas: z.array(z.string()).default([])
-  }),
+  links: z
+    .object({
+      taskIds: z.array(z.string()).default([]),
+      roadmapCardIds: z.array(z.string()).default([]),
+      repoIds: z.array(z.string()).default([]),
+      commitShas: z.array(z.string()).default([])
+    })
+    .default({}),
   tags: z.array(z.string()).default([]),
   createdAt: z.string(),
   updatedAt: z.string()

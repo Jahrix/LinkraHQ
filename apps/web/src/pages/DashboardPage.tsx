@@ -7,7 +7,8 @@ import {
   type Project,
   type ProjectTask,
   type RoadmapCard,
-  type RoadmapLane
+  type RoadmapLane,
+  type SuggestedAction
 } from "@linkra/shared";
 import { useAppState } from "../lib/state";
 import ProgressRing from "../components/ProgressRing";
@@ -18,14 +19,16 @@ import GlassPanel from "../components/GlassPanel";
 import SectionHeader from "../components/SectionHeader";
 import Pill from "../components/Pill";
 import Modal from "../components/Modal";
-import EmojiPicker, { rememberRecentEmoji } from "../components/EmojiPicker";
+import EmojiPicker from "../components/EmojiPicker";
+import ProjectJournalPanel from "../components/ProjectJournalPanel";
 import { api } from "../lib/api";
 import { useToast } from "../lib/toast";
 import { computeTodayPlan, isTaskBlocked } from "../lib/taskRules";
 import { formatDate } from "../lib/date";
+import { dedupeById, dedupeLocalRepos } from "../lib/collections";
 
-const tabs = ["Tasks", "Roadmap", "GitHub", "Journal", "Settings"];
-const uiStatuses = ["Not Started", "In Progress", "Done", "Archived"] as const;
+const tabs = ["Tasks", "Roadmap", "GitHub", "Journal", "Project Settings"];
+const uiStatuses = ["Not Started", "In Progress", "Review", "On Hold", "Done", "Archived"] as const;
 type UiProjectStatus = (typeof uiStatuses)[number];
 
 type InsightGroup = {
@@ -37,6 +40,7 @@ type InsightGroup = {
   reason: string;
   severity: "info" | "warn" | "crit";
   items: Insight[];
+  actions: SuggestedAction[];
 };
 
 type ProjectDraft = {
@@ -49,27 +53,16 @@ type ProjectDraft = {
   githubRepo: string;
 };
 
-type JournalDraft = {
-  type: "note" | "decision" | "blocker" | "next" | "idea";
-  title: string;
-  body: string;
-  tags: string;
-  taskIds: string[];
-  roadmapCardIds: string[];
-  commitShas: string;
-};
-
-const emptyJournalDraft: JournalDraft = {
-  type: "note",
-  title: "",
-  body: "",
-  tags: "",
-  taskIds: [],
-  roadmapCardIds: [],
-  commitShas: ""
-};
-
 const projectColors = ["#5DD8FF", "#78E3A4", "#F9A8D4", "#F59E0B", "#60A5FA", "#A78BFA", "#22D3EE"];
+const defaultProjectDraft: ProjectDraft = {
+  emoji: "🚀",
+  name: "",
+  subtitle: "",
+  status: "Not Started",
+  weeklyHours: 6,
+  localRepoPath: "",
+  githubRepo: ""
+};
 
 export default function DashboardPage() {
   const { state, save, refresh } = useAppState();
@@ -79,17 +72,8 @@ export default function DashboardPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [openProjectMenu, setOpenProjectMenu] = useState<string | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
-  const [projectModalMode, setProjectModalMode] = useState<"create" | "edit">("create");
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
-  const [projectDraft, setProjectDraft] = useState<ProjectDraft>({
-    emoji: "🚀",
-    name: "",
-    subtitle: "",
-    status: "Not Started",
-    weeklyHours: 6,
-    localRepoPath: "",
-    githubRepo: ""
-  });
+  const [projectDraft, setProjectDraft] = useState<ProjectDraft>(defaultProjectDraft);
+  const [projectSettingsDraft, setProjectSettingsDraft] = useState<ProjectDraft>(defaultProjectDraft);
 
   const [taskText, setTaskText] = useState("");
   const [taskDue, setTaskDue] = useState("");
@@ -105,11 +89,6 @@ export default function DashboardPage() {
   const [todayPlanDraft, setTodayPlanDraft] = useState<string[]>([]);
   const [todayPlanNotes, setTodayPlanNotes] = useState("");
   const [todayTaskQuery, setTodayTaskQuery] = useState("");
-
-  const [journalQuery, setJournalQuery] = useState("");
-  const [journalModalOpen, setJournalModalOpen] = useState(false);
-  const [editingJournalId, setEditingJournalId] = useState<string | null>(null);
-  const [journalDraft, setJournalDraft] = useState<JournalDraft>(emptyJournalDraft);
 
   const duplicateWarnings = useRef(new Set<string>());
 
@@ -165,7 +144,7 @@ export default function DashboardPage() {
     return true;
   });
 
-  const groupedInsights = groupInsights(filteredInsights);
+  const groupedInsights = useMemo(() => groupInsights(filteredInsights), [filteredInsights]);
 
   const filteredRoadmap = state.roadmapCards.filter((card) =>
     isRoadmapCardForProject(card, selectedProject, projects)
@@ -187,12 +166,33 @@ export default function DashboardPage() {
   const tasksProgress = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   const todayPlan = state.todayPlanByDate?.[todayKey()] ?? null;
+  const selectedProjectTaskDone = selectedTasks.filter((task) => task.done).length;
+  const selectedProjectTaskProgress = selectedTasks.length
+    ? Math.round((selectedProjectTaskDone / selectedTasks.length) * 100)
+    : selectedProject?.progress ?? 0;
+  const selectedProjectRepo = selectedProject?.localRepoPath ? repoByPath.get(selectedProject.localRepoPath) ?? null : null;
+  const selectedProjectBudgetShare =
+    selectedProject && totalHours ? Math.round((selectedProject.weeklyHours / totalHours) * 100) : 0;
+  const visibleInsightCount = groupedInsights.length;
+
+  const allTaskLookup = new Map(
+    projects.flatMap((project) =>
+      dedupeById(project.tasks).items.map((task) => [
+        task.id,
+        {
+          project,
+          task
+        }
+      ] as const)
+    )
+  );
 
   const availableTodayTasks = visibleProjects.flatMap((project) =>
     dedupeById(project.tasks)
       .items.filter((task) => !task.done)
       .map((task) => ({
         id: task.id,
+        projectId: project.id,
         text: task.text,
         projectName: project.name,
         priority: task.priority,
@@ -205,16 +205,6 @@ export default function DashboardPage() {
       !todayPlanDraft.includes(task.id) &&
       `${task.projectName} ${task.text}`.toLowerCase().includes(todayTaskQuery.toLowerCase())
   );
-
-  const projectJournalEntries = dedupeById(state.journalEntries)
-    .items.filter((entry) => entry.projectId === selectedProject?.id)
-    .filter((entry) => {
-      const query = journalQuery.trim().toLowerCase();
-      if (!query) return true;
-      const text = `${entry.type} ${entry.title ?? ""} ${entry.body} ${(entry.tags ?? []).join(" ")}`.toLowerCase();
-      return text.includes(query);
-    })
-    .sort((a, b) => (a.ts < b.ts ? 1 : -1));
 
   useEffect(() => {
     if (!selectedId && visibleProjects[0]) {
@@ -230,12 +220,28 @@ export default function DashboardPage() {
   }, [selectedId, visibleProjects, projects, showArchived]);
 
   useEffect(() => {
-    setRemoteRepoInput(selectedProject?.remoteRepo ?? selectedProject?.githubRepo ?? "");
-    setLocalRepoInput(selectedProject?.localRepoPath ?? "");
     setCommitFeed([]);
     setLocalCommitFeed([]);
-    setActiveTab("Tasks");
   }, [selectedProject?.id]);
+
+  useEffect(() => {
+    setRemoteRepoInput(selectedProject?.remoteRepo ?? selectedProject?.githubRepo ?? "");
+    setLocalRepoInput(selectedProject?.localRepoPath ?? "");
+  }, [selectedProject?.id, selectedProject?.remoteRepo, selectedProject?.githubRepo, selectedProject?.localRepoPath]);
+
+  useEffect(() => {
+    setProjectSettingsDraft(selectedProject ? projectToDraft(selectedProject) : defaultProjectDraft);
+  }, [
+    selectedProject?.id,
+    selectedProject?.name,
+    selectedProject?.subtitle,
+    selectedProject?.icon,
+    selectedProject?.status,
+    selectedProject?.weeklyHours,
+    selectedProject?.localRepoPath,
+    selectedProject?.githubRepo,
+    selectedProject?.remoteRepo
+  ]);
 
   useEffect(() => {
     setTodayPlanDraft(state.todayPlanByDate?.[todayKey()]?.taskIds ?? []);
@@ -256,104 +262,73 @@ export default function DashboardPage() {
   }, [dedupedProjects.duplicates, dedupedLocalRepos.duplicates, push]);
 
   const openCreateProjectModal = () => {
-    setProjectModalMode("create");
-    setEditingProjectId(null);
-    setProjectDraft({
-      emoji: "🚀",
-      name: "",
-      subtitle: "",
-      status: "Not Started",
-      weeklyHours: 6,
-      localRepoPath: "",
-      githubRepo: ""
-    });
+    setProjectDraft(defaultProjectDraft);
+    setOpenProjectMenu(null);
     setProjectModalOpen(true);
   };
 
-  const openEditProjectModal = (project: Project) => {
-    setProjectModalMode("edit");
-    setEditingProjectId(project.id);
-    setProjectDraft({
-      emoji: project.icon,
-      name: project.name,
-      subtitle: project.subtitle,
-      status: toUiStatus(project.status),
-      weeklyHours: project.weeklyHours,
-      localRepoPath: project.localRepoPath ?? "",
-      githubRepo: project.githubRepo ?? project.remoteRepo ?? ""
-    });
-    setProjectModalOpen(true);
+  const openProjectSettings = (project: Project) => {
+    setSelectedId(project.id);
+    setProjectSettingsDraft(projectToDraft(project));
+    setActiveTab("Project Settings");
     setOpenProjectMenu(null);
   };
 
-  const saveProjectDraft = async () => {
+  const saveNewProject = async () => {
     if (!projectDraft.name.trim()) {
       push("Project name is required.", "error");
       return;
     }
 
-    rememberRecentEmoji(projectDraft.emoji);
     const next = { ...state };
-    const nowIso = new Date().toISOString();
-
-    if (projectModalMode === "create") {
-      const id = crypto.randomUUID();
-      next.projects.unshift({
-        id,
-        name: projectDraft.name.trim(),
-        subtitle: projectDraft.subtitle.trim(),
-        icon: projectDraft.emoji,
-        color: projectColors[next.projects.length % projectColors.length],
-        status: toPersistedStatus(projectDraft.status),
-        progress: 0,
-        weeklyHours: Math.max(0, Math.min(40, Number(projectDraft.weeklyHours) || 0)),
-        githubRepo: projectDraft.githubRepo.trim() || null,
-        remoteRepo: projectDraft.githubRepo.trim() || null,
-        localRepoPath: projectDraft.localRepoPath || null,
-        healthScore: null,
-        archivedAt: projectDraft.status === "Archived" ? nowIso : null,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        tasks: []
-      } as Project);
-      setSelectedId(id);
-      push("Project created.", "success");
-    } else if (editingProjectId) {
-      const project = next.projects.find((item) => item.id === editingProjectId);
-      if (!project) return;
-      const previousName = project.name;
-      project.name = projectDraft.name.trim();
-      project.subtitle = projectDraft.subtitle.trim();
-      project.icon = projectDraft.emoji;
-      project.status = toPersistedStatus(projectDraft.status);
-      project.weeklyHours = Math.max(0, Math.min(40, Number(projectDraft.weeklyHours) || 0));
-      project.githubRepo = projectDraft.githubRepo.trim() || null;
-      project.remoteRepo = projectDraft.githubRepo.trim() || null;
-      project.localRepoPath = projectDraft.localRepoPath || null;
-      (project as any).updatedAt = nowIso;
-
-      next.roadmapCards = next.roadmapCards.map((card) => {
-        if (!card.project) return card;
-        if (card.project === previousName) {
-          return { ...card, project: project.id, updatedAt: nowIso };
-        }
-        return card;
-      });
-      push("Project updated.", "success");
-    }
+    const created = createProjectFromDraft(
+      projectDraft,
+      projectColors[next.projects.length % projectColors.length] ?? projectColors[0]
+    );
+    next.projects.unshift(created);
 
     await save(next);
+    setSelectedId(created.id);
+    setActiveTab("Tasks");
     setProjectModalOpen(false);
+    setProjectDraft(defaultProjectDraft);
+    push("Project created.", "success");
+  };
+
+  const saveProjectSettings = async () => {
+    if (!selectedProject) return;
+    if (!projectSettingsDraft.name.trim()) {
+      push("Project name is required.", "error");
+      return;
+    }
+
+    const next = { ...state };
+    const project = next.projects.find((item) => item.id === selectedProject.id);
+    if (!project) return;
+
+    const previousName = project.name;
+    applyProjectDraftToProject(project, projectSettingsDraft);
+    next.roadmapCards = normalizeRoadmapProjectRefs(next.roadmapCards, project, [previousName]);
+
+    await save(next);
+    setProjectSettingsDraft(projectToDraft(project));
+    push("Project updated.", "success");
   };
 
   const setProjectArchived = async (projectId: string, archived: boolean) => {
     const next = { ...state };
     const project = next.projects.find((item) => item.id === projectId);
     if (!project) return;
-    project.status = archived ? "Archived" : "In Progress";
-    project.archivedAt = archived ? new Date().toISOString() : null;
-    project.updatedAt = new Date().toISOString();
+    const nextStatus = archived ? "Archived" : "In Progress";
+    applyProjectDraftToProject(project, {
+      ...projectToDraft(project),
+      status: nextStatus
+    });
+    next.roadmapCards = normalizeRoadmapProjectRefs(next.roadmapCards, project);
     await save(next);
+    if (selectedProject?.id === projectId) {
+      setProjectSettingsDraft(projectToDraft(project));
+    }
     push(archived ? "Project archived." : "Project restored.", "success");
     setOpenProjectMenu(null);
   };
@@ -362,6 +337,9 @@ export default function DashboardPage() {
     const confirmed = window.confirm("Delete this project permanently? This cannot be undone.");
     if (!confirmed) return;
     const next = { ...state };
+    const deletedTaskIds = new Set(
+      next.projects.find((project) => project.id === projectId)?.tasks.map((task) => task.id) ?? []
+    );
     next.projects = next.projects.filter((project) => project.id !== projectId);
     next.journalEntries = next.journalEntries.map((entry) =>
       entry.projectId === projectId ? { ...entry, projectId: null } : entry
@@ -371,6 +349,15 @@ export default function DashboardPage() {
     );
     next.roadmapCards = next.roadmapCards.map((card) =>
       card.project === projectId ? { ...card, project: null } : card
+    );
+    next.todayPlanByDate = Object.fromEntries(
+      Object.entries(next.todayPlanByDate).map(([date, plan]) => [
+        date,
+        {
+          ...plan,
+          taskIds: plan.taskIds.filter((taskId) => !deletedTaskIds.has(taskId))
+        }
+      ])
     );
     await save(next);
     if (selectedId === projectId) setSelectedId(null);
@@ -578,31 +565,50 @@ export default function DashboardPage() {
 
   const generateAutoPlan = () => {
     const taskList = visibleProjects.flatMap((project) =>
-      dedupeById(project.tasks).items.map((task) => ({ task, projectName: project.name }))
+      dedupeById(project.tasks).items.map((task) => ({
+        task,
+        projectId: project.id,
+        projectName: project.name,
+        weeklyHours: project.weeklyHours,
+        projectTaskList: project.tasks
+      }))
     );
-    const boostProjectNames = new Set<string>();
+    const roadmapNowProjectIds = new Set<string>();
+    const roadmapNowTaskIds = new Set<string>();
+    const insightProjectIds = new Set<string>();
 
     state.roadmapCards
       .filter((card) => card.lane === "now")
       .forEach((card) => {
         const mapped = resolveRoadmapProject(card.project, projects);
         if (mapped && (showArchived || !isArchivedProject(mapped))) {
-          boostProjectNames.add(mapped.name);
+          roadmapNowProjectIds.add(mapped.id);
+        }
+        const normalizedTitle = card.title.trim().toLowerCase();
+        if (!normalizedTitle) return;
+        for (const project of visibleProjects) {
+          const match = dedupeById(project.tasks).items.find((task) => task.text.trim().toLowerCase() === normalizedTitle);
+          if (match) {
+            roadmapNowTaskIds.add(match.id);
+          }
         }
       });
 
-    filteredInsights
+    activeInsights
       .filter((insight) => insight.projectId)
       .forEach((insight) => {
         const project = projects.find((item) => item.id === insight.projectId);
         if (project && (showArchived || !isArchivedProject(project))) {
-          boostProjectNames.add(project.name);
+          insightProjectIds.add(project.id);
         }
       });
 
     return computeTodayPlan(taskList, {
-      boostProjectNames: Array.from(boostProjectNames),
-      maxTasks: 6
+      boostProjectIds: Array.from(new Set([...roadmapNowProjectIds, ...insightProjectIds])),
+      roadmapNowProjectIds: Array.from(roadmapNowProjectIds),
+      roadmapNowTaskIds: Array.from(roadmapNowTaskIds),
+      insightProjectIds: Array.from(insightProjectIds),
+      maxTasks: 5
     });
   };
 
@@ -638,39 +644,59 @@ export default function DashboardPage() {
   };
 
   const addPlanItem = (taskId: string) => {
-    setTodayPlanDraft((prev) => [...prev, taskId]);
+    setTodayPlanDraft((prev) => {
+      if (prev.includes(taskId) || prev.length >= 7) return prev;
+      return [...prev, taskId];
+    });
     setTodayTaskQuery("");
   };
 
-  const startFocus = () => {
-    push("Action requires server support: /api/tools/focus/start", "warning");
+  const startFocus = async (taskId: string) => {
+    const entry = allTaskLookup.get(taskId);
+    if (!entry) {
+      push("Task no longer exists.", "warning");
+      return;
+    }
+
+    const next = { ...state };
+    next.focusSessions.unshift({
+      id: crypto.randomUUID(),
+      startedAt: new Date().toISOString(),
+      durationMinutes: 45,
+      completedAt: null,
+      planned: false,
+      projectId: entry.project.id,
+      reason: entry.task.text
+    });
+    await save(next);
+    push(`Focus started for ${entry.project.name}. Timer UI is still stubbed.`, "success");
   };
 
   const saveTodayPlan = async () => {
-    await persistTodayPlan(todayPlanDraft, "manual");
+    const dedupedTaskIds = Array.from(new Set(todayPlanDraft)).filter((taskId) => allTaskLookup.has(taskId)).slice(0, 7);
+    setTodayPlanDraft(dedupedTaskIds);
+    await persistTodayPlan(dedupedTaskIds, "manual");
   };
 
-  const runInsightAction = async (group: InsightGroup, action: "task" | "focus" | "move-now" | "open" | "copy" | "snooze-1d" | "snooze-1w") => {
+  const applyInsightActionLocally = async (group: InsightGroup, action: SuggestedAction) => {
     const next = { ...state };
 
-    if (action === "task") {
-      const targetProjectId = group.projectId ?? selectedProject?.id ?? null;
+    if (action.type === "CREATE_TASK") {
+      const targetProjectId = action.payload.projectId ?? group.projectId ?? selectedProject?.id ?? null;
       if (!targetProjectId) {
-        push("Action requires server support: /api/insights/action", "warning");
-        return;
+        return false;
       }
       const project = next.projects.find((candidate) => candidate.id === targetProjectId);
       if (!project) {
-        push("Action requires server support: /api/insights/action", "warning");
-        return;
+        return false;
       }
       project.tasks.unshift({
         id: crypto.randomUUID(),
-        text: `Follow up: ${group.title}`,
+        text: String(action.payload.title ?? `Follow up: ${group.title}`),
         done: false,
         status: "todo",
         dependsOnIds: [],
-        priority: "high",
+        priority: "med",
         dueDate: null,
         milestone: null,
         createdAt: new Date().toISOString(),
@@ -678,177 +704,173 @@ export default function DashboardPage() {
         linkedCommit: null
       });
       await save(next);
-      push("Task created.", "success");
-      return;
+      return true;
     }
 
-    if (action === "focus") {
+    if (action.type === "SCHEDULE_FOCUS") {
       next.focusSessions.unshift({
         id: crypto.randomUUID(),
         startedAt: new Date().toISOString(),
-        durationMinutes: 45,
+        durationMinutes: Math.max(15, Number(action.payload.minutes ?? 45)),
         completedAt: null,
         planned: true,
-        projectId: group.projectId,
-        reason: group.title
+        projectId: action.payload.projectId ?? group.projectId ?? null,
+        reason: String(action.payload.reason ?? group.title)
       });
       await save(next);
-      push("Focus session scheduled.", "success");
-      return;
+      return true;
     }
 
-    if (action === "move-now") {
-      const project = group.projectId ? next.projects.find((candidate) => candidate.id === group.projectId) : null;
-      const card = next.roadmapCards.find(
-        (item) => item.lane !== "now" && (!project || isRoadmapCardForProject(item, project, next.projects))
-      );
+    if (action.type === "MOVE_ROADMAP_NOW" || action.type === "MOVE_ROADMAP_CARD") {
+      const projectId = action.payload.projectId ?? group.projectId ?? selectedProject?.id ?? null;
+      const project = projectId ? next.projects.find((candidate) => candidate.id === projectId) : null;
+      const lane = action.type === "MOVE_ROADMAP_CARD" ? String(action.payload.lane ?? "now") : "now";
+      const card =
+        next.roadmapCards.find((item) => item.id === action.payload.cardId) ??
+        next.roadmapCards.find(
+          (item) => item.lane !== lane && (!project || isRoadmapCardForProject(item, project, next.projects))
+        );
       if (!card) {
-        push("No roadmap card available to move.", "warning");
-        return;
+        return false;
       }
-      card.lane = "now";
+      card.lane = lane as RoadmapLane;
       card.updatedAt = new Date().toISOString();
       await save(next);
-      push("Roadmap card moved to Now.", "success");
-      return;
+      return true;
     }
 
-    if (action === "copy") {
-      const path = resolveRepoPath(group, selectedProject, repoById, repoByPath);
+    if (action.type === "CREATE_JOURNAL") {
+      const nowIso = new Date().toISOString();
+      next.journalEntries.unshift({
+        id: crypto.randomUUID(),
+        projectId: action.payload.projectId ?? group.projectId ?? null,
+        ts: nowIso,
+        type: action.payload.entryType ?? "note",
+        title: action.payload.title ?? group.title,
+        body: action.payload.body ?? group.reason,
+        links: {
+          taskIds: [],
+          roadmapCardIds: [],
+          repoIds: group.repoId ? [group.repoId] : [],
+          commitShas: []
+        },
+        tags: ["insight"],
+        createdAt: nowIso,
+        updatedAt: nowIso
+      });
+      await save(next);
+      return true;
+    }
+
+    if (action.type === "COPY_REPO_PATH") {
+      const path = action.payload.repoPath ?? resolveRepoPath(group, selectedProject, repoById, repoByPath);
       if (!path) {
-        push("No repo path available for this insight.", "warning");
-        return;
+        return false;
+      }
+      if (!navigator.clipboard?.writeText) {
+        return false;
       }
       await navigator.clipboard.writeText(path);
-      push("Repo path copied.", "success");
+      return true;
+    }
+
+    if (action.type === "OPEN_REPO") {
+      return false;
+    }
+
+    if (action.type === "SNOOZE_1D" || action.type === "SNOOZE_1W") {
+      const days = action.type === "SNOOZE_1D" ? 1 : 7;
+      const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+      next.insights = next.insights.map((insight) =>
+        group.items.find((item) => item.id === insight.id)
+          ? { ...insight, dismissedUntil: until, updatedAt: new Date().toISOString() }
+          : insight
+      );
+      await save(next);
+      return true;
+    }
+
+    return false;
+  };
+
+  const runInsightAction = async (group: InsightGroup, action: SuggestedAction) => {
+    if (action.type === "COPY_REPO_PATH" || action.type === "SNOOZE_1D" || action.type === "SNOOZE_1W") {
+      try {
+        const applied = await applyInsightActionLocally(group, action);
+        if (!applied) {
+          push(
+            action.type === "COPY_REPO_PATH" ? "No repo path available for this insight." : "Could not update this insight.",
+            "warning"
+          );
+          return;
+        }
+        push(successMessageForInsightAction(action.type), "success");
+      } catch (err) {
+        push(err instanceof Error ? err.message : "Insight action failed.", "warning");
+      }
       return;
     }
 
-    if (action === "open") {
-      push("Action requires server support: /api/local-git/open", "warning");
-      return;
+    try {
+      await api.insightAction(action);
+      await refresh();
+      push(successMessageForInsightAction(action.type), "success");
+    } catch {
+      const applied = await applyInsightActionLocally(group, action);
+      if (applied) {
+        push(`${successMessageForInsightAction(action.type)} API unavailable, applied locally.`, "warning");
+        return;
+      }
+      push(`Action unavailable in this build: ${action.label}.`, "warning");
     }
-
-    const days = action === "snooze-1d" ? 1 : 7;
-    const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    next.insights = next.insights.map((insight) =>
-      group.items.find((item) => item.id === insight.id)
-        ? { ...insight, dismissedUntil: until, updatedAt: new Date().toISOString() }
-        : insight
-    );
-    await save(next);
-    push(days === 1 ? "Insight snoozed for 1 day." : "Insight snoozed for 1 week.", "success");
-  };
-
-  const openCreateJournalModal = () => {
-    setEditingJournalId(null);
-    setJournalDraft(emptyJournalDraft);
-    setJournalModalOpen(true);
-  };
-
-  const openEditJournalModal = (entry: (typeof state.journalEntries)[number]) => {
-    setEditingJournalId(entry.id);
-    setJournalDraft({
-      type: entry.type,
-      title: entry.title ?? "",
-      body: entry.body,
-      tags: (entry.tags ?? []).join(", "),
-      taskIds: entry.links.taskIds,
-      roadmapCardIds: entry.links.roadmapCardIds,
-      commitShas: (entry.links.commitShas ?? []).join(", ")
-    });
-    setJournalModalOpen(true);
-  };
-
-  const saveJournalEntry = async () => {
-    if (!journalDraft.body.trim()) {
-      push("Journal body is required.", "error");
-      return;
-    }
-    const nowIso = new Date().toISOString();
-    const next = { ...state };
-    const entry = {
-      id: editingJournalId ?? crypto.randomUUID(),
-      projectId: selectedProject?.id ?? null,
-      ts: nowIso,
-      type: journalDraft.type,
-      title: journalDraft.title.trim() || null,
-      body: journalDraft.body.trim(),
-      links: {
-        taskIds: journalDraft.taskIds,
-        roadmapCardIds: journalDraft.roadmapCardIds,
-        repoIds: selectedProject?.localRepoPath
-          ? [repoByPath.get(selectedProject.localRepoPath)?.id].filter((value): value is string => Boolean(value))
-          : [],
-        commitShas: journalDraft.commitShas
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
-      },
-      tags: journalDraft.tags
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
-      createdAt: editingJournalId
-        ? next.journalEntries.find((item) => item.id === editingJournalId)?.createdAt ?? nowIso
-        : nowIso,
-      updatedAt: nowIso
-    };
-
-    if (editingJournalId) {
-      next.journalEntries = next.journalEntries.map((item) => (item.id === editingJournalId ? entry : item));
-      push("Journal entry updated.", "success");
-    } else {
-      next.journalEntries.unshift(entry);
-      push("Journal entry added.", "success");
-    }
-
-    await save(next);
-    setJournalModalOpen(false);
-    setEditingJournalId(null);
-    setJournalDraft(emptyJournalDraft);
-  };
-
-  const removeJournalEntry = async (entryId: string) => {
-    const confirmed = window.confirm("Delete this journal entry?");
-    if (!confirmed) return;
-    const next = { ...state };
-    next.journalEntries = next.journalEntries.filter((entry) => entry.id !== entryId);
-    await save(next);
-    push("Journal entry deleted.", "success");
   };
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-6 xl:gap-7">
       <GlassPanel variant="hero">
         <SectionHeader
           eyebrow="Today"
           title="Daily Goals"
           subtitle={dateLabel}
+          size="hero"
           rightControls={
             <div className="flex items-center gap-2">
-              <Pill tone="accent">Score {todayEntry?.score ?? 0}%</Pill>
+              <Pill>Score {todayEntry?.score ?? 0}%</Pill>
               <Pill tone="success">
                 {todayEntry?.completedPoints ?? 0}/{todayEntry?.goals.length ?? 0}
               </Pill>
             </div>
           }
         />
-        <div className="mt-4 grid gap-2">
+        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {(todayEntry?.goals ?? []).slice(0, 5).map((goal) => (
-            <label key={goal.id} className="table-row">
-              <div>
-                <div className="text-sm font-medium">{goal.title}</div>
-                <div className="text-xs text-white/50">{goal.category}</div>
+            <label key={goal.id} className="rounded-[20px] border border-white/10 bg-white/[0.055] px-4 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">{goal.category}</div>
+                  <div className="mt-2 text-base font-medium">{goal.title}</div>
+                </div>
+                <input
+                  className="mt-1 h-4 w-4 rounded border-white/20 bg-black/30"
+                  type="checkbox"
+                  checked={goal.done}
+                  readOnly
+                  aria-label={`Goal ${goal.title} status`}
+                />
               </div>
-              <input type="checkbox" checked={goal.done} readOnly aria-label={`Goal ${goal.title} status`} />
+              <div className="mt-4 flex items-center justify-between text-xs text-white/55">
+                <span>{goal.points} point{goal.points === 1 ? "" : "s"}</span>
+                <span>{goal.done ? "Completed" : "In play"}</span>
+              </div>
             </label>
           ))}
           {(todayEntry?.goals.length ?? 0) === 0 && (
-            <p className="text-sm text-white/60">No goals yet for today.</p>
+            <p className="rounded-[20px] border border-dashed border-white/12 bg-white/[0.03] px-4 py-6 text-sm text-white/60 md:col-span-2 xl:col-span-3">
+              No goals yet for today.
+            </p>
           )}
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-5 flex flex-wrap gap-2">
           <button className="button-secondary" onClick={handleAddGoal} aria-label="Add goal">
             Add Goal
           </button>
@@ -875,7 +897,7 @@ export default function DashboardPage() {
             </label>
           }
         />
-        <section className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+        <section className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
           {visibleProjects.map((project) => {
             const tasksDone = project.tasks.filter((task) => task.done).length;
             const tasksTotal = project.tasks.length;
@@ -886,48 +908,67 @@ export default function DashboardPage() {
             const isSelected = selectedProject?.id === project.id;
 
             return (
-              <button
+              <GlassPanel
                 key={project.id}
-                className={`card hover-lift relative text-left ${isSelected ? "accent-glow" : ""}`}
-                onClick={() => setSelectedId(project.id)}
+                as="button"
+                type="button"
+                variant="quiet"
+                className={`hover-lift relative min-h-[220px] text-left ${isSelected ? "accent-glow border-white/16" : ""}`}
+                onClick={() => {
+                  setSelectedId(project.id);
+                  setActiveTab("Tasks");
+                }}
                 aria-label={`Select project ${project.name}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-2xl">{project.icon}</div>
-                    <h4 className="mt-2 text-base font-semibold">{project.name}</h4>
-                    <p className="text-xs text-white/50">{project.subtitle || "No subtitle"}</p>
+                    <h4 className="mt-3 text-lg font-semibold tracking-[-0.03em]">{project.name}</h4>
+                    <p className="mt-1 text-sm text-white/55">{project.subtitle || "No subtitle"}</p>
                   </div>
                   <div className="flex items-start gap-2">
                     <ProgressRing value={progress} />
                     <div className="relative">
                       <button
-                        className="button-secondary h-8 w-8 rounded-lg px-0 py-0"
+                        className="button-secondary h-8 w-8 rounded-xl px-0 py-0"
                         onClick={(event) => {
                           event.stopPropagation();
                           setOpenProjectMenu((prev) => (prev === project.id ? null : project.id));
                         }}
                         aria-label={`Open ${project.name} menu`}
+                        type="button"
                       >
                         ...
                       </button>
                       {openProjectMenu === project.id && (
-                        <div className="absolute right-0 z-20 mt-2 min-w-[190px] rounded-xl border border-white/10 bg-[#0a0d14] p-2 shadow-2xl">
+                        <div className="absolute right-0 z-20 mt-2 min-w-[190px] rounded-[18px] border border-white/10 bg-[#0a0d14] p-2 shadow-2xl">
                           <button
                             className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-white/10"
-                            onClick={() => openEditProjectModal(project)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openProjectSettings(project);
+                            }}
+                            type="button"
                           >
-                            Edit project
+                            Project settings
                           </button>
                           <button
                             className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-white/10"
-                            onClick={() => setProjectArchived(project.id, !isArchivedProject(project))}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void setProjectArchived(project.id, !isArchivedProject(project));
+                            }}
+                            type="button"
                           >
                             {isArchivedProject(project) ? "Restore" : "Archive"}
                           </button>
                           <button
                             className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/20"
-                            onClick={() => deleteProject(project.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void deleteProject(project.id);
+                            }}
+                            type="button"
                           >
                             Delete
                           </button>
@@ -936,52 +977,88 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-4 flex items-center justify-between gap-2">
-                  <Pill tone={isArchivedProject(project) ? "warning" : "neutral"}>
-                    {toUiStatus(project.status)}
+                <div className="mt-5 flex items-center justify-between gap-2">
+                  <Pill tone={isSelected ? "accent" : isArchivedProject(project) ? "warning" : "neutral"}>
+                    {project.status}
                   </Pill>
                   <span className="text-xs text-white/60">{project.weeklyHours}h/week</span>
                 </div>
-                <div className="mt-2 text-xs text-white/60">Tasks: {tasksDone}/{tasksTotal}</div>
-                <div className="mt-2 flex items-center justify-between text-xs text-white/60">
-                  <span>{active} commits today</span>
-                  {dirty && <Pill tone="warning">Dirty tree</Pill>}
+                <div className="mt-3 grid gap-2 text-sm text-white/62">
+                  <div className="flex items-center justify-between">
+                    <span>Tasks</span>
+                    <span>{tasksDone}/{tasksTotal}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Local git</span>
+                    <span>{active} commits today</span>
+                  </div>
                 </div>
+                {dirty && <Pill tone="warning" className="mt-4">Dirty tree</Pill>}
                 <div
                   className="absolute inset-x-0 bottom-0 h-1 rounded-b-xl"
                   style={{ background: project.color, opacity: isSelected ? 0.6 : 0.25 }}
                 />
-              </button>
+              </GlassPanel>
             );
           })}
 
-          <button
-            className="card hover-lift border-dashed border-white/20 text-center"
+          <GlassPanel
+            as="button"
+            type="button"
+            variant="quiet"
+            className="hover-lift min-h-[220px] border-dashed border-white/20 text-center"
             onClick={openCreateProjectModal}
             aria-label="Add project"
           >
             <div className="text-2xl">+</div>
             <div className="mt-3 text-sm font-medium">Add Project</div>
             <p className="mt-1 text-xs text-white/50">Create a new workstream</p>
-          </button>
+          </GlassPanel>
         </section>
       </GlassPanel>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.85fr)]">
         <GlassPanel variant="hero" className="accent-glow">
           {selectedProject ? (
-            <div className="grid gap-4">
+            <div className="grid gap-5">
               <SectionHeader
                 eyebrow="Selected Project"
                 title={`${selectedProject.icon} ${selectedProject.name}`}
                 subtitle={selectedProject.subtitle || "No subtitle"}
-                rightControls={<Pill tone="accent">{toUiStatus(selectedProject.status)}</Pill>}
+                size="hero"
+                titleClassName="max-w-[16ch]"
+                rightControls={<Pill tone="accent">{selectedProject.status}</Pill>}
               />
 
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-[20px] border border-white/10 bg-white/[0.055] px-4 py-4">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">Completion</div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{selectedProjectTaskProgress}%</div>
+                  <div className="mt-1 text-sm text-white/58">
+                    {selectedProjectTaskDone}/{selectedTasks.length} tasks closed
+                  </div>
+                </div>
+                <div className="rounded-[20px] border border-white/10 bg-white/[0.055] px-4 py-4">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">Weekly Budget</div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{selectedProject.weeklyHours}h</div>
+                  <div className="mt-1 text-sm text-white/58">{selectedProjectBudgetShare}% of active capacity</div>
+                </div>
+                <div className="rounded-[20px] border border-white/10 bg-white/[0.055] px-4 py-4">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">Live Signals</div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{selectedProjectInsights.length}</div>
+                  <div className="mt-1 text-sm text-white/58">
+                    {selectedProjectRepo?.dirty ? "Dirty tree needs cleanup" : selectedProjectRepo ? "Repo linked locally" : "No local repo linked"}
+                  </div>
+                </div>
+              </div>
+
               {selectedProjectInsights.length > 0 && (
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <div className="text-xs uppercase tracking-[0.28em] text-white/50">Live signals</div>
-                  <div className="mt-2 grid gap-2">
+                <div className="rounded-[22px] border border-white/10 bg-white/[0.055] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-[11px] uppercase tracking-[0.26em] text-white/45">Latest signals</div>
+                    <span className="text-xs text-white/55">Grouped items appear below in Insights</span>
+                  </div>
+                  <div className="mt-3 grid gap-2">
                     {selectedProjectInsights.slice(0, 3).map((insight) => (
                       <div key={insight.id} className="table-row text-xs">
                         <span>{insight.title}</span>
@@ -1231,109 +1308,49 @@ export default function DashboardPage() {
               )}
 
               {activeTab === "Journal" && (
-                <div className="grid gap-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <input
-                      className="input max-w-sm"
-                      placeholder="Search project journal..."
-                      value={journalQuery}
-                      onChange={(event) => setJournalQuery(event.target.value)}
-                      aria-label="Search journal entries"
-                    />
-                    <button className="button-primary" onClick={openCreateJournalModal} aria-label="Create journal entry">
-                      Add Entry
-                    </button>
-                  </div>
-                  {projectJournalEntries.length === 0 && (
-                    <p className="text-sm text-white/60">No journal entries for this project yet.</p>
-                  )}
-                  <div className="grid gap-2">
-                    {projectJournalEntries.map((entry) => (
-                      <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <Pill tone="accent">{entry.type}</Pill>
-                            <span className="text-xs text-white/50">{formatDate(entry.ts)}</span>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              className="button-secondary"
-                              onClick={() => openEditJournalModal(entry)}
-                              aria-label="Edit journal entry"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              className="button-secondary"
-                              onClick={() => removeJournalEntry(entry.id)}
-                              aria-label="Delete journal entry"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                        <div className="mt-2 text-sm font-semibold">{entry.title || "Untitled"}</div>
-                        <p className="mt-1 text-sm text-white/70 whitespace-pre-wrap">{entry.body}</p>
-                        {entry.tags.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {entry.tags.map((tag) => (
-                              <Pill key={tag}>{tag}</Pill>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <ProjectJournalPanel
+                  project={selectedProject}
+                  tasks={selectedTasks}
+                  roadmapCards={filteredRoadmap}
+                  journalEntries={state.journalEntries}
+                  repo={selectedProjectRepo}
+                  commitOptions={[
+                    ...localCommitFeed.map((commit) => ({
+                      sha: commit.sha,
+                      shortSha: commit.shortSha,
+                      message: commit.message
+                    })),
+                    ...commitFeed.map((commit) => ({
+                      sha: commit.sha,
+                      shortSha: commit.shortSha,
+                      message: commit.message
+                    }))
+                  ]}
+                />
               )}
 
-              {activeTab === "Settings" && (
+              {activeTab === "Project Settings" && (
                 <div className="grid gap-4">
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <label className="grid gap-1">
-                      <span className="text-xs text-white/60">Status</span>
-                      <select
-                        className="input"
-                        value={toUiStatus(selectedProject.status)}
-                        onChange={async (event) => {
-                          const next = { ...state };
-                          const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
-                          if (!project) return;
-                          project.status = toPersistedStatus(event.target.value as UiProjectStatus);
-                          await save(next);
-                        }}
-                        aria-label="Project status"
-                      >
-                        {uiStatuses.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="grid gap-1">
-                      <span className="text-xs text-white/60">Weekly Hours</span>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={40}
-                        value={selectedProject.weeklyHours}
-                        onChange={async (event) => {
-                          const next = { ...state };
-                          const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
-                          if (!project) return;
-                          project.weeklyHours = Math.max(0, Math.min(40, Number(event.target.value) || 0));
-                          await save(next);
-                        }}
-                        aria-label="Weekly hours"
-                      />
-                    </label>
+                  <ProjectEditorFields
+                    draft={projectSettingsDraft}
+                    setDraft={setProjectSettingsDraft}
+                    repos={uniqueRepos}
+                    githubRepoOptions={githubRepoOptions}
+                    githubRepoListId="project-settings-github-list"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button className="button-primary" onClick={saveProjectSettings} aria-label="Save project settings">
+                      Save Changes
+                    </button>
+                    <button
+                      className="button-secondary"
+                      onClick={() => setProjectSettingsDraft(projectToDraft(selectedProject))}
+                      aria-label="Reset project settings"
+                    >
+                      Reset
+                    </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button className="button-secondary" onClick={() => openEditProjectModal(selectedProject)} aria-label="Open project edit modal">
-                      Edit Project Details
-                    </button>
                     <button
                       className="button-secondary"
                       onClick={() => setProjectArchived(selectedProject.id, !isArchivedProject(selectedProject))}
@@ -1364,36 +1381,44 @@ export default function DashboardPage() {
         <GlassPanel variant="standard">
           <SectionHeader
             eyebrow="Capacity"
-            title="Weekly Time Budget"
+            title="Weekly Budget"
             subtitle={`${totalHours}h / week`}
-            rightControls={<Pill tone="accent">{tasksProgress}% completion</Pill>}
+            rightControls={<Pill>{tasksProgress}% completion</Pill>}
           />
           <div className="mt-4">
             <StackedBar segments={visibleProjects.map((project) => ({ color: project.color, value: project.weeklyHours }))} />
           </div>
-          <div className="mt-4 grid gap-3">
+          <div className="mt-5 grid gap-3">
             {visibleProjects.map((project) => (
-              <div key={project.id} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full" style={{ background: project.color }} />
-                  <span>{project.name}</span>
+              <div key={project.id} className="rounded-[18px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full" style={{ background: project.color }} />
+                    <span>{project.name}</span>
+                  </div>
+                  <span className="text-xs text-white/55">
+                    {totalHours ? Math.round((project.weeklyHours / totalHours) * 100) : 0}% share
+                  </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    className="h-7 w-7 rounded-md border border-white/10 bg-white/10"
-                    onClick={() => adjustHours(project.id, -1)}
-                    aria-label={`Decrease ${project.name} weekly hours`}
-                  >
-                    -
-                  </button>
-                  <span className="w-12 text-center text-white/60">{project.weeklyHours}h</span>
-                  <button
-                    className="h-7 w-7 rounded-md border border-white/10 bg-white/10"
-                    onClick={() => adjustHours(project.id, 1)}
-                    aria-label={`Increase ${project.name} weekly hours`}
-                  >
-                    +
-                  </button>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <span className="text-xs text-white/55">{project.tasks.filter((task) => !task.done).length} open tasks</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="h-8 w-8 rounded-xl border border-white/10 bg-white/10"
+                      onClick={() => adjustHours(project.id, -1)}
+                      aria-label={`Decrease ${project.name} weekly hours`}
+                    >
+                      -
+                    </button>
+                    <span className="w-14 text-center text-white/60">{project.weeklyHours}h</span>
+                    <button
+                      className="h-8 w-8 rounded-xl border border-white/10 bg-white/10"
+                      onClick={() => adjustHours(project.id, 1)}
+                      aria-label={`Increase ${project.name} weekly hours`}
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1406,7 +1431,7 @@ export default function DashboardPage() {
         <SectionHeader
           eyebrow="Signals"
           title="Insights → Actions"
-          subtitle="Grouped by rule and target"
+          subtitle={`${visibleInsightCount} grouped signals, sorted by severity`}
           rightControls={
             <div className="flex flex-wrap gap-2">
               <button
@@ -1441,59 +1466,52 @@ export default function DashboardPage() {
           }
         />
 
-        <div className="mt-4 grid gap-3">
-          {groupedInsights.length === 0 && <p className="text-sm text-white/60">No insights right now.</p>}
+        <div className="mt-5 grid gap-3">
+          {groupedInsights.length === 0 && (
+            <p className="rounded-[20px] border border-dashed border-white/12 bg-white/[0.03] px-4 py-6 text-sm text-white/60">
+              {insightFilter === "priority" ? "No critical or warning insights right now." : "No insights match this filter."}
+            </p>
+          )}
           {groupedInsights.map((group) => {
             const project = group.projectId ? projects.find((item) => item.id === group.projectId) : null;
             const repo = group.repoId ? repoById.get(group.repoId) : null;
             return (
-              <GlassPanel key={group.key} variant="standard" className="p-0">
-                <details className="group" open={group.severity === "crit"}>
-                  <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold">
+              <GlassPanel key={group.key} variant="quiet">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-base font-semibold tracking-[-0.03em]">
                         {group.title} {group.items.length > 1 ? `x${group.items.length}` : ""}
                       </div>
-                      <div className="text-xs text-white/60">{group.reason}</div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {project && <Pill tone="accent">{project.name}</Pill>}
-                        {repo && <Pill>{repo.name}</Pill>}
+                      {project && <Pill>{project.name}</Pill>}
+                      {repo && <Pill>{repo.name}</Pill>}
+                    </div>
+                    <p className="mt-2 text-sm text-white/66">{group.reason}</p>
+                  </div>
+                  <Pill tone={group.severity === "crit" ? "danger" : group.severity === "warn" ? "warning" : "neutral"}>
+                    {group.severity}
+                  </Pill>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {group.actions.map((action) => (
+                    <button
+                      key={action.id}
+                      className="button-secondary"
+                      onClick={() => runInsightAction(group, action)}
+                    >
+                      {shortLabelForInsightAction(action)}
+                    </button>
+                  ))}
+                </div>
+                <details className="mt-4 rounded-[18px] border border-white/10 bg-black/20 p-3">
+                  <summary className="cursor-pointer text-xs uppercase tracking-[0.2em] text-white/50">Why?</summary>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {formatInsightMetrics(group.items).map(([key, value]) => (
+                      <div key={`${group.key}-${key}`} className="rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-[0.2em] text-white/45">{key}</div>
+                        <div className="mt-1 text-sm text-white/72">{value}</div>
                       </div>
-                    </div>
-                    <Pill tone={group.severity === "crit" ? "danger" : group.severity === "warn" ? "warning" : "neutral"}>
-                      {group.severity}
-                    </Pill>
-                  </summary>
-                  <div className="border-t border-white/10 px-4 pb-4">
-                    <details className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
-                      <summary className="cursor-pointer text-xs uppercase tracking-[0.2em] text-white/50">Why?</summary>
-                      <pre className="mt-2 overflow-auto rounded-lg bg-black/30 p-2 text-xs text-white/70">
-                        {JSON.stringify(group.items.map((item) => item.metrics), null, 2)}
-                      </pre>
-                    </details>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button className="button-secondary" onClick={() => runInsightAction(group, "task")}>
-                        Create Task
-                      </button>
-                      <button className="button-secondary" onClick={() => runInsightAction(group, "focus")}>
-                        Schedule Focus
-                      </button>
-                      <button className="button-secondary" onClick={() => runInsightAction(group, "move-now")}>
-                        Move Roadmap Card to Now
-                      </button>
-                      <button className="button-secondary" onClick={() => runInsightAction(group, "open")}>
-                        Open Repo
-                      </button>
-                      <button className="button-secondary" onClick={() => runInsightAction(group, "copy")}>
-                        Copy Repo Path
-                      </button>
-                      <button className="button-secondary" onClick={() => runInsightAction(group, "snooze-1d")}>
-                        Snooze 1 day
-                      </button>
-                      <button className="button-secondary" onClick={() => runInsightAction(group, "snooze-1w")}>
-                        Snooze 1 week
-                      </button>
-                    </div>
+                    ))}
                   </div>
                 </details>
               </GlassPanel>
@@ -1513,10 +1531,27 @@ export default function DashboardPage() {
             </Pill>
           }
         />
-        <div className="mt-3 flex flex-wrap gap-3 text-sm text-white/60">
-          <span>Active today: {uniqueRepos.filter((repo) => repo.todayCommitCount > 0).length}</span>
-          <span>Dirty trees: {uniqueRepos.filter((repo) => repo.dirty).length}</span>
-          {scanErrorCount > 0 && <span className="text-amber-200">Errors: {scanErrorCount}</span>}
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <div className="rounded-[18px] border border-white/10 bg-white/[0.045] px-4 py-3">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Active Today</div>
+            <div className="mt-2 text-xl font-semibold tracking-[-0.03em]">
+              {uniqueRepos.filter((repo) => repo.todayCommitCount > 0).length}
+            </div>
+          </div>
+          <div className="rounded-[18px] border border-white/10 bg-white/[0.045] px-4 py-3">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Dirty Trees</div>
+            <div className="mt-2 text-xl font-semibold tracking-[-0.03em]">{uniqueRepos.filter((repo) => repo.dirty).length}</div>
+          </div>
+          <div className="rounded-[18px] border border-white/10 bg-white/[0.045] px-4 py-3">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Scan Errors</div>
+            <div className="mt-2 text-xl font-semibold tracking-[-0.03em]">{scanErrorCount}</div>
+          </div>
+          <div className="rounded-[18px] border border-white/10 bg-white/[0.045] px-4 py-3">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Linked to Projects</div>
+            <div className="mt-2 text-xl font-semibold tracking-[-0.03em]">
+              {projects.filter((project) => project.localRepoPath).length}
+            </div>
+          </div>
         </div>
       </GlassPanel>
 
@@ -1532,98 +1567,111 @@ export default function DashboardPage() {
           }
         />
 
-        <div className="mt-4 grid gap-2">
-          {todayPlanDraft.length === 0 && <p className="text-sm text-white/60">No tasks selected yet.</p>}
-          {todayPlanDraft.map((taskId, index) => {
-            const project = visibleProjects.find((candidate) => candidate.tasks.some((task) => task.id === taskId));
-            const task = project?.tasks.find((candidate) => candidate.id === taskId);
-            if (!task || !project) return null;
-            return (
-              <div key={taskId} className="table-row">
-                <div>
-                  <div className="text-sm font-medium">{task.text}</div>
-                  <div className="text-xs text-white/50">{project.name}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Pill tone={task.priority === "high" ? "danger" : task.priority === "med" ? "warning" : "neutral"}>
-                    {task.priority}
-                  </Pill>
-                  {index === 0 && (
-                    <button className="button-secondary" onClick={startFocus} aria-label="Start focus on top task">
-                      Start Focus
-                    </button>
-                  )}
-                  <button
-                    className="button-secondary"
-                    onClick={() => movePlanItem(index, -1)}
-                    disabled={index === 0}
-                    aria-label="Move task up"
-                  >
-                    Up
-                  </button>
-                  <button
-                    className="button-secondary"
-                    onClick={() => movePlanItem(index, 1)}
-                    disabled={index === todayPlanDraft.length - 1}
-                    aria-label="Move task down"
-                  >
-                    Down
-                  </button>
-                  <button
-                    className="button-secondary"
-                    onClick={() => removePlanItem(taskId)}
-                    aria-label="Remove task from plan"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-4 grid gap-2">
-          <label className="text-xs text-white/60">Add from tasks</label>
-          <input
-            className="input"
-            value={todayTaskQuery}
-            onChange={(event) => setTodayTaskQuery(event.target.value)}
-            placeholder="Search tasks to add..."
-            aria-label="Search tasks for today plan"
-          />
-          <div className="grid max-h-40 gap-2 overflow-auto rounded-xl border border-white/10 bg-black/20 p-2">
-            {todayTaskOptions.slice(0, 12).map((task) => (
-              <button
-                key={task.id}
-                className="table-row text-left"
-                onClick={() => addPlanItem(task.id)}
-                aria-label={`Add ${task.text} to plan`}
-              >
-                <span>
-                  {task.projectName}: {task.text}
-                </span>
-                <Pill tone={task.priority === "high" ? "danger" : task.priority === "med" ? "warning" : "neutral"}>
-                  {task.priority}
-                </Pill>
-              </button>
-            ))}
-            {todayTaskOptions.length === 0 && (
-              <p className="text-sm text-white/60">No matching tasks available.</p>
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+          <div className="grid gap-2">
+            {todayPlanDraft.length === 0 && (
+              <p className="rounded-[20px] border border-dashed border-white/12 bg-white/[0.03] px-4 py-6 text-sm text-white/60">
+                No tasks selected yet.
+              </p>
             )}
+            {todayPlanDraft.map((taskId, index) => {
+              const entry = allTaskLookup.get(taskId);
+              const project = entry?.project;
+              const task = entry?.task;
+              if (!task || !project) return null;
+              return (
+                <div key={taskId} className="table-row">
+                  <div>
+                    <div className="text-sm font-medium">{task.text}</div>
+                    <div className="text-xs text-white/50">
+                      {project.name}
+                      {isArchivedProject(project) ? " • Archived project" : ""}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Pill tone={task.priority === "high" ? "danger" : task.priority === "med" ? "warning" : "neutral"}>
+                      {task.priority}
+                    </Pill>
+                    {index === 0 && (
+                      <button className="button-secondary" onClick={() => startFocus(taskId)} aria-label="Start focus on top task">
+                        Start Focus
+                      </button>
+                    )}
+                    <button
+                      className="button-secondary"
+                      onClick={() => movePlanItem(index, -1)}
+                      disabled={index === 0}
+                      aria-label="Move task up"
+                    >
+                      Up
+                    </button>
+                    <button
+                      className="button-secondary"
+                      onClick={() => movePlanItem(index, 1)}
+                      disabled={index === todayPlanDraft.length - 1}
+                      aria-label="Move task down"
+                    >
+                      Down
+                    </button>
+                    <button
+                      className="button-secondary"
+                      onClick={() => removePlanItem(taskId)}
+                      aria-label="Remove task from plan"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-[1fr_auto]">
-          <input
-            className="input"
-            placeholder="Notes for today..."
-            value={todayPlanNotes}
-            onChange={(event) => setTodayPlanNotes(event.target.value)}
-            aria-label="Today plan notes"
-          />
-          <button className="button-primary" onClick={saveTodayPlan} aria-label="Save today plan">
-            Save Plan
-          </button>
+          <div className="grid gap-4">
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <label className="text-xs text-white/60">Add from tasks ({todayPlanDraft.length}/7)</label>
+              <input
+                className="input mt-2"
+                value={todayTaskQuery}
+                onChange={(event) => setTodayTaskQuery(event.target.value)}
+                placeholder="Search tasks to add..."
+                aria-label="Search tasks for today plan"
+              />
+              <div className="mt-3 grid max-h-56 gap-2 overflow-auto rounded-xl border border-white/10 bg-black/20 p-2">
+                {todayTaskOptions.slice(0, 12).map((task) => (
+                  <button
+                    key={task.id}
+                    className="table-row text-left"
+                    onClick={() => addPlanItem(task.id)}
+                    aria-label={`Add ${task.text} to plan`}
+                  >
+                    <span>
+                      {task.projectName}: {task.text}
+                    </span>
+                    <Pill tone={task.priority === "high" ? "danger" : task.priority === "med" ? "warning" : "neutral"}>
+                      {task.priority}
+                    </Pill>
+                  </button>
+                ))}
+                {todayTaskOptions.length === 0 && (
+                  <p className="text-sm text-white/60">No matching tasks available.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <label className="text-xs text-white/60">Notes</label>
+              <input
+                className="input mt-2"
+                placeholder="Notes for today..."
+                value={todayPlanNotes}
+                onChange={(event) => setTodayPlanNotes(event.target.value)}
+                aria-label="Today plan notes"
+              />
+              <button className="button-primary mt-3" onClick={saveTodayPlan} aria-label="Save today plan">
+                Save Plan
+              </button>
+            </div>
+          </div>
         </div>
 
         {todayPlan && (
@@ -1636,264 +1684,27 @@ export default function DashboardPage() {
       <Modal
         open={projectModalOpen}
         onClose={() => setProjectModalOpen(false)}
-        title={projectModalMode === "create" ? "Create Project" : "Edit Project"}
+        title="Create Project"
         footer={
           <div className="flex justify-end gap-2">
             <button className="button-secondary" onClick={() => setProjectModalOpen(false)} aria-label="Cancel project modal">
               Cancel
             </button>
-            <button className="button-primary" onClick={saveProjectDraft} aria-label="Save project">
-              {projectModalMode === "create" ? "Create" : "Save"}
+            <button className="button-primary" onClick={saveNewProject} aria-label="Create project">
+              Create
             </button>
           </div>
         }
       >
-        <div className="grid gap-4">
-          <div>
-            <label className="mb-1 block text-xs text-white/60">Emoji</label>
-            <EmojiPicker
-              value={projectDraft.emoji}
-              onChange={(emoji) => setProjectDraft((prev) => ({ ...prev, emoji }))}
-            />
-          </div>
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Name</span>
-            <input
-              className="input"
-              value={projectDraft.name}
-              onChange={(event) => setProjectDraft((prev) => ({ ...prev, name: event.target.value }))}
-              placeholder="Project name"
-              aria-label="Project name"
-            />
-          </label>
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Subtitle</span>
-            <input
-              className="input"
-              value={projectDraft.subtitle}
-              onChange={(event) => setProjectDraft((prev) => ({ ...prev, subtitle: event.target.value }))}
-              placeholder="Optional subtitle"
-              aria-label="Project subtitle"
-            />
-          </label>
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="grid gap-1">
-              <span className="text-xs text-white/60">Status</span>
-              <select
-                className="input"
-                value={projectDraft.status}
-                onChange={(event) =>
-                  setProjectDraft((prev) => ({ ...prev, status: event.target.value as UiProjectStatus }))
-                }
-                aria-label="Project status"
-              >
-                {uiStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1">
-              <span className="text-xs text-white/60">Weekly Hours</span>
-              <div className="grid grid-cols-[40px_1fr_40px] gap-2">
-                <button
-                  className="button-secondary px-0"
-                  onClick={() =>
-                    setProjectDraft((prev) => ({ ...prev, weeklyHours: Math.max(0, prev.weeklyHours - 1) }))
-                  }
-                  aria-label="Decrease weekly hours"
-                >
-                  -
-                </button>
-                <input
-                  className="input text-center"
-                  type="number"
-                  min={0}
-                  max={40}
-                  value={projectDraft.weeklyHours}
-                  onChange={(event) =>
-                    setProjectDraft((prev) => ({
-                      ...prev,
-                      weeklyHours: Math.max(0, Math.min(40, Number(event.target.value) || 0))
-                    }))
-                  }
-                  aria-label="Weekly hours"
-                />
-                <button
-                  className="button-secondary px-0"
-                  onClick={() =>
-                    setProjectDraft((prev) => ({ ...prev, weeklyHours: Math.min(40, prev.weeklyHours + 1) }))
-                  }
-                  aria-label="Increase weekly hours"
-                >
-                  +
-                </button>
-              </div>
-            </label>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="grid gap-1">
-              <span className="text-xs text-white/60">Local Repo</span>
-              <select
-                className="input"
-                value={projectDraft.localRepoPath}
-                onChange={(event) =>
-                  setProjectDraft((prev) => ({ ...prev, localRepoPath: event.target.value }))
-                }
-                aria-label="Local repository"
-              >
-                <option value="">Not linked</option>
-                {uniqueRepos.map((repo) => (
-                  <option key={repo.id} value={repo.path}>
-                    {repo.name} - {repo.path}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1">
-              <span className="text-xs text-white/60">GitHub Repo</span>
-              <input
-                className="input"
-                value={projectDraft.githubRepo}
-                list="project-modal-github-list"
-                onChange={(event) =>
-                  setProjectDraft((prev) => ({ ...prev, githubRepo: event.target.value }))
-                }
-                placeholder="owner/repo"
-                aria-label="GitHub repository"
-              />
-              <datalist id="project-modal-github-list">
-                {githubRepoOptions.map((repo) => (
-                  <option key={repo} value={repo} />
-                ))}
-              </datalist>
-            </label>
-          </div>
-        </div>
+        <ProjectEditorFields
+          draft={projectDraft}
+          setDraft={setProjectDraft}
+          repos={uniqueRepos}
+          githubRepoOptions={githubRepoOptions}
+          githubRepoListId="project-create-github-list"
+        />
       </Modal>
 
-      <Modal
-        open={journalModalOpen}
-        onClose={() => setJournalModalOpen(false)}
-        title={editingJournalId ? "Edit Journal Entry" : "Add Journal Entry"}
-        footer={
-          <div className="flex justify-end gap-2">
-            <button className="button-secondary" onClick={() => setJournalModalOpen(false)} aria-label="Cancel journal modal">
-              Cancel
-            </button>
-            <button className="button-primary" onClick={saveJournalEntry} aria-label="Save journal entry">
-              Save
-            </button>
-          </div>
-        }
-      >
-        <div className="grid gap-3">
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Type</span>
-            <select
-              className="input"
-              value={journalDraft.type}
-              onChange={(event) =>
-                setJournalDraft((prev) => ({
-                  ...prev,
-                  type: event.target.value as "note" | "decision" | "blocker" | "next" | "idea"
-                }))
-              }
-              aria-label="Journal type"
-            >
-              <option value="note">Note</option>
-              <option value="decision">Decision</option>
-              <option value="blocker">Blocker</option>
-              <option value="next">Next</option>
-              <option value="idea">Idea</option>
-            </select>
-          </label>
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Title</span>
-            <input
-              className="input"
-              value={journalDraft.title}
-              onChange={(event) => setJournalDraft((prev) => ({ ...prev, title: event.target.value }))}
-              placeholder="Optional title"
-              aria-label="Journal title"
-            />
-          </label>
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Body</span>
-            <textarea
-              className="input"
-              rows={4}
-              value={journalDraft.body}
-              onChange={(event) => setJournalDraft((prev) => ({ ...prev, body: event.target.value }))}
-              placeholder="Capture what happened..."
-              aria-label="Journal body"
-            />
-          </label>
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Tags (comma separated)</span>
-            <input
-              className="input"
-              value={journalDraft.tags}
-              onChange={(event) => setJournalDraft((prev) => ({ ...prev, tags: event.target.value }))}
-              placeholder="launch, blocker, infra"
-              aria-label="Journal tags"
-            />
-          </label>
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Link Tasks</span>
-            <select
-              multiple
-              className="input"
-              value={journalDraft.taskIds}
-              onChange={(event) =>
-                setJournalDraft((prev) => ({
-                  ...prev,
-                  taskIds: Array.from(event.target.selectedOptions).map((option) => option.value)
-                }))
-              }
-              aria-label="Link tasks"
-            >
-              {selectedTasks.map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.text}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Link Roadmap Cards</span>
-            <select
-              multiple
-              className="input"
-              value={journalDraft.roadmapCardIds}
-              onChange={(event) =>
-                setJournalDraft((prev) => ({
-                  ...prev,
-                  roadmapCardIds: Array.from(event.target.selectedOptions).map((option) => option.value)
-                }))
-              }
-              aria-label="Link roadmap cards"
-            >
-              {filteredRoadmap.map((card) => (
-                <option key={card.id} value={card.id}>
-                  {card.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Commit SHAs (comma separated)</span>
-            <input
-              className="input"
-              value={journalDraft.commitShas}
-              onChange={(event) => setJournalDraft((prev) => ({ ...prev, commitShas: event.target.value }))}
-              placeholder="a1b2c3d, e4f5g6h"
-              aria-label="Commit SHAs"
-            />
-          </label>
-        </div>
-      </Modal>
     </div>
   );
 }
@@ -1913,11 +1724,139 @@ function severityRank(level: "info" | "warn" | "crit") {
   return 0;
 }
 
+function successMessageForInsightAction(type: SuggestedAction["type"]) {
+  switch (type) {
+    case "CREATE_TASK":
+      return "Task created.";
+    case "SCHEDULE_FOCUS":
+      return "Focus session scheduled.";
+    case "MOVE_ROADMAP_NOW":
+    case "MOVE_ROADMAP_CARD":
+      return "Roadmap card updated.";
+    case "COPY_REPO_PATH":
+      return "Repo path copied.";
+    case "OPEN_REPO":
+      return "Open repo requested.";
+    case "SNOOZE_1D":
+      return "Insight snoozed for 1 day.";
+    case "SNOOZE_1W":
+      return "Insight snoozed for 1 week.";
+    case "CREATE_JOURNAL":
+      return "Journal entry added.";
+    case "DISMISS":
+      return "Insight dismissed.";
+    default:
+      return "Insight action applied.";
+  }
+}
+
+function shortLabelForInsightAction(action: SuggestedAction) {
+  switch (action.type) {
+    case "MOVE_ROADMAP_NOW":
+      return "Move to Now";
+    case "MOVE_ROADMAP_CARD":
+      return "Move Card";
+    case "COPY_REPO_PATH":
+      return "Copy Path";
+    case "SNOOZE_1D":
+      return "Snooze 1d";
+    case "SNOOZE_1W":
+      return "Snooze 1w";
+    default:
+      return action.label;
+  }
+}
+
+function formatInsightMetrics(items: Insight[]) {
+  const metrics = items.flatMap((item) => Object.entries(item.metrics ?? {}));
+  if (!metrics.length) {
+    return [["Reason", items[0]?.reason ?? "No additional metrics"]];
+  }
+
+  const grouped = new Map<string, string[]>();
+  for (const [key, rawValue] of metrics) {
+    const label = key.replace(/([A-Z])/g, " $1").replace(/_/g, " ").trim();
+    const display =
+      typeof rawValue === "number"
+        ? Number.isInteger(rawValue)
+          ? `${rawValue}`
+          : rawValue.toFixed(1)
+        : Array.isArray(rawValue)
+        ? rawValue.join(", ")
+        : typeof rawValue === "object" && rawValue !== null
+        ? JSON.stringify(rawValue)
+        : String(rawValue);
+    const list = grouped.get(label) ?? [];
+    if (!list.includes(display)) {
+      list.push(display);
+      grouped.set(label, list);
+    }
+  }
+
+  return Array.from(grouped.entries()).map(([label, values]) => [label, values.join(" · ")]);
+}
+
+function defaultInsightActions(insight: Insight): SuggestedAction[] {
+  const actions: SuggestedAction[] = [];
+  actions.push({
+    id: `${insight.id}-task`,
+    type: "CREATE_TASK",
+    label: "Create Task",
+    payload: {
+      projectId: insight.projectId ?? null,
+      title: `Follow up: ${insight.title}`
+    }
+  });
+  actions.push({
+    id: `${insight.id}-focus`,
+    type: "SCHEDULE_FOCUS",
+    label: "Schedule Focus",
+    payload: {
+      projectId: insight.projectId ?? null,
+      reason: insight.title,
+      minutes: 45
+    }
+  });
+  if (insight.projectId) {
+    actions.push({
+      id: `${insight.id}-roadmap`,
+      type: "MOVE_ROADMAP_NOW",
+      label: "Move Roadmap Card to Now",
+      payload: {
+        projectId: insight.projectId
+      }
+    });
+  }
+  actions.push({
+    id: `${insight.id}-copy`,
+    type: "COPY_REPO_PATH",
+    label: "Copy Repo Path",
+    payload: { repoId: insight.repoId ?? null, projectId: insight.projectId ?? null }
+  });
+  actions.push({
+    id: `${insight.id}-snooze-1d`,
+    type: "SNOOZE_1D",
+    label: "Snooze 1 day",
+    payload: { insightId: insight.id }
+  });
+  actions.push({
+    id: `${insight.id}-snooze-1w`,
+    type: "SNOOZE_1W",
+    label: "Snooze 1 week",
+    payload: { insightId: insight.id }
+  });
+  return actions;
+}
+
 function groupInsights(list: Insight[]): InsightGroup[] {
   const map = new Map<string, InsightGroup>();
   for (const insight of list) {
     const key = `${insight.ruleId}:${insight.projectId ?? "none"}:${insight.repoId ?? "none"}`;
     const existing = map.get(key);
+    const suggestedActions = dedupeInsightActions(
+      insight.suggestedActions.length ? insight.suggestedActions : defaultInsightActions(insight),
+      insight
+    );
     if (!existing) {
       map.set(key, {
         key,
@@ -1927,10 +1866,12 @@ function groupInsights(list: Insight[]): InsightGroup[] {
         title: insight.title,
         reason: insight.reason,
         severity: insight.severity,
-        items: [insight]
+        items: [insight],
+        actions: [...suggestedActions]
       });
     } else {
       existing.items.push(insight);
+      existing.actions = dedupeInsightActions([...existing.actions, ...suggestedActions], insight);
       if (severityRank(insight.severity) > severityRank(existing.severity)) {
         existing.severity = insight.severity;
       }
@@ -1941,53 +1882,249 @@ function groupInsights(list: Insight[]): InsightGroup[] {
   return Array.from(map.values()).sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
 }
 
-function dedupeById<T extends { id: string }>(items: T[]) {
-  const map = new Map<string, T>();
-  const duplicates: string[] = [];
-  for (const item of items) {
-    if (map.has(item.id)) {
-      duplicates.push(item.id);
-      continue;
-    }
-    map.set(item.id, item);
-  }
-  return { items: Array.from(map.values()), duplicates };
-}
-
-function dedupeLocalRepos(repos: LocalRepo[]) {
-  const byId = dedupeById(repos);
-  const map = new Map<string, LocalRepo>();
-  const duplicates = [...byId.duplicates];
-  for (const repo of byId.items) {
-    const existing = map.get(repo.path);
-    if (!existing) {
-      map.set(repo.path, repo);
-      continue;
-    }
-    duplicates.push(repo.id);
-    const existingTime = existing.scannedAt ? new Date(existing.scannedAt).getTime() : 0;
-    const nextTime = repo.scannedAt ? new Date(repo.scannedAt).getTime() : 0;
-    if (nextTime >= existingTime) {
-      map.set(repo.path, repo);
+function dedupeInsightActions(actions: SuggestedAction[], insight: Insight) {
+  const map = new Map<string, SuggestedAction>();
+  for (const action of actions) {
+    const payload =
+      action.type === "SNOOZE_1D" || action.type === "SNOOZE_1W"
+        ? { ...action.payload, insightId: action.payload.insightId ?? insight.id }
+        : action.payload;
+    const normalized = { ...action, payload };
+    const key = `${normalized.type}:${JSON.stringify(normalized.payload ?? {})}`;
+    if (!map.has(key)) {
+      map.set(key, normalized);
     }
   }
-  return { items: Array.from(map.values()), duplicates };
+  return Array.from(map.values()).sort((a, b) => insightActionPriority(a.type) - insightActionPriority(b.type));
 }
 
-function toUiStatus(status: Project["status"]): UiProjectStatus {
-  if (status === "Done") return "Done";
-  if (status === "In Progress") return "In Progress";
-  if (status === "Not Started") return "Not Started";
-  return "Archived";
+function insightActionPriority(type: SuggestedAction["type"]) {
+  switch (type) {
+    case "CREATE_TASK":
+      return 0;
+    case "SCHEDULE_FOCUS":
+      return 1;
+    case "MOVE_ROADMAP_NOW":
+      return 2;
+    case "MOVE_ROADMAP_CARD":
+      return 3;
+    case "OPEN_REPO":
+      return 4;
+    case "COPY_REPO_PATH":
+      return 5;
+    case "CREATE_JOURNAL":
+      return 6;
+    case "SNOOZE_1D":
+      return 7;
+    case "SNOOZE_1W":
+      return 8;
+    default:
+      return 9;
+  }
 }
 
-function toPersistedStatus(status: UiProjectStatus): Project["status"] {
-  if (status === "Archived") return "Archived";
-  return status;
+function ProjectEditorFields({
+  draft,
+  setDraft,
+  repos,
+  githubRepoOptions,
+  githubRepoListId
+}: {
+  draft: ProjectDraft;
+  setDraft: React.Dispatch<React.SetStateAction<ProjectDraft>>;
+  repos: LocalRepo[];
+  githubRepoOptions: string[];
+  githubRepoListId: string;
+}) {
+  return (
+    <div className="grid gap-4">
+      <div>
+        <label className="mb-1 block text-xs text-white/60">Emoji</label>
+        <EmojiPicker value={draft.emoji} onChange={(emoji) => setDraft((prev) => ({ ...prev, emoji }))} />
+      </div>
+      <label className="grid gap-1">
+        <span className="text-xs text-white/60">Name</span>
+        <input
+          className="input"
+          value={draft.name}
+          onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+          placeholder="Project name"
+          aria-label="Project name"
+        />
+      </label>
+      <label className="grid gap-1">
+        <span className="text-xs text-white/60">Subtitle</span>
+        <input
+          className="input"
+          value={draft.subtitle}
+          onChange={(event) => setDraft((prev) => ({ ...prev, subtitle: event.target.value }))}
+          placeholder="Optional subtitle"
+          aria-label="Project subtitle"
+        />
+      </label>
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="grid gap-1">
+          <span className="text-xs text-white/60">Status</span>
+          <select
+            className="input"
+            value={draft.status}
+            onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value as UiProjectStatus }))}
+            aria-label="Project status"
+          >
+            {uiStatuses.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1">
+          <span className="text-xs text-white/60">Weekly Hours</span>
+          <div className="grid grid-cols-[40px_1fr_40px] gap-2">
+            <button
+              type="button"
+              className="button-secondary px-0"
+              onClick={() =>
+                setDraft((prev) => ({ ...prev, weeklyHours: clampWeeklyHours(prev.weeklyHours - 1) }))
+              }
+              aria-label="Decrease weekly hours"
+            >
+              -
+            </button>
+            <input
+              className="input text-center"
+              type="number"
+              min={0}
+              max={40}
+              value={draft.weeklyHours}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  weeklyHours: clampWeeklyHours(Number(event.target.value) || 0)
+                }))
+              }
+              aria-label="Weekly hours"
+            />
+            <button
+              type="button"
+              className="button-secondary px-0"
+              onClick={() =>
+                setDraft((prev) => ({ ...prev, weeklyHours: clampWeeklyHours(prev.weeklyHours + 1) }))
+              }
+              aria-label="Increase weekly hours"
+            >
+              +
+            </button>
+          </div>
+        </label>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="grid gap-1">
+          <span className="text-xs text-white/60">Local Repo</span>
+          <select
+            className="input"
+            value={draft.localRepoPath}
+            onChange={(event) => setDraft((prev) => ({ ...prev, localRepoPath: event.target.value }))}
+            aria-label="Local repository"
+          >
+            <option value="">Not linked</option>
+            {repos.map((repo) => (
+              <option key={repo.id} value={repo.path}>
+                {repo.name} - {repo.path}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1">
+          <span className="text-xs text-white/60">GitHub Repo</span>
+          <input
+            className="input"
+            value={draft.githubRepo}
+            list={githubRepoListId}
+            onChange={(event) => setDraft((prev) => ({ ...prev, githubRepo: event.target.value }))}
+            placeholder="owner/repo"
+            aria-label="GitHub repository"
+          />
+          <datalist id={githubRepoListId}>
+            {githubRepoOptions.map((repo) => (
+              <option key={repo} value={repo} />
+            ))}
+          </datalist>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function clampWeeklyHours(value: number) {
+  return Math.max(0, Math.min(40, value));
+}
+
+function projectToDraft(project: Project): ProjectDraft {
+  return {
+    emoji: project.icon,
+    name: project.name,
+    subtitle: project.subtitle,
+    status: project.status,
+    weeklyHours: project.weeklyHours,
+    localRepoPath: project.localRepoPath ?? "",
+    githubRepo: project.githubRepo ?? project.remoteRepo ?? ""
+  };
+}
+
+function createProjectFromDraft(draft: ProjectDraft, color: string): Project {
+  const nowIso = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    name: draft.name.trim(),
+    subtitle: draft.subtitle.trim(),
+    icon: draft.emoji,
+    color,
+    status: draft.status,
+    progress: 0,
+    weeklyHours: clampWeeklyHours(Number(draft.weeklyHours) || 0),
+    githubRepo: draft.githubRepo.trim() || null,
+    remoteRepo: draft.githubRepo.trim() || null,
+    localRepoPath: draft.localRepoPath || null,
+    healthScore: null,
+    archivedAt: draft.status === "Archived" ? nowIso : null,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    tasks: []
+  };
+}
+
+function applyProjectDraftToProject(project: Project, draft: ProjectDraft) {
+  const nowIso = new Date().toISOString();
+  project.name = draft.name.trim();
+  project.subtitle = draft.subtitle.trim();
+  project.icon = draft.emoji;
+  project.status = draft.status;
+  project.weeklyHours = clampWeeklyHours(Number(draft.weeklyHours) || 0);
+  project.githubRepo = draft.githubRepo.trim() || null;
+  project.remoteRepo = draft.githubRepo.trim() || null;
+  project.localRepoPath = draft.localRepoPath || null;
+  project.archivedAt = draft.status === "Archived" ? project.archivedAt ?? nowIso : null;
+  project.updatedAt = nowIso;
+}
+
+function normalizeRoadmapProjectRefs(cards: RoadmapCard[], project: Project, aliases: string[] = []) {
+  const refs = new Set([project.id, project.name, ...aliases]);
+  return cards.map((card) => {
+    if (!card.project) return card;
+    if (refs.has(card.project)) {
+      return {
+        ...card,
+        project: project.id,
+        updatedAt: new Date().toISOString()
+      };
+    }
+    return card;
+  });
 }
 
 function isArchivedProject(project: Project) {
-  return toUiStatus(project.status) === "Archived";
+  return project.status === "Archived";
 }
 
 function resolveRoadmapProject(ref: string | null, projects: Project[]) {
