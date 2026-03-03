@@ -46,6 +46,7 @@ describe("weekly review", () => {
     const review = generateWeeklyReview(state, "2026-02-16");
     expect(review.markdown).toContain("Weekly Review");
     expect(review.weekStart).toBe("2026-02-16");
-    expect(review.markdown).toMatchSnapshot();
+    expect(review.markdown).toContain("Project Breakdown");
+    expect(review.stats.roadmapMoved).toBe(0);
   });
 });

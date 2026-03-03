@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from "react";
-import { useAppState } from "../lib/state";
-import { api } from "../lib/api";
-import { useToast } from "../lib/toast";
-import { isTaskBlocked } from "../lib/taskRules";
+import React, { useEffect, useMemo, useState } from "react";
+import { generateWeeklyReview, isBetween, weekBounds, type WeeklyReview } from "@linkra/shared";
 import GlassPanel from "../components/GlassPanel";
-import SectionHeader from "../components/SectionHeader";
 import Pill from "../components/Pill";
+import SectionHeader from "../components/SectionHeader";
+import { dedupeById, dedupeByKey } from "../lib/collections";
+import { formatDate } from "../lib/date";
+import { useAppState } from "../lib/state";
+import { useToast } from "../lib/toast";
 
 function startOfWeek(date: Date) {
   const day = date.getDay();
@@ -15,235 +16,192 @@ function startOfWeek(date: Date) {
   return start.toISOString().slice(0, 10);
 }
 
-function addDays(dateString: string, days: number) {
-  const date = new Date(`${dateString}T00:00:00`);
-  date.setDate(date.getDate() + days);
+function shiftWeek(weekStart: string, delta: number) {
+  const date = new Date(`${weekStart}T00:00:00`);
+  date.setDate(date.getDate() + delta * 7);
   return date.toISOString().slice(0, 10);
 }
 
-function inRange(dateString: string | null | undefined, weekStart: string, weekEnd: string) {
-  if (!dateString) return false;
-  const day = dateString.slice(0, 10);
-  return day >= weekStart && day <= weekEnd;
+function formatMinutes(totalMinutes: number) {
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
-function resolveRoadmapProjectId(ref: string | null, projects: { id: string; name: string }[]) {
-  if (!ref) return null;
-  const byId = projects.find((project) => project.id === ref);
-  if (byId) return byId.id;
-  const byName = projects.find((project) => project.name === ref);
-  return byName?.id ?? null;
+function upsertByWeekStart<T extends { weekStart: string }>(items: T[], nextItem: T) {
+  return [nextItem, ...items.filter((item) => item.weekStart !== nextItem.weekStart)];
 }
 
 export default function WeeklyReviewPage() {
   const { state, save } = useAppState();
   const { push } = useToast();
   const [weekStart, setWeekStart] = useState(startOfWeek(new Date()));
-  const [markdown, setMarkdown] = useState("");
-  const [stats, setStats] = useState<{
-    goalsCompleted: number;
-    points: number;
-    tasksDone: number;
-    tasksCreated: number;
-    roadmapMoved: number;
-    commitsCount: number;
-    focusMinutes: number;
-    journalCount: number;
-    streakDelta: number;
-  } | null>(null);
+  const [review, setReview] = useState<WeeklyReview | null>(null);
 
   if (!state) return null;
 
-  const weekEnd = addDays(weekStart, 6);
+  const { weekEnd } = weekBounds(weekStart);
+  const liveReview = useMemo(() => generateWeeklyReview(state, weekStart), [state, weekStart]);
+  const activeReview = review?.weekStart === weekStart ? review : liveReview;
 
-  const computedStats = useMemo(() => {
-    const dailyEntries = Object.values(state.dailyGoalsByDate).filter((entry) =>
-      inRange(entry.date, weekStart, weekEnd)
+  const dedupedJournalEntries = dedupeById(state.journalEntries);
+  const weekJournalEntries = dedupedJournalEntries.items.filter((entry) => isBetween(entry.ts, weekStart, weekEnd));
+
+  const reviewHistory = useMemo(() => {
+    return dedupeByKey(
+      [...state.weeklyReviews].sort((a, b) => (a.weekStart < b.weekStart ? 1 : -1)),
+      (item) => item.weekStart
     );
-    const goalsCompleted = dailyEntries.reduce(
-      (sum, entry) => sum + entry.goals.filter((goal) => goal.done).length,
-      0
+  }, [state.weeklyReviews]);
+
+  const snapshotHistory = useMemo(() => {
+    return dedupeByKey(
+      [...state.weeklySnapshots].sort((a, b) => (a.weekStart < b.weekStart ? 1 : -1)),
+      (item) => item.weekStart
     );
-    const points = dailyEntries.reduce((sum, entry) => sum + entry.completedPoints, 0);
+  }, [state.weeklySnapshots]);
 
-    const tasksDone = state.projects.reduce(
-      (sum, project) => sum + project.tasks.filter((task) => inRange(task.completedAt, weekStart, weekEnd)).length,
-      0
-    );
-    const tasksCreated = state.projects.reduce(
-      (sum, project) => sum + project.tasks.filter((task) => inRange(task.createdAt, weekStart, weekEnd)).length,
-      0
-    );
+  const duplicateWarnings = [
+    reviewHistory.duplicates.length > 0
+      ? `Weekly review history had ${reviewHistory.duplicates.length} duplicate week entries. The latest week copy is shown.`
+      : null,
+    snapshotHistory.duplicates.length > 0
+      ? `Weekly snapshot history had ${snapshotHistory.duplicates.length} duplicate week entries. The latest week copy is shown.`
+      : null,
+    dedupedJournalEntries.duplicates.length > 0
+      ? `Journal had ${dedupedJournalEntries.duplicates.length} duplicate IDs during recap generation. Counts were deduped.`
+      : null
+  ].filter((item): item is string => Boolean(item));
 
-    const roadmapMoved = state.roadmapCards.filter((card) => inRange(card.updatedAt, weekStart, weekEnd)).length;
-    const commitsCount = state.localRepos.reduce((sum, repo) => sum + repo.todayCommitCount, 0);
-    const focusMinutes = state.focusSessions
-      .filter((session) => inRange(session.completedAt ?? session.startedAt, weekStart, weekEnd))
-      .reduce((sum, session) => sum + session.durationMinutes, 0);
-    const journalCount = state.journalEntries.filter((entry) => inRange(entry.ts, weekStart, weekEnd)).length;
-    const streakDelta = dailyEntries.filter((entry) => entry.score >= 80).length;
-
-    return {
-      goalsCompleted,
-      points,
-      tasksDone,
-      tasksCreated,
-      roadmapMoved,
-      commitsCount,
-      focusMinutes,
-      journalCount,
-      streakDelta
-    };
-  }, [state, weekStart, weekEnd]);
-
-  const perProject = useMemo(() => {
-    return state.projects.map((project) => {
-      const tasksDone = project.tasks.filter((task) => inRange(task.completedAt, weekStart, weekEnd)).length;
-      const tasksCreated = project.tasks.filter((task) => inRange(task.createdAt, weekStart, weekEnd)).length;
-      const roadmapMoved = state.roadmapCards.filter((card) => {
-        const projectId = resolveRoadmapProjectId(card.project, state.projects);
-        return projectId === project.id && inRange(card.updatedAt, weekStart, weekEnd);
-      }).length;
-      const commits = state.localRepos.find((repo) => repo.path === project.localRepoPath)?.todayCommitCount ?? 0;
-      const journal = state.journalEntries.filter(
-        (entry) => entry.projectId === project.id && inRange(entry.ts, weekStart, weekEnd)
-      ).length;
+  const breakdown = useMemo(() => {
+    return activeReview.perProject.map((item) => {
+      const project = state.projects.find((candidate) => candidate.id === item.projectId) ?? null;
+      const projectEntries = weekJournalEntries.filter((entry) => entry.projectId === item.projectId);
+      const blockers = projectEntries.filter((entry) => entry.type === "blocker").length;
+      const decisions = projectEntries.filter((entry) => entry.type === "decision").length;
+      const nexts = projectEntries.filter((entry) => entry.type === "next").length;
+      const latestEntry = [...projectEntries].sort((a, b) => (a.ts < b.ts ? 1 : -1))[0] ?? null;
+      const activity =
+        item.tasksDone +
+        item.tasksCreated +
+        item.commitsCount +
+        item.journalCount +
+        item.roadmapMoved +
+        Math.floor(item.focusMinutes / 30);
 
       return {
-        id: project.id,
-        name: project.name,
-        tasksDone,
-        tasksCreated,
-        roadmapMoved,
-        commits,
-        journal
+        ...item,
+        project,
+        blockers,
+        decisions,
+        nexts,
+        latestEntry,
+        activity
       };
-    });
-  }, [state, weekStart, weekEnd]);
+    }).sort((a, b) => b.activity - a.activity);
+  }, [activeReview.perProject, state.projects, weekJournalEntries]);
 
-  const highlights = [
-    `${computedStats.goalsCompleted} goals completed`,
-    `${computedStats.tasksDone} tasks shipped`,
-    `${computedStats.focusMinutes} focus minutes`,
-    `${computedStats.roadmapMoved} roadmap moves`
+  const statCards = [
+    { label: "Goals", value: activeReview.stats.goalsCompleted },
+    { label: "Points", value: activeReview.stats.points },
+    { label: "Tasks done", value: activeReview.stats.tasksDone },
+    { label: "Tasks created", value: activeReview.stats.tasksCreated },
+    { label: "Roadmap moves", value: activeReview.stats.roadmapMoved },
+    { label: "Commit signals", value: activeReview.stats.commitsCount },
+    { label: "Focus", value: formatMinutes(activeReview.stats.focusMinutes) },
+    { label: "Journal", value: activeReview.stats.journalCount }
   ];
 
-  const generateMarkdownClient = () => {
-    const lines: string[] = [];
-    lines.push(`# Weekly Review (${weekStart} to ${weekEnd})`);
-    lines.push("");
-    lines.push("## Highlights");
-    highlights.forEach((item) => lines.push(`- ${item}`));
-    lines.push("");
-    lines.push("## Stats");
-    lines.push(`- Goals completed: ${computedStats.goalsCompleted}`);
-    lines.push(`- Points earned: ${computedStats.points}`);
-    lines.push(`- Tasks done: ${computedStats.tasksDone}`);
-    lines.push(`- Tasks created: ${computedStats.tasksCreated}`);
-    lines.push(`- Roadmap moved: ${computedStats.roadmapMoved}`);
-    lines.push(`- Commits: ${computedStats.commitsCount}`);
-    lines.push(`- Focus minutes: ${computedStats.focusMinutes}`);
-    lines.push(`- Journal entries: ${computedStats.journalCount}`);
-    lines.push("");
-    lines.push("## Per Project");
+  useEffect(() => {
+    setReview((current) => (current?.weekStart === weekStart ? current : null));
+  }, [weekStart]);
 
-    state.projects.forEach((project) => {
-      const doneThisWeek = project.tasks.filter((task) => inRange(task.completedAt, weekStart, weekEnd));
-      const blockers = project.tasks.filter((task) => !task.done && isTaskBlocked(task, project.tasks));
-      const nextTasks = project.tasks.filter((task) => !task.done).slice(0, 3);
-      const localRepo = state.localRepos.find((repo) => repo.path === project.localRepoPath);
-
-      lines.push(`### ${project.icon} ${project.name}`);
-      if (doneThisWeek.length === 0) {
-        lines.push("- What shipped: none logged this week");
-      } else {
-        lines.push(`- What shipped: ${doneThisWeek.slice(0, 4).map((task) => task.text).join("; ")}`);
-      }
-      lines.push(`- Key commits: ${localRepo?.todayCommitCount ?? 0} recent local commits`);
-      lines.push(`- Blockers: ${blockers.length ? blockers.slice(0, 3).map((task) => task.text).join("; ") : "none"}`);
-      lines.push(`- Next: ${nextTasks.length ? nextTasks.map((task) => task.text).join("; ") : "no queued tasks"}`);
-      lines.push("");
-    });
-
-    lines.push("## Notes");
-    lines.push("- Generated in local-first mode.");
-
-    return lines.join("\n");
-  };
-
-  const generateReview = async () => {
-    try {
-      const result = await api.weeklyGenerate(weekStart);
-      setMarkdown(result.review.markdown);
-      setStats(result.review.stats);
-      push("Markdown recap generated.", "success");
-      return;
-    } catch {
-      const localMarkdown = generateMarkdownClient();
-      setMarkdown(localMarkdown);
-      setStats(computedStats);
-      push("Generated with client-side fallback.", "warning");
-    }
+  const generateReview = () => {
+    setReview(liveReview);
+    push("Markdown recap generated.", "success");
   };
 
   const closeWeek = async () => {
-    try {
-      const result = await api.weeklyClose(weekStart);
-      await save(result.state);
-      setMarkdown(result.review.markdown);
-      setStats(result.review.stats);
-      push("Week closed.", "success");
-      return;
-    } catch {
-      const localMarkdown = markdown || generateMarkdownClient();
-      const nowIso = new Date().toISOString();
-      const next = { ...state };
-      next.weeklyReviews.unshift({
-        id: crypto.randomUUID(),
-        weekStart,
-        weekEnd,
-        stats: stats ?? computedStats,
-        perProject: perProject.map((item) => ({
-          projectId: item.id,
-          projectName: item.name,
-          tasksDone: item.tasksDone,
-          tasksCreated: item.tasksCreated,
-          commitsCount: item.commits,
-          focusMinutes: 0,
-          journalCount: item.journal
-        })),
-        highlights,
-        markdown: localMarkdown,
-        createdAt: nowIso,
-        closedAt: nowIso
-      });
-      next.weeklySnapshots.unshift({
-        id: crypto.randomUUID(),
-        weekStart,
-        weekEnd,
-        data: {
-          stats: stats ?? computedStats,
-          markdown: localMarkdown,
-          perProject
-        }
-      });
-      await save(next);
-      setMarkdown(localMarkdown);
-      setStats(stats ?? computedStats);
-      push("Week closed with local snapshot.", "warning");
+    const nowIso = new Date().toISOString();
+    const closedReview: WeeklyReview = {
+      ...activeReview,
+      createdAt: review?.createdAt ?? nowIso,
+      closedAt: nowIso
+    };
+
+    const next = { ...state };
+    next.weeklyReviews = upsertByWeekStart(next.weeklyReviews, closedReview);
+    next.weeklySnapshots = upsertByWeekStart(next.weeklySnapshots, {
+      id: crypto.randomUUID(),
+      weekStart: closedReview.weekStart,
+      weekEnd: closedReview.weekEnd,
+      data: {
+        review: closedReview,
+        perProject: breakdown.map((item) => ({
+          projectId: item.projectId,
+          projectName: item.projectName,
+          blockers: item.blockers,
+          decisions: item.decisions,
+          nexts: item.nexts,
+          latestEntry: item.latestEntry
+            ? {
+                id: item.latestEntry.id,
+                type: item.latestEntry.type,
+                title: item.latestEntry.title,
+                ts: item.latestEntry.ts
+              }
+            : null
+        }))
+      }
+    });
+
+    for (const entry of Object.values(next.dailyGoalsByDate)) {
+      if (entry.date >= weekStart && entry.date <= weekEnd) {
+        entry.archivedAt = entry.archivedAt ?? nowIso;
+      }
     }
+
+    await save(next);
+    setReview(closedReview);
+    push("Week closed and snapshot stored locally.", "success");
   };
 
   const copyMarkdown = async () => {
-    if (!markdown) {
-      push("Generate a recap first.", "warning");
-      return;
+    try {
+      await navigator.clipboard.writeText(activeReview.markdown);
+      push("Markdown copied.", "success");
+    } catch {
+      push("Clipboard write failed.", "error");
     }
-    await navigator.clipboard.writeText(markdown);
-    push("Markdown copied.", "success");
   };
 
-  const summaryStats = stats ?? computedStats;
+  const loadReview = (nextReview: WeeklyReview) => {
+    setWeekStart(nextReview.weekStart);
+    setReview(nextReview);
+  };
+
+  const loadSnapshot = (week: string) => {
+    const matchingReview = reviewHistory.items.find((item) => item.weekStart === week);
+    if (matchingReview) {
+      loadReview(matchingReview);
+      return;
+    }
+
+    const snapshot = snapshotHistory.items.find((item) => item.weekStart === week);
+    const snapshotReview =
+      snapshot?.data && typeof snapshot.data.review === "object" && snapshot.data.review
+        ? (snapshot.data.review as WeeklyReview)
+        : null;
+
+    if (snapshotReview) {
+      loadReview(snapshotReview);
+      return;
+    }
+
+    setWeekStart(week);
+    setReview(null);
+  };
 
   return (
     <div className="space-y-6">
@@ -252,88 +210,188 @@ export default function WeeklyReviewPage() {
           eyebrow="Review"
           title="Weekly Review"
           subtitle={`${weekStart} to ${weekEnd}`}
-          rightControls={<Pill tone="accent">Local-first recap</Pill>}
+          rightControls={<Pill tone="accent">{snapshotHistory.items.length} local snapshots</Pill>}
         />
-        <div className="mt-4 grid gap-2 md:grid-cols-[180px_180px_auto_auto]">
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Week start</span>
-            <input
-              className="input"
-              type="date"
-              value={weekStart}
-              onChange={(event) => setWeekStart(event.target.value)}
-              aria-label="Select week start date"
-            />
-          </label>
-          <label className="grid gap-1">
-            <span className="text-xs text-white/60">Week end</span>
-            <input className="input" type="date" value={weekEnd} readOnly aria-label="Computed week end" />
-          </label>
-          <button className="button-primary self-end" onClick={generateReview} aria-label="Generate markdown recap">
+        <div className="mt-4 grid gap-2 md:grid-cols-[auto_auto_180px_auto_auto_auto]">
+          <button className="button-secondary" onClick={() => setWeekStart(shiftWeek(weekStart, -1))}>
+            Previous Week
+          </button>
+          <button className="button-secondary" onClick={() => setWeekStart(startOfWeek(new Date()))}>
+            Current Week
+          </button>
+          <input
+            className="input"
+            type="date"
+            value={weekStart}
+            onChange={(event) => setWeekStart(event.target.value)}
+            aria-label="Select week start"
+          />
+          <button className="button-primary" onClick={generateReview}>
             Generate Markdown Recap
           </button>
-          <button className="button-secondary self-end" onClick={closeWeek} aria-label="Close current week">
-            Close Week
+          <button className="button-secondary" onClick={copyMarkdown}>
+            Copy
+          </button>
+          <button className="button-secondary" onClick={closeWeek}>
+            {reviewHistory.items.some((item) => item.weekStart === weekStart) ? "Update Snapshot" : "Close Week"}
           </button>
         </div>
-      </GlassPanel>
-
-      <GlassPanel variant="standard">
-        <SectionHeader eyebrow="Metrics" title="Week Stats" />
-        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          <div className="table-row">Goals completed: {summaryStats.goalsCompleted}</div>
-          <div className="table-row">Points: {summaryStats.points}</div>
-          <div className="table-row">Tasks done: {summaryStats.tasksDone}</div>
-          <div className="table-row">Tasks created: {summaryStats.tasksCreated}</div>
-          <div className="table-row">Roadmap moved: {summaryStats.roadmapMoved}</div>
-          <div className="table-row">Commits count: {summaryStats.commitsCount}</div>
-          <div className="table-row">Focus minutes: {summaryStats.focusMinutes}</div>
-          <div className="table-row">Journal entries: {summaryStats.journalCount}</div>
-          <div className="table-row">Streak delta: {summaryStats.streakDelta}</div>
-        </div>
-      </GlassPanel>
-
-      <GlassPanel variant="standard">
-        <SectionHeader eyebrow="Breakdown" title="Per-project Table" />
-        <div className="mt-4 grid gap-2">
-          <div className="table-row text-xs uppercase tracking-[0.2em] text-white/60">
-            <span>Project</span>
-            <span>Done</span>
-            <span>Created</span>
-            <span>Roadmap</span>
-            <span>Commits</span>
-            <span>Journal</span>
-          </div>
-          {perProject.map((row) => (
-            <div key={row.id} className="table-row text-sm">
-              <span>{row.name}</span>
-              <span>{row.tasksDone}</span>
-              <span>{row.tasksCreated}</span>
-              <span>{row.roadmapMoved}</span>
-              <span>{row.commits}</span>
-              <span>{row.journal}</span>
+        {duplicateWarnings.length > 0 && (
+          <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+            <div className="font-medium">Messy data handled safely</div>
+            <div className="mt-2 grid gap-2">
+              {duplicateWarnings.map((warning) => (
+                <div key={warning}>{warning}</div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </GlassPanel>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {statCards.map((card) => (
+          <GlassPanel key={card.label} variant="standard">
+            <div className="text-xs uppercase tracking-[0.24em] text-white/50">{card.label}</div>
+            <div className="mt-2 text-2xl font-semibold">{card.value}</div>
+          </GlassPanel>
+        ))}
+      </div>
+
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <GlassPanel variant="standard">
+          <SectionHeader
+            eyebrow="Breakdown"
+            title="Per Project"
+            subtitle={`${breakdown.length} projects in this review`}
+            rightControls={<Pill>{activeReview.highlights.length} highlights</Pill>}
+          />
+          <div className="mt-4 grid gap-3">
+            {breakdown.length === 0 && <p className="text-sm text-white/60">No project activity logged for this week.</p>}
+            {breakdown.map((item) => (
+              <div key={item.projectId || item.projectName} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">
+                      {item.project?.icon ?? "🧩"} {item.projectName}
+                    </div>
+                    <div className="mt-1 text-xs text-white/50">
+                      {item.project?.subtitle || "No subtitle"}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Pill tone="accent">{item.tasksDone} done</Pill>
+                    <Pill>{item.tasksCreated} created</Pill>
+                    <Pill>{item.roadmapMoved} roadmap</Pill>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-2 text-sm text-white/70 md:grid-cols-3">
+                  <div>Commit signals: {item.commitsCount}</div>
+                  <div>Focus: {formatMinutes(item.focusMinutes)}</div>
+                  <div>Journal: {item.journalCount}</div>
+                  <div>Decisions: {item.decisions}</div>
+                  <div>Blockers: {item.blockers}</div>
+                  <div>Next steps: {item.nexts}</div>
+                </div>
+                {item.latestEntry && (
+                  <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-white/70">
+                    <div className="text-xs uppercase tracking-[0.2em] text-white/45">Latest note</div>
+                    <div className="mt-1 font-medium">
+                      {item.latestEntry.title || item.latestEntry.type}
+                    </div>
+                    <div className="mt-1 text-xs text-white/50">{formatDate(item.latestEntry.ts)}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </GlassPanel>
+
+        <div className="grid gap-6">
+          <GlassPanel variant="standard">
+            <SectionHeader
+              eyebrow="Highlights"
+              title="This Week"
+              subtitle="Markdown recap summary"
+            />
+            <div className="mt-4 grid gap-2">
+              {activeReview.highlights.map((highlight) => (
+                <div key={highlight} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/75">
+                  {highlight}
+                </div>
+              ))}
+            </div>
+          </GlassPanel>
+
+          <GlassPanel variant="standard">
+            <SectionHeader
+              eyebrow="History"
+              title="Closed Weeks"
+              subtitle={`${reviewHistory.items.length} review snapshots`}
+            />
+            <div className="mt-4 grid gap-2">
+              {reviewHistory.items.slice(0, 8).map((item) => (
+                <button
+                  key={item.id}
+                  className="table-row text-left"
+                  onClick={() => loadReview(item)}
+                  aria-label={`Load weekly review for ${item.weekStart}`}
+                >
+                  <span>
+                    {item.weekStart} to {item.weekEnd}
+                  </span>
+                  <span className="text-xs text-white/50">
+                    {item.closedAt ? formatDate(item.closedAt) : "Open"}
+                  </span>
+                </button>
+              ))}
+              {reviewHistory.items.length === 0 && (
+                <p className="text-sm text-white/60">No weeks closed yet.</p>
+              )}
+            </div>
+          </GlassPanel>
+
+          <GlassPanel variant="standard">
+            <SectionHeader
+              eyebrow="Snapshots"
+              title="Local Store"
+              subtitle={`${snapshotHistory.items.length} stored weeks`}
+            />
+            <div className="mt-4 grid gap-2">
+              {snapshotHistory.items.slice(0, 8).map((item) => (
+                <button
+                  key={item.id}
+                  className="table-row text-left"
+                  onClick={() => loadSnapshot(item.weekStart)}
+                  aria-label={`Load snapshot for ${item.weekStart}`}
+                >
+                  <span>
+                    {item.weekStart} to {item.weekEnd}
+                  </span>
+                  <span className="text-xs text-white/50">
+                    {reviewHistory.items.some((reviewItem) => reviewItem.weekStart === item.weekStart) ? "Review attached" : "Snapshot only"}
+                  </span>
+                </button>
+              ))}
+              {snapshotHistory.items.length === 0 && (
+                <p className="text-sm text-white/60">Close a week to store a snapshot locally.</p>
+              )}
+            </div>
+          </GlassPanel>
+        </div>
+      </section>
 
       <GlassPanel variant="standard">
         <SectionHeader
-          eyebrow="Recap"
-          title="Markdown"
-          rightControls={
-            <button className="button-secondary" onClick={copyMarkdown} aria-label="Copy markdown recap">
-              Copy Markdown
-            </button>
-          }
+          eyebrow="Markdown"
+          title="Recap"
+          subtitle="Copy or reuse directly"
+          rightControls={<Pill tone="accent">{activeReview.closedAt ? "Closed week" : "Draft review"}</Pill>}
         />
         <textarea
-          className="input mt-4"
-          rows={16}
-          value={markdown}
-          onChange={(event) => setMarkdown(event.target.value)}
-          placeholder="Generate a recap to populate markdown."
-          aria-label="Weekly markdown recap"
+          className="input mt-4 min-h-[320px] font-mono text-sm"
+          value={activeReview.markdown}
+          readOnly
+          aria-label="Weekly review markdown"
         />
       </GlassPanel>
     </div>

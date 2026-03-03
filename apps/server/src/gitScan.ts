@@ -12,7 +12,9 @@ const execFileAsync = promisify(execFile);
 type ScanStatus = {
   state: "idle" | "running" | "error";
   running: boolean;
+  queued: boolean;
   lastRunAt: string | null;
+  durationMs: number | null;
   lastDurationMs: number | null;
   reposScanned: number;
   reposChanged: number;
@@ -20,7 +22,27 @@ type ScanStatus = {
   watcherActive: boolean;
 };
 
+type ScanResult = {
+  repos: LocalRepo[];
+  lastScanAt: string | null;
+} & ScanStatus;
+
+type PendingScanRequest = {
+  full: boolean;
+  repoPaths: Set<string>;
+};
+
+const WATCH_DEBOUNCE_MS = 1200;
+const GIT_TIMEOUT_MS = 10_000;
+const GIT_MAX_BUFFER_BYTES = 1024 * 1024;
+const MAX_LOCAL_COMMITS = 100;
+
 let scanInProgress = false;
+let activeScanPromise: Promise<ScanResult> | null = null;
+let pendingScanRequest: PendingScanRequest = {
+  full: false,
+  repoPaths: new Set<string>()
+};
 let lastScanAt: string | null = null;
 let lastScanErrors: string[] = [];
 let lastScanDurationMs: number | null = null;
@@ -29,53 +51,78 @@ let lastReposChanged = 0;
 let scanState: ScanStatus["state"] = "idle";
 let watcher: FSWatcher | null = null;
 let watcherActive = false;
+let watcherSignature = "";
+let schedulerHandle: NodeJS.Timeout | null = null;
 const watchDebounceTimers = new Map<string, NodeJS.Timeout>();
-const WATCH_DEBOUNCE_MS = 1200;
 
 function normalizeRepoPath(repoPath: string) {
-  try {
-    return fs.realpathSync.native(repoPath);
-  } catch {
-    return path.resolve(repoPath);
+  const resolvedPath = path.resolve(repoPath);
+  const suffix: string[] = [];
+  let current = resolvedPath;
+
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return resolvedPath;
+    }
+    suffix.unshift(path.basename(current));
+    current = parent;
   }
+
+  try {
+    return path.join(fs.realpathSync.native(current), ...suffix);
+  } catch {
+    return resolvedPath;
+  }
+}
+
+function repoId(repoPath: string) {
+  return crypto.createHash("sha1").update(normalizeRepoPath(repoPath)).digest("hex");
 }
 
 function scanTimeValue(scannedAt: string | null) {
   if (!scannedAt) return 0;
-  const t = new Date(scannedAt).getTime();
-  return Number.isFinite(t) ? t : 0;
+  const value = new Date(scannedAt).getTime();
+  return Number.isFinite(value) ? value : 0;
+}
+
+function logGitScan(message: string, details?: Record<string, unknown>) {
+  if (!details || Object.keys(details).length === 0) {
+    console.log(`[git-scan] ${message}`);
+    return;
+  }
+  console.log(`[git-scan] ${message}`, details);
+}
+
+function canonicalizeLocalRepo(repo: LocalRepo): LocalRepo {
+  const normalizedPath = normalizeRepoPath(repo.path);
+  return {
+    ...repo,
+    id: repoId(normalizedPath),
+    path: normalizedPath,
+    watchDir: repo.watchDir ? normalizeRepoPath(repo.watchDir) : null
+  };
 }
 
 function dedupeRepos(repos: LocalRepo[]) {
-  const map = new Map<string, LocalRepo>();
-  for (const repo of repos) {
-    const normalizedPath = normalizeRepoPath(repo.path);
-    const dedupeKey = `${repo.id}:${normalizedPath}`;
-    const normalizedRepo: LocalRepo = {
-      ...repo,
-      id: repo.id || repoId(normalizedPath),
-      path: normalizedPath
-    };
-    const existing = map.get(dedupeKey);
-    if (!existing || scanTimeValue(normalizedRepo.scannedAt) >= scanTimeValue(existing.scannedAt)) {
-      map.set(dedupeKey, normalizedRepo);
-    }
-  }
-
   const byPath = new Map<string, LocalRepo>();
-  for (const repo of map.values()) {
-    const existing = byPath.get(repo.path);
-    if (!existing || scanTimeValue(repo.scannedAt) >= scanTimeValue(existing.scannedAt)) {
-      byPath.set(repo.path, repo);
+  for (const repo of repos) {
+    const normalizedRepo = canonicalizeLocalRepo(repo);
+    const existing = byPath.get(normalizedRepo.path);
+    if (!existing || scanTimeValue(normalizedRepo.scannedAt) >= scanTimeValue(existing.scannedAt)) {
+      byPath.set(normalizedRepo.path, normalizedRepo);
     }
   }
-  return Array.from(byPath.values());
+  return Array.from(byPath.values()).sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function countChangedRepos(previousMap: Map<string, LocalRepo>, nextRepos: LocalRepo[]) {
   let changed = 0;
+  const seen = new Set<string>();
+
   for (const repo of nextRepos) {
     const normalizedPath = normalizeRepoPath(repo.path);
+    seen.add(normalizedPath);
     const previous = previousMap.get(normalizedPath);
     if (!previous) {
       changed += 1;
@@ -90,11 +137,104 @@ function countChangedRepos(previousMap: Map<string, LocalRepo>, nextRepos: Local
       changed += 1;
     }
   }
+
+  for (const previousPath of previousMap.keys()) {
+    if (!seen.has(previousPath)) {
+      changed += 1;
+    }
+  }
+
   return changed;
 }
 
+function hasPendingScanRequest() {
+  return pendingScanRequest.full || pendingScanRequest.repoPaths.size > 0;
+}
+
+function enqueueScanRequest(repoPath?: string | null) {
+  if (!repoPath) {
+    pendingScanRequest.full = true;
+    pendingScanRequest.repoPaths.clear();
+    logGitScan("queued full scan");
+    return;
+  }
+
+  const normalizedRepoPath = normalizeRepoPath(repoPath);
+  if (pendingScanRequest.full) {
+    return;
+  }
+
+  pendingScanRequest.repoPaths.add(normalizedRepoPath);
+  logGitScan("queued repo scan", { repoPath: normalizedRepoPath });
+}
+
+function consumePendingScanRequest() {
+  if (pendingScanRequest.full) {
+    pendingScanRequest = { full: false, repoPaths: new Set<string>() };
+    return { full: true, repoPath: undefined as string | undefined };
+  }
+
+  if (pendingScanRequest.repoPaths.size === 0) {
+    return null;
+  }
+
+  if (pendingScanRequest.repoPaths.size === 1) {
+    const [repoPath] = pendingScanRequest.repoPaths;
+    pendingScanRequest = { full: false, repoPaths: new Set<string>() };
+    return { full: false, repoPath };
+  }
+
+  pendingScanRequest = { full: false, repoPaths: new Set<string>() };
+  return { full: true, repoPath: undefined as string | undefined };
+}
+
+function buildScanResult(repos: LocalRepo[]): ScanResult {
+  return {
+    repos,
+    lastScanAt,
+    ...getScanStatus()
+  };
+}
+
+function compileExcludeTokens(patterns: string[]) {
+  return patterns
+    .map((pattern) => pattern.replace(/\*\*/g, "").replace(/\*/g, "").replace(/\/+/g, "/").trim())
+    .filter(Boolean)
+    .map((pattern) => pattern.replace(/^\.?\//, "").replace(/\/$/, "").toLowerCase());
+}
+
+function normalizeComparablePath(targetPath: string) {
+  return targetPath.split(path.sep).join("/").toLowerCase();
+}
+
+function isExcluded(targetPath: string, tokens: string[]) {
+  const normalized = normalizeComparablePath(path.resolve(targetPath));
+  return tokens.some((token) => token && normalized.includes(token));
+}
+
+function normalizeWatchDirs(watchDirs: string[]) {
+  return dedupeStrings(
+    watchDirs
+      .filter(Boolean)
+      .filter((dir) => fs.existsSync(dir))
+      .map((dir) => normalizeRepoPath(dir))
+  );
+}
+
+function dedupeStrings(values: string[]) {
+  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+}
+
+function findOwningWatchDir(repoPath: string, watchDirs: string[]) {
+  const normalizedRepoPath = normalizeRepoPath(repoPath);
+  const matches = watchDirs
+    .filter((dir) => normalizedRepoPath === dir || normalizedRepoPath.startsWith(`${dir}${path.sep}`))
+    .sort((a, b) => b.length - a.length);
+  return matches[0] ?? null;
+}
+
 export function isPathWithinWatchDirs(repoPath: string, watchDirs: string[]) {
-  if (!watchDirs.length) return true;
+  if (!watchDirs.length) return false;
   const normalized = normalizeRepoPath(repoPath);
   return watchDirs.some((dir) => {
     const normalizedDir = normalizeRepoPath(dir);
@@ -102,11 +242,23 @@ export function isPathWithinWatchDirs(repoPath: string, watchDirs: string[]) {
   });
 }
 
+function assertRepoPathAllowed(repoPath: string, watchDirs = getState().userSettings.repoWatchDirs) {
+  if (!isPathWithinWatchDirs(repoPath, watchDirs)) {
+    throw new Error("repo path must be inside configured watch directories");
+  }
+}
+
+function hasGitMetadata(repoPath: string) {
+  return fs.existsSync(path.join(repoPath, ".git"));
+}
+
 export function getScanStatus() {
   return {
     state: scanState,
     running: scanInProgress,
+    queued: hasPendingScanRequest(),
     lastRunAt: lastScanAt,
+    durationMs: lastScanDurationMs,
     lastDurationMs: lastScanDurationMs,
     reposScanned: lastReposScanned,
     reposChanged: lastReposChanged,
@@ -117,47 +269,71 @@ export function getScanStatus() {
 
 export function getGitHealth() {
   const state = getState();
-  const repos = state.localRepos;
-  const status = getScanStatus();
+  const repos = dedupeRepos(state.localRepos);
+  const watchDirs = normalizeWatchDirs(state.userSettings.repoWatchDirs);
   return {
     repos: repos.length,
     dirty: repos.filter((repo) => repo.dirty).length,
     errors: repos.filter((repo) => repo.scanError).length,
-    lastScanAt: status.lastRunAt,
-    scanState: status.state,
-    durationMs: status.lastDurationMs,
-    reposScanned: status.reposScanned,
-    reposChanged: status.reposChanged,
-    watcherActive: status.watcherActive
+    watchDirs: watchDirs.length,
+    missingWatchDirs: state.userSettings.repoWatchDirs.filter((dir) => !fs.existsSync(dir)),
+    scan: getScanStatus()
   };
 }
 
 export async function runGitScanNow(repoPath?: string) {
-  if (scanInProgress) {
-    return { repos: getState().localRepos, ...getScanStatus(), lastScanAt: lastScanAt };
+  const state = getState();
+  const normalizedWatchDirs = normalizeWatchDirs(state.userSettings.repoWatchDirs);
+  const targetRepoPath = repoPath ? normalizeRepoPath(repoPath) : undefined;
+
+  if (targetRepoPath) {
+    assertRepoPathAllowed(targetRepoPath, normalizedWatchDirs);
+    if (!hasGitMetadata(targetRepoPath)) {
+      throw new Error("repo path is not a git repository");
+    }
   }
 
+  if (activeScanPromise) {
+    enqueueScanRequest(targetRepoPath);
+    return buildScanResult(dedupeRepos(getState().localRepos));
+  }
+
+  activeScanPromise = executeGitScan(targetRepoPath, normalizedWatchDirs).finally(() => {
+    activeScanPromise = null;
+    const pending = consumePendingScanRequest();
+    if (pending) {
+      void runGitScanNow(pending.repoPath).catch((error) => {
+        const message = error instanceof Error ? error.message : "Queued git scan failed";
+        lastScanErrors = [message];
+        scanState = "error";
+        logGitScan("queued scan failed", { error: message });
+      });
+    }
+  });
+
+  return activeScanPromise;
+}
+
+async function executeGitScan(targetRepoPath: string | undefined, normalizedWatchDirs: string[]) {
   const start = Date.now();
   scanInProgress = true;
   scanState = "running";
+  const scope = targetRepoPath ? "repo" : "full";
+  logGitScan("starting scan", {
+    scope,
+    repoPath: targetRepoPath ?? null,
+    watchDirs: normalizedWatchDirs.length
+  });
 
   try {
     const state = getState();
     const existingRepos = dedupeRepos(state.localRepos);
     const excludeTokens = compileExcludeTokens(state.userSettings.repoExcludePatterns);
-    const normalizedWatchDirs = state.userSettings.repoWatchDirs.map((dir) => normalizeRepoPath(dir));
-    const targetRepoPath = repoPath ? normalizeRepoPath(repoPath) : undefined;
-
-    if (targetRepoPath && !isPathWithinWatchDirs(targetRepoPath, normalizedWatchDirs)) {
-      throw new Error("Requested repo is outside configured watch directories.");
-    }
-
     const repoTargets = targetRepoPath
       ? [
           {
             path: targetRepoPath,
-            watchDir:
-              normalizedWatchDirs.find((dir) => targetRepoPath.startsWith(dir)) ?? null
+            watchDir: findOwningWatchDir(targetRepoPath, normalizedWatchDirs)
           }
         ]
       : await discoverRepos(normalizedWatchDirs, excludeTokens);
@@ -166,10 +342,9 @@ export async function runGitScanNow(repoPath?: string) {
     const repos: LocalRepo[] = targetRepoPath ? [...existingRepos] : [];
 
     for (const target of repoTargets) {
-      const nextPath = normalizeRepoPath(target.path);
-      const repo = await scanRepo(nextPath, previousMap.get(nextPath), target.watchDir);
+      const repo = await scanRepo(target.path, previousMap.get(target.path), target.watchDir);
       if (targetRepoPath) {
-        const index = repos.findIndex((item) => item.path === nextPath);
+        const index = repos.findIndex((item) => normalizeRepoPath(item.path) === target.path);
         if (index >= 0) {
           repos[index] = repo;
         } else {
@@ -182,16 +357,15 @@ export async function runGitScanNow(repoPath?: string) {
 
     const uniqueRepos = dedupeRepos(repos);
     const changedRepos = countChangedRepos(previousMap, uniqueRepos);
-    const now = new Date().toISOString();
     const durationMs = Date.now() - start;
 
-    lastScanAt = now;
+    lastScanAt = new Date().toISOString();
     lastScanDurationMs = durationMs;
     lastReposScanned = repoTargets.length;
     lastReposChanged = changedRepos;
     lastScanErrors = uniqueRepos
-      .filter((repo) => repo.scanError)
-      .map((repo) => repo.scanError as string);
+      .map((repo) => repo.scanError)
+      .filter((error): error is string => Boolean(error));
     scanState = lastScanErrors.length > 0 ? "error" : "idle";
 
     const next: AppState = {
@@ -201,7 +375,17 @@ export async function runGitScanNow(repoPath?: string) {
     };
 
     await saveState(next);
-    return { repos: uniqueRepos, ...getScanStatus(), lastScanAt: lastScanAt };
+    scanInProgress = false;
+    logGitScan("completed scan", {
+      scope,
+      repoPath: targetRepoPath ?? null,
+      reposScanned: repoTargets.length,
+      reposChanged: changedRepos,
+      durationMs,
+      errors: lastScanErrors.length
+    });
+
+    return buildScanResult(uniqueRepos);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Git scan failed";
     lastScanErrors = [message];
@@ -209,71 +393,133 @@ export async function runGitScanNow(repoPath?: string) {
     lastReposScanned = 0;
     lastReposChanged = 0;
     scanState = "error";
-    return { repos: getState().localRepos, ...getScanStatus(), lastScanAt: lastScanAt };
-  } finally {
     scanInProgress = false;
+    logGitScan("scan failed", {
+      scope,
+      repoPath: targetRepoPath ?? null,
+      error: message
+    });
+    return buildScanResult(dedupeRepos(getState().localRepos));
   }
 }
 
 export function startGitScanScheduler() {
-  setInterval(async () => {
+  if (schedulerHandle) return;
+
+  schedulerHandle = setInterval(async () => {
     const state = getState();
     const intervalMinutes = state.userSettings.repoScanIntervalMinutes || 15;
     const lastScan = lastScanAt ? new Date(lastScanAt).getTime() : 0;
     const shouldRun = !lastScanAt || Date.now() - lastScan >= intervalMinutes * 60 * 1000;
-    if (!shouldRun || scanInProgress) return;
+    if (!shouldRun) return;
     await runGitScanNow();
   }, 60 * 1000);
 }
 
 export function startGitWatcher() {
   const state = getState();
-  if (!state.userSettings.gitWatcherEnabled) return;
-  if (watcher) return;
+  if (!state.userSettings.gitWatcherEnabled) {
+    stopGitWatcher();
+    return;
+  }
+
+  const watchDirs = normalizeWatchDirs(state.userSettings.repoWatchDirs);
+  if (watchDirs.length === 0) {
+    stopGitWatcher();
+    return;
+  }
 
   const excludeTokens = compileExcludeTokens(state.userSettings.repoExcludePatterns);
-  const watchDirs = state.userSettings.repoWatchDirs
-    .filter((dir) => fs.existsSync(dir))
-    .map((dir) => normalizeRepoPath(dir));
+  const signature = JSON.stringify({ watchDirs, excludeTokens });
+  if (watcher && watcherSignature === signature) {
+    watcherActive = true;
+    return;
+  }
 
-  const repoGitDirs = dedupeRepos(state.localRepos)
-    .map((repo) => path.join(repo.path, ".git"))
-    .filter((gitDir) => fs.existsSync(gitDir));
+  stopGitWatcher();
 
-  // Prefer watching discovered repos only; fallback to watch roots if repo list is empty.
-  const watchTargets = repoGitDirs.length > 0 ? repoGitDirs : watchDirs;
-  if (watchTargets.length === 0) return;
-
-  watcher = chokidar.watch(watchTargets, {
+  watcher = chokidar.watch(watchDirs, {
     ignored: (target) => isExcluded(target, excludeTokens),
     ignoreInitial: true,
     persistent: true,
-    depth: 8
+    awaitWriteFinish: {
+      stabilityThreshold: 250,
+      pollInterval: 100
+    },
+    depth: 10
   });
 
+  watcherSignature = signature;
   watcherActive = true;
+  logGitScan("watcher started", { watchDirs: watchDirs.length });
 
-  watcher.on("all", async (_event: string, filepath: string) => {
-    const repoRoot = findRepoRoot(filepath);
-    if (!repoRoot) return;
-    const normalizedRepoRoot = normalizeRepoPath(repoRoot);
-    const existingTimer = watchDebounceTimers.get(normalizedRepoRoot);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
+  watcher.on("all", (event: string, filepath: string) => {
+    if (isExcluded(filepath, excludeTokens)) {
+      return;
     }
-    const timer = setTimeout(async () => {
-      watchDebounceTimers.delete(normalizedRepoRoot);
-      if (scanInProgress) return;
-      await runGitScanNow(normalizedRepoRoot);
-    }, WATCH_DEBOUNCE_MS);
-    watchDebounceTimers.set(normalizedRepoRoot, timer);
+
+    const repoRoot = resolveWatchEventRepoRoot(event, filepath, watchDirs);
+    if (repoRoot) {
+      scheduleWatchScan(repoRoot);
+      return;
+    }
+
+    if ((event === "addDir" || event === "unlinkDir") && path.basename(filepath) === ".git") {
+      scheduleWatchScan(undefined);
+    }
   });
 
   watcher.on("error", (error) => {
     const message = error instanceof Error ? error.message : String(error);
     lastScanErrors = [...lastScanErrors, `Watcher error: ${message}`].slice(-20);
+    scanState = "error";
+    logGitScan("watcher error", { error: message });
     stopGitWatcher();
   });
+}
+
+function scheduleWatchScan(repoPath?: string) {
+  if (!repoPath) {
+    enqueueWatchDebounce("__full_scan__", () => {
+      if (scanInProgress) {
+        enqueueScanRequest();
+        return;
+      }
+      void runGitScanNow();
+    });
+    return;
+  }
+
+  const normalizedRepoPath = normalizeRepoPath(repoPath);
+  enqueueWatchDebounce(normalizedRepoPath, () => {
+    if (scanInProgress) {
+      enqueueScanRequest(normalizedRepoPath);
+      return;
+    }
+    void runGitScanNow(normalizedRepoPath).catch((error) => {
+      const message = error instanceof Error ? error.message : "Watcher git scan failed";
+      lastScanErrors = [message];
+      scanState = "error";
+      logGitScan("watcher repo scan failed", {
+        repoPath: normalizedRepoPath,
+        error: message
+      });
+    });
+  });
+}
+
+function enqueueWatchDebounce(key: string, callback: () => void) {
+  const existingTimer = watchDebounceTimers.get(key);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const timer = setTimeout(() => {
+    watchDebounceTimers.delete(key);
+    callback();
+  }, WATCH_DEBOUNCE_MS);
+
+  watchDebounceTimers.set(key, timer);
 }
 
 export function stopGitWatcher() {
@@ -281,22 +527,24 @@ export function stopGitWatcher() {
     clearTimeout(timer);
   }
   watchDebounceTimers.clear();
+
   if (watcher) {
     watcher.close().catch(() => null);
   }
+
   watcher = null;
   watcherActive = false;
+  watcherSignature = "";
 }
 
 export async function fetchLocalCommits(repoPath: string, limit: number, since?: string) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 100);
   const normalizedPath = normalizeRepoPath(repoPath);
-  const args = ["log", `-${safeLimit}`, "--pretty=%H|%an|%ad|%s", "--date=iso-strict"];
-  if (since) {
-    args.splice(2, 0, `--since=${since}`);
+  assertRepoPathAllowed(normalizedPath);
+  if (!hasGitMetadata(normalizedPath)) {
+    throw new Error("repo path is not a git repository");
   }
-  const stdout = await runGit(normalizedPath, args);
 
+  const stdout = await runGit(normalizedPath, buildCommitLogArgs(limit, since));
   return stdout
     .split("\n")
     .map((line) => line.trim())
@@ -314,11 +562,34 @@ export async function fetchLocalCommits(repoPath: string, limit: number, since?:
     });
 }
 
+function buildCommitLogArgs(limit: number, since?: string) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), MAX_LOCAL_COMMITS);
+  const args = ["log", `-${safeLimit}`, "--pretty=%H|%an|%ad|%s", "--date=iso-strict"];
+  const normalizedSince = normalizeSinceValue(since);
+  if (normalizedSince) {
+    args.splice(2, 0, `--since=${normalizedSince}`);
+  }
+  return args;
+}
+
+function normalizeSinceValue(since?: string) {
+  if (!since) return null;
+  const trimmed = since.trim();
+  if (!trimmed) return null;
+  const parsed = Date.parse(trimmed);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("since must be a valid date");
+  }
+  return new Date(parsed).toISOString();
+}
+
 function applyHealthScore(project: Project, repos: LocalRepo[]): Project {
   if (!project.localRepoPath) {
     return { ...project, healthScore: null };
   }
-  const repo = repos.find((item) => item.path === project.localRepoPath);
+
+  const normalizedProjectRepoPath = normalizeRepoPath(project.localRepoPath);
+  const repo = repos.find((item) => item.path === normalizedProjectRepoPath);
   if (!repo || repo.scanError) {
     return { ...project, healthScore: null };
   }
@@ -345,46 +616,43 @@ function computeRecencyScore(lastCommitAt: string | null) {
   return 10;
 }
 
-function compileExcludeTokens(patterns: string[]) {
-  return patterns
-    .map((pattern) => pattern.replace(/\*/g, "").replace(/\/+/g, "/").trim())
-    .filter(Boolean)
-    .map((pattern) => pattern.replace(/\//g, ""));
-}
-
-function isExcluded(targetPath: string, tokens: string[]) {
-  return tokens.some((token) => token && targetPath.includes(token));
-}
-
 async function discoverRepos(roots: string[], excludeTokens: string[]) {
-  const repos: Array<{ path: string; watchDir: string }> = [];
-  const normalizedRoots = roots
-    .filter((root) => root && fs.existsSync(root))
-    .map((root) => normalizeRepoPath(root));
-  const queue = [...normalizedRoots];
+  const repos: Array<{ path: string; watchDir: string | null }> = [];
+  const queue = [...roots];
+  const visited = new Set<string>();
 
-  while (queue.length) {
+  while (queue.length > 0) {
     const current = queue.pop() as string;
-    if (!fs.existsSync(current)) continue;
-    if (isExcluded(current, excludeTokens)) continue;
+    if (!fs.existsSync(current) || isExcluded(current, excludeTokens)) {
+      continue;
+    }
+
+    const normalizedCurrent = normalizeRepoPath(current);
+    if (visited.has(normalizedCurrent)) {
+      continue;
+    }
+    visited.add(normalizedCurrent);
 
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = fs.readdirSync(normalizedCurrent, { withFileTypes: true });
     } catch {
       continue;
     }
 
-    const gitEntry = entries.find((entry) => entry.name === ".git");
-    if (gitEntry) {
-      const watchDir = normalizedRoots.find((root) => current.startsWith(root)) ?? current;
-      repos.push({ path: normalizeRepoPath(current), watchDir: normalizeRepoPath(watchDir) });
+    if (entries.some((entry) => entry.name === ".git")) {
+      repos.push({
+        path: normalizedCurrent,
+        watchDir: findOwningWatchDir(normalizedCurrent, roots)
+      });
       continue;
     }
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      queue.push(path.join(current, entry.name));
+      const nextPath = path.join(normalizedCurrent, entry.name);
+      if (isExcluded(nextPath, excludeTokens)) continue;
+      queue.push(nextPath);
     }
   }
 
@@ -398,22 +666,26 @@ async function scanRepo(repoPath: string, previous?: LocalRepo, watchDir?: strin
   const start = Date.now();
 
   try {
+    if (!hasGitMetadata(normalizedRepoPath)) {
+      throw new Error("Missing .git metadata");
+    }
+
     const headSha = await runGitSafe(normalizedRepoPath, ["rev-parse", "HEAD"]);
-    const statusRaw = await runGit(normalizedRepoPath, ["status", "--porcelain"]);
+    const statusRaw = await runGit(normalizedRepoPath, ["status", "--porcelain", "--untracked-files=all"]);
     const statusHash = crypto.createHash("sha1").update(statusRaw).digest("hex");
 
     if (previous && previous.lastHeadSha === headSha && previous.lastStatusHash === statusHash) {
       return {
-        ...previous,
-        watchDir: watchDir ?? previous.watchDir ?? null,
+        ...canonicalizeLocalRepo(previous),
+        watchDir: watchDir ? normalizeRepoPath(watchDir) : previous.watchDir ?? null,
         scannedAt,
-        lastScanDurationMs: Date.now() - start
+        lastScanDurationMs: Date.now() - start,
+        scanError: null
       };
     }
 
-    const status = await runGit(normalizedRepoPath, ["status", "--porcelain"]);
-    const dirty = status.trim().length > 0;
-    const untrackedCount = status
+    const dirty = statusRaw.trim().length > 0;
+    const untrackedCount = statusRaw
       .split("\n")
       .filter((line) => line.startsWith("??"))
       .length;
@@ -466,7 +738,7 @@ async function scanRepo(repoPath: string, previous?: LocalRepo, watchDir?: strin
       scanError: null,
       scannedAt
     };
-  } catch (err) {
+  } catch (error) {
     return {
       id: repoId(normalizedRepoPath),
       name,
@@ -485,35 +757,84 @@ async function scanRepo(repoPath: string, previous?: LocalRepo, watchDir?: strin
       lastHeadSha: null,
       lastStatusHash: null,
       lastScanDurationMs: Date.now() - start,
-      scanError: err instanceof Error ? err.message : "Scan failed",
+      scanError: error instanceof Error ? error.message : "Scan failed",
       scannedAt
     };
   }
 }
 
-function repoId(repoPath: string) {
-  return crypto.createHash("sha1").update(repoPath).digest("hex");
+function resolveWatchEventRepoRoot(event: string, filepath: string, watchDirs: string[]) {
+  const candidate = path.resolve(filepath);
+
+  if ((event === "addDir" || event === "unlinkDir") && path.basename(candidate) === ".git") {
+    const repoRoot = path.dirname(candidate);
+    if (isPathWithinWatchDirs(repoRoot, watchDirs)) {
+      return normalizeRepoPath(repoRoot);
+    }
+    return null;
+  }
+
+  const repoRoot = findRepoRoot(candidate);
+  if (!repoRoot) {
+    return null;
+  }
+
+  if (!isPathWithinWatchDirs(repoRoot, watchDirs)) {
+    return null;
+  }
+
+  return normalizeRepoPath(repoRoot);
 }
 
 function findRepoRoot(filePath: string) {
-  let current = fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()
-    ? normalizeRepoPath(filePath)
-    : path.dirname(filePath);
-  for (let depth = 0; depth < 6; depth += 1) {
-    if (fs.existsSync(path.join(current, ".git"))) {
+  let current = path.dirname(path.resolve(filePath));
+  try {
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+      current = normalizeRepoPath(filePath);
+    }
+  } catch {
+    current = path.dirname(path.resolve(filePath));
+  }
+
+  for (let depth = 0; depth < 12; depth += 1) {
+    if (hasGitMetadata(current)) {
       return normalizeRepoPath(current);
     }
+
     const parent = path.dirname(current);
-    if (parent === current) break;
+    if (parent === current) {
+      break;
+    }
     current = parent;
   }
+
   return null;
 }
 
 async function runGit(repoPath: string, args: string[]) {
-  const { stdout } = await execFileAsync("git", ["-C", repoPath, ...args], {
-    timeout: 10000
-  });
+  const { stdout } = await execFileAsync(
+    "git",
+    [
+      "--no-optional-locks",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "gc.auto=0",
+      "-C",
+      repoPath,
+      ...args
+    ],
+    {
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: GIT_MAX_BUFFER_BYTES,
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        HUSKY: "0"
+      }
+    }
+  );
+
   return stdout.trim();
 }
 
@@ -526,13 +847,20 @@ async function runGitSafe(repoPath: string, args: string[]) {
 }
 
 export const __test__ = {
+  buildCommitLogArgs,
   dedupeRepos,
+  isPathWithinWatchDirs,
+  normalizeSinceValue,
+  repoId,
   setScanInProgress(value: boolean) {
     scanInProgress = value;
+    activeScanPromise = value ? Promise.resolve(buildScanResult(dedupeRepos(getState().localRepos))) : null;
     scanState = value ? "running" : "idle";
   },
   resetScanStatus() {
     scanInProgress = false;
+    activeScanPromise = null;
+    pendingScanRequest = { full: false, repoPaths: new Set<string>() };
     scanState = "idle";
     lastScanAt = null;
     lastScanErrors = [];

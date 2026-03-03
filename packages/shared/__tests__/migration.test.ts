@@ -47,10 +47,57 @@ describe("migrations", () => {
         sessionLogs: [],
         focusSessions: [],
         quickCaptures: [],
-        journalEntries: [],
+        journalEntries: [
+          {
+            id: "j1",
+            projectId: "p1",
+            ts: "2026-02-19T02:00:00.000Z",
+            type: "decision",
+            title: "Shipped",
+            body: "Documented a release decision",
+            createdAt: "2026-02-19T02:00:00.000Z",
+            updatedAt: "2026-02-19T02:00:00.000Z"
+          }
+        ],
         insights: [],
-        weeklyReviews: [],
-        weeklySnapshots: [],
+        weeklyReviews: [
+          {
+            id: "w1",
+            weekStart: "2026-02-16",
+            weekEnd: "2026-02-22",
+            stats: {
+              goalsCompleted: 1,
+              points: 2,
+              tasksDone: 3,
+              tasksCreated: 1,
+              roadmapMoved: 0,
+              commitsCount: 0,
+              focusMinutes: 30,
+              journalCount: 1,
+              streakDelta: 1
+            },
+            perProject: [
+              {
+                projectId: "p1",
+                projectName: "Project",
+                tasksDone: 3,
+                tasksCreated: 1,
+                commitsCount: 0,
+                focusMinutes: 30,
+                journalCount: 1
+              }
+            ],
+            markdown: "# Weekly Review",
+            createdAt: "2026-02-19T02:00:00.000Z"
+          }
+        ],
+        weeklySnapshots: [
+          {
+            id: "s1",
+            weekStart: "2026-02-16",
+            weekEnd: "2026-02-22"
+          }
+        ],
         todayPlanByDate: {},
         github: {
           loggedIn: false,
@@ -64,5 +111,8 @@ describe("migrations", () => {
     expect(migrated.schema_version).toBe(SCHEMA_VERSION);
     expect(migrated.data.projects[0].createdAt).toBeTruthy();
     expect(migrated.data.projects[0].updatedAt).toBeTruthy();
+    expect(migrated.data.journalEntries[0].links.taskIds).toEqual([]);
+    expect(migrated.data.weeklyReviews[0].perProject[0].roadmapMoved).toBe(0);
+    expect(migrated.data.weeklySnapshots[0].data).toEqual({});
   });
 });
