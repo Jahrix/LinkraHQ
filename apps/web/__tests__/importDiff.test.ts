@@ -63,5 +63,7 @@ describe("import diff", () => {
 
     const diff = computeImportDiff(base, next);
     expect(diff.projects.added).toBe(1);
+    expect(diff.summary.additions).toBe(1);
+    expect(diff.warnings).toEqual([]);
   });
 });
