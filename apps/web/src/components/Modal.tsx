@@ -59,7 +59,7 @@ export default function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/65 px-4 py-10 backdrop-blur"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4 py-10 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -67,7 +67,7 @@ export default function Modal({
     >
       <div
         ref={bodyRef}
-        className="glass-standard w-full max-w-2xl max-h-[92vh] overflow-auto"
+        className="glass-panel glass-standard w-full max-h-[92vh] max-w-2xl overflow-auto border-white/12 bg-[rgba(11,15,22,0.94)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4">
