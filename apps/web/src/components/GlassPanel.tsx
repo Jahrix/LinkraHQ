@@ -1,17 +1,21 @@
 import React from "react";
 
-export default function GlassPanel({
-  variant = "standard",
-  className = "",
-  as: Tag = "div",
-  children
-}: {
+type GlassPanelProps<Tag extends React.ElementType> = {
   variant?: "hero" | "standard" | "quiet" | "card";
   className?: string;
-  as?: keyof JSX.IntrinsicElements;
+  as?: Tag;
   children: React.ReactNode;
-}) {
-  const base =
+} & Omit<React.ComponentPropsWithoutRef<Tag>, "children" | "className" | "as">;
+
+export default function GlassPanel<Tag extends React.ElementType = "div">({
+  variant = "standard",
+  className = "",
+  as,
+  children,
+  ...rest
+}: GlassPanelProps<Tag>) {
+  const TagName = (as ?? "div") as React.ElementType;
+  const variantClass =
     variant === "hero"
       ? "glass-hero"
       : variant === "quiet"
@@ -19,5 +23,14 @@ export default function GlassPanel({
       : variant === "card"
       ? "card"
       : "glass-standard";
-  return <Tag className={`${base} ${className}`.trim()}>{children}</Tag>;
+  const baseClass = variant === "card" ? "" : "glass-panel";
+
+  return React.createElement(
+    TagName,
+    {
+      className: `${baseClass} ${variantClass} ${className}`.trim(),
+      ...rest
+    },
+    children
+  );
 }
