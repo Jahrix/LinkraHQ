@@ -560,6 +560,118 @@ app.post("/api/github/commits/match", requireLocalControl, async (req, res) => {
     res.status(500).json({ error: err instanceof Error ? err.message : "GitHub fetch failed" });
   }
 });
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+
+app.post("/api/ai/build-plan", requireLocalControl, async (req, res) => {
+  const state = readRequestState(req, res);
+  if (!state) return;
+
+  if (!ANTHROPIC_API_KEY) {
+    return res.status(503).json({
+      error: "AI planning is not configured. Add ANTHROPIC_API_KEY to your server .env to enable Build My Plan."
+    });
+  }
+
+  // Gather relevant context from state
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+
+  const activeProjects = state.projects.filter((p) => p.status !== "Archived");
+
+  type TaskContext = {
+    id: string;
+    text: string;
+    project: string;
+    priority: string;
+    dueDate: string | null;
+    isOverdue: boolean;
+    status: string;
+  };
+
+  const allTasks: TaskContext[] = activeProjects.flatMap((project) =>
+    project.tasks
+      .filter((t) => !t.done)
+      .map((t) => ({
+        id: t.id,
+        text: t.text,
+        project: project.name,
+        priority: t.priority,
+        dueDate: t.dueDate ?? null,
+        isOverdue: t.dueDate ? t.dueDate < today : false,
+        status: t.status
+      }))
+  );
+
+  const roadmapNow = state.roadmapCards
+    .filter((c) => c.lane === "now")
+    .map((c) => c.title)
+    .slice(0, 5);
+
+  const activeInsights = state.insights
+    .filter((i) => !i.dismissedUntil || i.dismissedUntil < now)
+    .filter((i) => i.severity !== "info")
+    .map((i) => `${i.title}: ${i.reason}`)
+    .slice(0, 5);
+
+  const contextSummary = {
+    date: today,
+    projects: activeProjects.map((p) => ({ name: p.name, weeklyHours: p.weeklyHours, status: p.status })),
+    tasks: allTasks.slice(0, 30),
+    roadmapNowItems: roadmapNow,
+    activeSignals: activeInsights
+  };
+
+  const systemPrompt = `You are a sharp, decisive AI assistant helping a developer plan their day.
+You will receive their project context and return a focused daily plan.
+
+Rules:
+- Return exactly a JSON object with two keys: "taskIds" (array of task ID strings, max 6) and "rationale" (1-2 sentence explanation)
+- Prioritize: overdue tasks, high-priority tasks, tasks in roadmap "Now" column, tasks from projects with stale signals
+- Prefer tasks from projects with higher weeklyHours (more investment)
+- Only include tasks from the provided list
+- Keep the plan tight — 4 to 6 tasks that feel genuinely doable today
+- Do not include done tasks or invent tasks
+- Return only valid JSON, no markdown`;
+
+  const userMessage = `Here is my current work context for ${today}:
+${JSON.stringify(contextSummary, null, 2)}
+
+Generate my Build My Plan daily queue. Return JSON only: {"taskIds": [...], "rationale": "..."}`;
+
+  try {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
+    const message = await client.messages.create({
+      model: "claude-opus-4-5",
+      max_tokens: 512,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }]
+    });
+
+    const rawText = message.content
+      .filter((block) => block.type === "text")
+      .map((block) => (block as any).text)
+      .join("");
+
+    // Strip markdown fences if present
+    const cleaned = rawText.replace(/```(?:json)?\s*/gi, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    if (!Array.isArray(parsed.taskIds) || typeof parsed.rationale !== "string") {
+      throw new Error("Unexpected response shape from Claude");
+    }
+
+    // Validate that all returned IDs exist in our task list
+    const validIds = new Set(allTasks.map((t) => t.id));
+    const filteredIds = (parsed.taskIds as string[]).filter((id) => validIds.has(id)).slice(0, 6);
+
+    res.json({ taskIds: filteredIds, rationale: parsed.rationale });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to generate plan";
+    res.status(500).json({ error: message });
+  }
+});
 
 const webDist = path.resolve(resolveRootDir(), "apps/web/dist");
 if (fs.existsSync(webDist)) {

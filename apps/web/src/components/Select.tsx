@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 
 export interface SelectOption {
     value: string;
@@ -23,17 +23,30 @@ export default function Select({
     multiple = false
 }: SelectProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const [focusedIndex, setFocusedIndex] = useState(-1);
     const containerRef = useRef<HTMLDivElement>(null);
+    const listRef = useRef<HTMLUListElement>(null);
 
+    // Close on outside click/focus-out
     useEffect(() => {
-        function handleClickOutside(event: MouseEvent) {
+        function handlePointerDown(event: MouseEvent) {
             if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
                 setIsOpen(false);
+                setFocusedIndex(-1);
             }
         }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
+        document.addEventListener("mousedown", handlePointerDown);
+        return () => document.removeEventListener("mousedown", handlePointerDown);
     }, []);
+
+    // Scroll focused item into view
+    useEffect(() => {
+        if (!isOpen || focusedIndex < 0) return;
+        const list = listRef.current;
+        if (!list) return;
+        const item = list.children[focusedIndex] as HTMLElement | undefined;
+        item?.scrollIntoView({ block: "nearest" });
+    }, [focusedIndex, isOpen]);
 
     const getDisplayValue = () => {
         if (multiple && Array.isArray(value)) {
@@ -45,7 +58,7 @@ export default function Select({
         return singleSelected ? singleSelected.label : placeholder;
     };
 
-    const handleSelect = (optionValue: string) => {
+    const handleSelect = useCallback((optionValue: string) => {
         if (multiple && Array.isArray(value)) {
             if (value.includes(optionValue)) {
                 onChange(value.filter((v) => v !== optionValue));
@@ -55,6 +68,45 @@ export default function Select({
         } else {
             onChange(optionValue);
             setIsOpen(false);
+            setFocusedIndex(-1);
+        }
+    }, [multiple, value, onChange]);
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (!isOpen) {
+            if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+                e.preventDefault();
+                setIsOpen(true);
+                setFocusedIndex(0);
+            }
+            return;
+        }
+
+        switch (e.key) {
+            case "Escape":
+                e.preventDefault();
+                setIsOpen(false);
+                setFocusedIndex(-1);
+                break;
+            case "ArrowDown":
+                e.preventDefault();
+                setFocusedIndex((prev) => Math.min(prev + 1, options.length - 1));
+                break;
+            case "ArrowUp":
+                e.preventDefault();
+                setFocusedIndex((prev) => Math.max(prev - 1, 0));
+                break;
+            case "Enter":
+            case " ":
+                e.preventDefault();
+                if (focusedIndex >= 0 && options[focusedIndex]) {
+                    handleSelect(options[focusedIndex].value);
+                }
+                break;
+            case "Tab":
+                setIsOpen(false);
+                setFocusedIndex(-1);
+                break;
         }
     };
 
@@ -62,7 +114,11 @@ export default function Select({
         <div className={`relative ${className}`} ref={containerRef}>
             <button
                 type="button"
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={() => {
+                    setIsOpen((prev) => !prev);
+                    if (!isOpen) setFocusedIndex(0);
+                }}
+                onKeyDown={handleKeyDown}
                 className="input w-full flex items-center justify-between text-left cursor-pointer"
                 aria-haspopup="listbox"
                 aria-expanded={isOpen}
@@ -79,25 +135,38 @@ export default function Select({
             </button>
 
             {isOpen && (
-                <div className="absolute z-[100] mt-2 w-full glass-panel glass-standard border border-stroke/50 bg-[rgba(15,20,28,0.95)] max-h-60 overflow-y-auto no-scrollbar shadow-2xl origin-top animate-in fade-in slide-in-from-top-1 duration-150 rounded-xl">
-                    <ul role="listbox" className="p-1 m-0 list-none">
+                <div className="absolute z-[300] mt-2 w-full glass-panel glass-standard border border-stroke/50 bg-[rgba(15,20,28,0.97)] max-h-60 overflow-y-auto no-scrollbar shadow-2xl origin-top animate-in fade-in slide-in-from-top-1 duration-150 rounded-xl">
+                    <ul
+                        ref={listRef}
+                        role="listbox"
+                        className="p-1 m-0 list-none"
+                        aria-multiselectable={multiple}
+                    >
                         {options.length === 0 && (
                             <li className="px-3 py-2 text-sm text-muted text-center italic">No options</li>
                         )}
-                        {options.map((option) => {
+                        {options.map((option, idx) => {
                             const isActive = multiple && Array.isArray(value)
                                 ? value.includes(option.value)
                                 : option.value === String(value);
+                            const isFocused = idx === focusedIndex;
 
                             return (
                                 <li
                                     key={option.value}
                                     role="option"
                                     aria-selected={isActive}
-                                    onClick={() => handleSelect(option.value)}
+                                    onMouseDown={(e) => {
+                                        // use mousedown to fire before blur so click doesn't lose focus
+                                        e.preventDefault();
+                                        handleSelect(option.value);
+                                    }}
+                                    onMouseEnter={() => setFocusedIndex(idx)}
                                     className={`
                     px-3 py-2 cursor-pointer rounded-lg text-sm transition-colors flex items-center justify-between gap-2
-                    ${isActive ? "bg-accent/20 text-accent font-medium" : "text-strong hover:bg-white/5"}
+                    ${isActive ? "bg-accent/20 text-accent font-medium" : "text-strong"}
+                    ${isFocused && !isActive ? "bg-white/8" : ""}
+                    ${!isFocused && !isActive ? "hover:bg-white/5" : ""}
                   `}
                                 >
                                     <span className="truncate">{option.label}</span>

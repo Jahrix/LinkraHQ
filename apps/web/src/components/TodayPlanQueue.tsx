@@ -1,43 +1,110 @@
-import React from "react";
+import React, { useState } from "react";
 import GlassPanel from "./GlassPanel";
 import SectionHeader from "./SectionHeader";
 
 export default function TodayPlanQueue({
     planDraft,
     allTaskLookup,
-    autoGenerate,
+    onBuildPlan,
     onSave,
     onRemove,
     onStartFocus
 }: {
     planDraft: string[];
     allTaskLookup: Map<string, { project: any, task: any }>;
-    autoGenerate: () => void;
-    onSave: () => void;
+    onBuildPlan: () => Promise<{ taskIds: string[], rationale: string } | null>;
+    onSave: (taskIds: string[], source: "manual" | "auto") => void;
     onRemove: (id: string) => void;
     onStartFocus: (id: string) => void;
 }) {
-    const queuedItems = planDraft.map(id => allTaskLookup.get(id)).filter(Boolean);
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [previewIds, setPreviewIds] = useState<string[] | null>(null);
+    const [rationale, setRationale] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleBuildPlan = async () => {
+        setIsGenerating(true);
+        setError(null);
+        setPreviewIds(null);
+        setRationale(null);
+        try {
+            const result = await onBuildPlan();
+            if (result) {
+                setPreviewIds(result.taskIds);
+                setRationale(result.rationale);
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to build plan");
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
+    const acceptPlan = () => {
+        if (previewIds) {
+            onSave(previewIds, "auto");
+            setPreviewIds(null);
+            setRationale(null);
+        }
+    };
+
+    const discardPlan = () => {
+        setPreviewIds(null);
+        setRationale(null);
+    };
+
+    const removePreviewItem = (id: string) => {
+        setPreviewIds(prev => prev ? prev.filter(tid => tid !== id) : null);
+    };
+
+    const activeIds = previewIds ?? planDraft;
+    const queuedItems = activeIds.map(id => allTaskLookup.get(id)).filter(Boolean);
 
     return (
-        <GlassPanel variant="standard" className="flex flex-col min-h-[300px] mt-6" id="today-plan-queue">
+        <GlassPanel variant="standard" className="flex flex-col min-h-[300px] mt-6 relative" id="today-plan-queue">
             <SectionHeader
-                title="Today's Queue"
+                title={previewIds ? "Plan Review" : "Today's Queue"}
                 subtitle={`${queuedItems.length} items lined up`}
                 rightControls={
                     <div className="flex gap-2">
-                        <button className="button-secondary text-xs" onClick={autoGenerate}>
-                            <svg className="w-3.5 h-3.5 mr-1.5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                            Auto-fill
-                        </button>
-                        <button className="button-primary text-xs" onClick={onSave}>Save Queue</button>
+                        {!previewIds && (
+                            <>
+                                <button className="button-secondary text-xs" onClick={handleBuildPlan} disabled={isGenerating}>
+                                    <svg className={`w-3.5 h-3.5 mr-1.5 inline ${isGenerating ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                    {isGenerating ? "Building..." : "Build My Plan"}
+                                </button>
+                                <button className="button-primary text-xs" onClick={() => onSave(planDraft, "manual")} disabled={isGenerating || planDraft.length === 0}>Save Queue</button>
+                            </>
+                        )}
+                        {previewIds && (
+                            <>
+                                <button className="button-secondary text-xs" onClick={discardPlan}>Cancel</button>
+                                <button className="button-primary text-xs" onClick={acceptPlan}>Accept Plan</button>
+                            </>
+                        )}
                     </div>
                 }
             />
 
-            <div className="mt-5 space-y-3 flex-1 overflow-y-auto pr-2">
+            {error && (
+                <div className="my-4 rounded-xl border border-red-500/30 bg-red-900/20 p-3 text-sm text-red-300 flex items-center justify-between gap-3">
+                    <span>{error}</span>
+                    <button className="button-secondary text-xs" onClick={handleBuildPlan} disabled={isGenerating}>
+                        Retry
+                    </button>
+                </div>
+            )}
+
+            {rationale && previewIds && (
+                <div className="mt-4 p-4 rounded-xl bg-accent/10 border border-accent/20 text-sm text-accent-100">
+                    <p className="font-semibold mb-1 text-accent">Claude's Rationale:</p>
+                    <p className="leading-relaxed opacity-90">{rationale}</p>
+                </div>
+            )}
+
+            <div className={`mt-5 space-y-3 flex-1 overflow-y-auto pr-2 ${isGenerating ? "opacity-50 pointer-events-none transition-opacity" : "transition-opacity"}`}>
                 {queuedItems.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center border border-dashed border-stroke rounded-xl p-8 bg-subtle/50">
                         <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3">
@@ -46,15 +113,15 @@ export default function TodayPlanQueue({
                             </svg>
                         </div>
                         <h3 className="text-sm font-semibold text-strong mb-1">Queue is empty</h3>
-                        <p className="text-xs text-muted max-w-[200px]">Auto-fill to pull priority tasks, or add tasks manually from projects.</p>
+                        <p className="text-xs text-muted max-w-[200px]">Click Build My Plan to let AI suggest tasks, or add manually.</p>
                     </div>
                 ) : (
                     queuedItems.map((entry, idx) => (
                         <div
                             key={entry!.task.id}
                             className={`group flex items-center gap-3 p-3 rounded-xl border transition-all ${idx === 0
-                                    ? "bg-accent/10 border-accent/30 shadow-[0_0_20px_rgba(139,92,246,0.1)]"
-                                    : "bg-subtle/50 border-subtle hover:bg-subtle"
+                                ? "bg-accent/10 border-accent/30 shadow-[0_0_20px_rgba(139,92,246,0.1)]"
+                                : "bg-subtle/50 border-subtle hover:bg-subtle"
                                 }`}
                         >
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold ${idx === 0 ? "bg-accent text-white shadow-lg" : "bg-white/10 text-muted"
@@ -77,19 +144,21 @@ export default function TodayPlanQueue({
                             </div>
 
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                    className="p-1.5 hover:bg-white/10 rounded-md text-muted hover:text-white transition"
-                                    onClick={() => onStartFocus(entry!.task.id)}
-                                    title="Start Focus"
-                                >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                </button>
+                                {!previewIds && (
+                                    <button
+                                        className="p-1.5 hover:bg-white/10 rounded-md text-muted hover:text-white transition"
+                                        onClick={() => onStartFocus(entry!.task.id)}
+                                        title="Start Focus"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </button>
+                                )}
                                 <button
                                     className="p-1.5 hover:bg-red-500/20 rounded-md text-muted hover:text-red-400 transition"
-                                    onClick={() => onRemove(entry!.task.id)}
+                                    onClick={() => previewIds ? removePreviewItem(entry!.task.id) : onRemove(entry!.task.id)}
                                     title="Remove from queue"
                                 >
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">

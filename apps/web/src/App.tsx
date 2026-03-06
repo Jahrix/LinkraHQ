@@ -88,10 +88,8 @@ function Shell() {
 
   useEffect(() => {
     if (!state) return;
-    document.documentElement.style.setProperty("--accent", state.userSettings.accent);
     const activityHue = 200 - Math.min(state.dailyGoalsByDate[todayKey()]?.score ?? 0, 100) * 0.9;
     document.documentElement.style.setProperty("--accent-2", `hsl(${activityHue} 80% 60%)`);
-    document.body.classList.toggle("reduce-motion", state.userSettings.reduceMotion);
   }, [state]);
 
   const commands = useMemo<Command[]>(() => {
@@ -150,7 +148,7 @@ function Shell() {
             {active === "Account" && <AccountSettingsPage />}
           </div>
         )}
-        <div className="text-xs text-muted mt-auto pt-2">Streak: {streak} days · Local-first mode active</div>
+
       </main>
       <CommandPalette open={commandOpen} commands={commands} onClose={() => setCommandOpen(false)} />
       <ToastHost />

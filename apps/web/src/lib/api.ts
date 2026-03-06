@@ -134,5 +134,10 @@ export const api = {
         body: JSON.stringify({ repo, branch, text, limit })
       }
     ),
+  buildMyPlan: (state: AppState) =>
+    request<{ taskIds: string[]; rationale: string }>("/api/ai/build-plan", {
+      method: "POST",
+      body: JSON.stringify({ state })
+    }),
   logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" })
 };
