@@ -22,6 +22,11 @@ import Modal from "../components/Modal";
 import Select from "../components/Select";
 import EmojiPicker from "../components/EmojiPicker";
 import ProjectJournalPanel from "../components/ProjectJournalPanel";
+import TodayMissionHero from "../components/TodayMissionHero";
+import TodayPlanQueue from "../components/TodayPlanQueue";
+import ProjectCard from "../components/ProjectCard";
+import ProjectModal, { type ProjectDraft } from "../components/ProjectModal";
+import SignalActionPanel from "../components/SignalActionPanel";
 import { api } from "../lib/api";
 import { useToast } from "../lib/toast";
 import { computeTodayPlan, isTaskBlocked } from "../lib/taskRules";
@@ -44,26 +49,7 @@ type InsightGroup = {
   actions: SuggestedAction[];
 };
 
-type ProjectDraft = {
-  emoji: string;
-  name: string;
-  subtitle: string;
-  status: UiProjectStatus;
-  weeklyHours: number;
-  localRepoPath: string;
-  githubRepo: string;
-};
-
 const projectColors = ["#5DD8FF", "#78E3A4", "#F9A8D4", "#F59E0B", "#60A5FA", "#A78BFA", "#22D3EE"];
-const defaultProjectDraft: ProjectDraft = {
-  emoji: "🚀",
-  name: "",
-  subtitle: "",
-  status: "Not Started",
-  weeklyHours: 6,
-  localRepoPath: "",
-  githubRepo: ""
-};
 
 export default function DashboardPage({ projectId }: { projectId?: string | null }) {
   const { state, save, refresh } = useAppState();
@@ -74,8 +60,6 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const [showArchived, setShowArchived] = useState(false);
   const [openProjectMenu, setOpenProjectMenu] = useState<string | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
-  const [projectDraft, setProjectDraft] = useState<ProjectDraft>(defaultProjectDraft);
-  const [projectSettingsDraft, setProjectSettingsDraft] = useState<ProjectDraft>(defaultProjectDraft);
 
   const [taskText, setTaskText] = useState("");
   const [taskDue, setTaskDue] = useState("");
@@ -160,6 +144,20 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     isRoadmapCardForProject(card, selectedProject, projects)
   );
 
+  const commitOptions = useMemo(() => {
+    const remote = commitFeed.map(c => ({
+      sha: c.sha,
+      shortSha: c.sha.substring(0, 7),
+      message: c.message
+    }));
+    const local = localCommitFeed.map(c => ({
+      sha: c.sha,
+      shortSha: c.hash || c.sha.substring(0, 7),
+      message: c.message
+    }));
+    return [...local, ...remote];
+  }, [commitFeed, localCommitFeed]);
+
   const lanes: { key: RoadmapLane; label: string }[] = [
     { key: "now", label: "Now" },
     { key: "next", label: "Next" },
@@ -240,20 +238,6 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   }, [selectedProject?.id, selectedProject?.remoteRepo, selectedProject?.githubRepo, selectedProject?.localRepoPath]);
 
   useEffect(() => {
-    setProjectSettingsDraft(selectedProject ? projectToDraft(selectedProject) : defaultProjectDraft);
-  }, [
-    selectedProject?.id,
-    selectedProject?.name,
-    selectedProject?.subtitle,
-    selectedProject?.icon,
-    selectedProject?.status,
-    selectedProject?.weeklyHours,
-    selectedProject?.localRepoPath,
-    selectedProject?.githubRepo,
-    selectedProject?.remoteRepo
-  ]);
-
-  useEffect(() => {
     setTodayPlanDraft(state.todayPlanByDate?.[todayKey()]?.taskIds ?? []);
     setTodayPlanNotes(state.todayPlanByDate?.[todayKey()]?.notes ?? "");
   }, [state.todayPlanByDate]);
@@ -272,27 +256,20 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   }, [dedupedProjects.duplicates, dedupedLocalRepos.duplicates, push]);
 
   const openCreateProjectModal = () => {
-    setProjectDraft(defaultProjectDraft);
     setOpenProjectMenu(null);
     setProjectModalOpen(true);
   };
 
   const openProjectSettings = (project: Project) => {
     setSelectedId(project.id);
-    setProjectSettingsDraft(projectToDraft(project));
     setActiveTab("Project Settings");
     setOpenProjectMenu(null);
   };
 
-  const saveNewProject = async () => {
-    if (!projectDraft.name.trim()) {
-      push("Project name is required.", "error");
-      return;
-    }
-
+  const saveNewProject = async (draft: any) => {
     const next = { ...state };
     const created = createProjectFromDraft(
-      projectDraft,
+      draft,
       projectColors[next.projects.length % projectColors.length] ?? projectColors[0]
     );
     next.projects.unshift(created);
@@ -301,44 +278,37 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     setSelectedId(created.id);
     setActiveTab("Tasks");
     setProjectModalOpen(false);
-    setProjectDraft(defaultProjectDraft);
     push("Project created.", "success");
   };
 
-  const saveProjectSettings = async () => {
+  const saveProjectSettings = async (draft: any) => {
     if (!selectedProject) return;
-    if (!projectSettingsDraft.name.trim()) {
-      push("Project name is required.", "error");
-      return;
-    }
 
     const next = { ...state };
     const project = next.projects.find((item) => item.id === selectedProject.id);
     if (!project) return;
 
     const previousName = project.name;
-    applyProjectDraftToProject(project, projectSettingsDraft);
+    applyProjectDraftToProject(project, draft);
     next.roadmapCards = normalizeRoadmapProjectRefs(next.roadmapCards, project, [previousName]);
 
     await save(next);
-    setProjectSettingsDraft(projectToDraft(project));
-    push("Project updated.", "success");
+    setActiveTab("Tasks");
+    push("Settings saved.", "success");
   };
 
   const setProjectArchived = async (projectId: string, archived: boolean) => {
     const next = { ...state };
     const project = next.projects.find((item) => item.id === projectId);
     if (!project) return;
-    const nextStatus = archived ? "Archived" : "In Progress";
-    applyProjectDraftToProject(project, {
-      ...projectToDraft(project),
-      status: nextStatus
-    });
+
+    project.status = archived ? "Archived" : "In Progress";
+    project.archivedAt = archived ? new Date().toISOString() : null;
+    project.updatedAt = new Date().toISOString();
+
     next.roadmapCards = normalizeRoadmapProjectRefs(next.roadmapCards, project);
     await save(next);
-    if (selectedProject?.id === projectId) {
-      setProjectSettingsDraft(projectToDraft(project));
-    }
+
     push(archived ? "Project archived." : "Project restored.", "success");
     setOpenProjectMenu(null);
   };
@@ -835,119 +805,79 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
   };
 
+  const topPlanTaskId = todayPlanDraft[0] ?? null;
+  const topPlanTaskEntry = topPlanTaskId ? allTaskLookup.get(topPlanTaskId) : null;
+  const topTask = topPlanTaskEntry ? {
+    id: topPlanTaskEntry.task.id,
+    text: topPlanTaskEntry.task.text,
+    projectName: topPlanTaskEntry.project.name
+  } : null;
+
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+      <div className="mb-6">
+        <TodayMissionHero
+          topTask={topTask}
+          tasksRemaining={todayPlanDraft.length}
+          onStartFocus={startFocus}
+        />
+      </div>
 
-        {/* TOP ROW */}
-        <GlassPanel variant="standard" className="flex flex-col justify-between">
-          <div className="text-xs uppercase tracking-[0.2em] text-muted px-2 pb-2">Capacity / Budget</div>
-          <div className="flex justify-between items-end mt-2 px-2">
-            <div className="text-3xl font-semibold tracking-tight">{totalHours} <span className="text-xl text-muted">hrs</span></div>
-            <div className="text-sm font-medium text-blue-400/80 uppercase tracking-widest">{selectedProjectBudgetShare}% Active</div>
-          </div>
-        </GlassPanel>
-
-        <GlassPanel variant="standard" className="flex flex-col justify-between">
-          <div className="text-xs uppercase tracking-[0.2em] text-muted px-2 pb-2">Daily Goals</div>
-          <div className="flex justify-between items-end mt-2 px-2">
-            <div className="text-3xl font-semibold tracking-tight">{todayEntry?.score ?? 0}%</div>
-            <div className="text-sm font-medium text-emerald-400">
-              {todayEntry?.completedPoints ?? 0}/{todayEntry?.goals.length ?? 0} pts
-            </div>
-          </div>
-        </GlassPanel>
-
-        <GlassPanel variant="standard" className="flex flex-col justify-between">
-          <div className="text-xs uppercase tracking-[0.2em] text-muted px-2 pb-2">Actions</div>
-          <div className="flex justify-between items-end mt-2 px-2">
-            <div className="text-3xl font-semibold tracking-tight">{visibleInsightCount}</div>
-            <div className="text-sm font-medium text-amber-400">Pending</div>
-          </div>
-        </GlassPanel>
-
-        <GlassPanel variant="standard" className="bg-gradient-to-br from-emerald-900/30 to-emerald-800/10 border-emerald-500/20 flex flex-col justify-between">
-          <div className="text-xs uppercase tracking-[0.2em] text-emerald-200/70 px-2 pb-2">Activity</div>
-          <div className="flex justify-between items-end mt-2 px-2">
-            <div className="text-3xl font-semibold text-emerald-100 tracking-tight">Ready</div>
-            <button className="button-primary bg-emerald-600 border-none text-strong text-xs px-4 py-1">Focus</button>
-          </div>
-        </GlassPanel>
-
-        {/* MIDDLE ROW */}
-        <div className="xl:col-span-2 flex flex-col gap-6">
-          <GlassPanel variant="hero" className="flex-1">
-            <SectionHeader
-              title="Projects"
-              subtitle={showArchived ? "All projects" : "Active projects"}
-              rightControls={
-                <button className="button-secondary" onClick={openCreateProjectModal}>+ New</button>
-              }
+      <GlassPanel variant="hero" className="mb-6">
+        <SectionHeader
+          title="Projects"
+          subtitle={showArchived ? "All projects" : "Active projects"}
+          rightControls={
+            <button className="button-secondary" onClick={openCreateProjectModal}>+ New</button>
+          }
+        />
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {visibleProjects.map((project) => (
+            <ProjectCard
+              key={project.id}
+              project={project}
+              isSelected={selectedProject?.id === project.id}
+              onClick={() => { setSelectedId(project.id); setActiveTab("Tasks"); }}
             />
-            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {visibleProjects.slice(0, 4).map((project) => {
-                const isSelected = selectedProject?.id === project.id;
-                const tasksDone = project.tasks.filter((task) => task.done).length;
-                const tasksTotal = project.tasks.length;
-                return (
-                  <button
-                    key={project.id}
-                    className={`text-left p-4 rounded-xl border transition ${isSelected ? 'bg-muted border-strong shadow-lg' : 'bg-subtle border-subtle hover:bg-muted'}`}
-                    onClick={() => { setSelectedId(project.id); setActiveTab("Tasks"); }}
-                  >
-                    <div className="flex justify-between">
-                      <span className="text-2xl">{project.icon}</span>
-                      <span className="text-xs text-muted px-2 py-1 rounded bg-subtle border border-muted">{project.weeklyHours}h</span>
-                    </div>
-                    <div className="mt-3 font-semibold truncate text-[15px]">{project.name}</div>
-                    <div className="mt-1 flex justify-between items-center text-xs text-muted">
-                      <span className="truncate">{project.status}</span>
-                      <span>{tasksDone}/{tasksTotal} done</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </GlassPanel>
+          ))}
         </div>
+      </GlassPanel>
 
-        <GlassPanel variant="standard" className="flex flex-col items-center justify-center text-center">
-          <div className="text-xs uppercase tracking-[0.2em] text-muted mb-7">Task Progress</div>
-          <div className="relative w-36 h-36 flex items-center justify-center group mb-5">
-            <div className="absolute inset-0 rounded-full border-[10px] border-subtle"></div>
-            <div
-              className="absolute inset-0 rounded-full border-[10px] border-accent"
-              style={{
-                clipPath: 'polygon(50% 0%, 100% 0, 100% 100%, 0% 100%, 0% 0%, 50% 0%)',
-                transform: `rotate(${(tasksProgress / 100) * 360}deg)`
-              }}
-            ></div>
-            <div className="text-4xl font-semibold tracking-tight">{tasksProgress}%</div>
-          </div>
-          <div className="text-sm tracking-wide text-muted">{completedTasks} of {totalTasks} global tasks</div>
-        </GlassPanel>
-
-        <GlassPanel variant="standard" className="flex flex-col items-center justify-center text-center">
-          <div className="w-24 h-24 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-5xl mb-5 shadow-[0_0_20px_rgba(139,92,246,0.15)]">
-            {selectedProject?.icon ?? "👤"}
-          </div>
-          <h3 className="font-semibold text-lg tracking-tight">{selectedProject?.name ?? "No Selection"}</h3>
-          <p className="text-sm text-muted mt-1">{selectedProject?.subtitle ?? "Select a project to view details"}</p>
-          <div className="flex gap-6 mt-6 pt-6 border-t border-subtle w-full justify-center text-sm">
-            <div><strong className="block text-2xl font-semibold mb-1">{selectedProject?.tasks.length ?? 0}</strong> <span className="text-muted uppercase tracking-widest text-[10px]">Tasks</span></div>
-            <div><strong className="block text-2xl font-semibold mb-1">{selectedProjectTaskProgress}%</strong> <span className="text-muted uppercase tracking-widest text-[10px]">Done</span></div>
-          </div>
-          {selectedProject && (
-            <button className="text-xs text-accent mt-4 hover:underline" onClick={() => setActiveTab("Project Settings")}>Edit Settings</button>
-          )}
-        </GlassPanel>
-
-        {/* BOTTOM ROW */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Left Column - Selected Project Command Center */}
         <div className="xl:col-span-2 flex flex-col gap-6">
-          <GlassPanel variant="standard" className="flex-1 flex flex-col min-h-[300px]">
-            <SectionHeader title="Tasks" subtitle={selectedProject?.name ?? "Global"} />
-            <div className="mt-4 flex-1 grid gap-2 overflow-y-auto pr-2">
-              {selectedTasks.length === 0 && <p className="text-sm text-muted">No tasks.</p>}
+          <GlassPanel variant="standard" className="flex-1 flex flex-col">
+            <div className="flex gap-4 items-center mb-6 pb-6 border-b border-subtle">
+              <div className="w-16 h-16 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-3xl shadow-[0_0_30px_rgba(139,92,246,0.15)] flex-shrink-0">
+                {selectedProject?.icon ?? "👤"}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-2xl tracking-tight truncate text-white">{selectedProject?.name ?? "Global view"}</h3>
+                <p className="text-sm text-muted mt-1 truncate font-medium">{selectedProject?.subtitle ?? "Select a project above"}</p>
+              </div>
+              <div className="flex gap-6 text-center shrink-0 items-center">
+                <div>
+                  <strong className="block text-2xl font-bold mb-1">{selectedProject?.tasks.length ?? 0}</strong>
+                  <span className="text-muted text-[10px] uppercase tracking-[0.2em] font-bold">Tasks</span>
+                </div>
+                <div>
+                  <strong className="block text-2xl font-bold mb-1 text-emerald-400">{selectedProjectTaskProgress}%</strong>
+                  <span className="text-emerald-500/70 text-[10px] uppercase tracking-[0.2em] font-bold">Done</span>
+                </div>
+                {selectedProject && (
+                  <button className="button-secondary p-2 ml-2" onClick={() => setActiveTab("Project Settings")} aria-label="Project Settings">
+                    <svg className="w-4 h-4 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <SectionHeader title="Tasks" />
+            <div className="mt-4 flex-1 grid gap-2 overflow-y-auto pr-2 min-h-[300px]">
+              {selectedTasks.length === 0 && <p className="text-sm text-muted flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-white/20"></span>No tasks.</p>}
               {selectedTasks.map(task => (
                 <TaskRow
                   key={task.id}
@@ -957,98 +887,95 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
                 />
               ))}
             </div>
-            <div className="flex gap-2 mt-4">
+            <div className="flex gap-3 mt-6 mb-6">
               <input
                 value={taskText}
                 onChange={(e) => setTaskText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addTask()}
                 placeholder="New task..."
-                className="input flex-1"
+                className="input flex-1 bg-white/5 border-white/5 text-base py-3"
               />
-              <button onClick={addTask} className="button-secondary">Add</button>
+              <button onClick={addTask} className="button-secondary px-6">Add</button>
             </div>
+
+            {selectedProject && (
+              <div className="mt-2 pt-6 border-t border-subtle">
+                <SectionHeader title="Action Log" subtitle="Notes, blockers, ideas" />
+                <div className="mt-4">
+                  <ProjectJournalPanel
+                    project={selectedProject}
+                    tasks={selectedProject.tasks}
+                    roadmapCards={filteredRoadmap}
+                    journalEntries={state.journalEntries.filter(entry => entry.projectId === selectedProject.id)}
+                    repo={selectedProjectRepo}
+                    commitOptions={commitOptions}
+                  />
+                </div>
+              </div>
+            )}
           </GlassPanel>
         </div>
 
-        <GlassPanel variant="standard" className="flex flex-col h-[300px]">
-          <SectionHeader title="Signals & Insights" />
-          <div className="mt-4 flex-1 grid gap-3 overflow-y-auto pr-2">
-            {groupedInsights.length === 0 && <p className="text-sm text-muted">No insights to review.</p>}
-            {groupedInsights.map(group => (
-              <div key={group.key} className="p-3 bg-subtle rounded-xl border border-subtle">
-                <div className="flex justify-between items-start gap-2">
-                  <div className="font-medium text-sm leading-tight text-strong">{group.title}</div>
-                  <Pill tone={group.severity === 'crit' ? 'danger' : group.severity === 'warn' ? 'warning' : 'neutral'}>
-                    {group.severity}
-                  </Pill>
-                </div>
-                <div className="text-xs text-muted mt-2 line-clamp-2 leading-relaxed">{group.reason}</div>
-              </div>
-            ))}
-          </div>
-        </GlassPanel>
+        {/* Right Column - Secondary Systems */}
+        <div className="flex flex-col gap-6">
+          <TodayPlanQueue
+            planDraft={todayPlanDraft}
+            allTaskLookup={allTaskLookup}
+            autoGenerate={autoGenerateTodayPlan}
+            onSave={saveTodayPlan}
+            onRemove={removePlanItem}
+            onStartFocus={startFocus}
+          />
 
-        <GlassPanel variant="standard" className="flex flex-col h-[300px]">
-          <SectionHeader title="Local Git" subtitle={selectedProjectRepo?.name} />
-          <div className="mt-4 flex-1 flex flex-col pt-4 items-center text-center">
-            <div className="text-5xl mb-4 text-subtle">⎇</div>
-            <div className="font-medium mb-1 text-lg">{selectedProject?.localRepoPath ? `${selectedProjectRepo?.todayCommitCount ?? 0} Commits Today` : "Not Linked"}</div>
-            <p className="text-xs text-muted mb-6">{selectedProject?.localRepoPath ? "Tree is clean" : "Update settings to link local path."}</p>
-            {!selectedProject?.localRepoPath && (
-              <button className="button-secondary" onClick={() => setActiveTab("Project Settings")}>Link Repo</button>
-            )}
-          </div>
-        </GlassPanel>
+          <GlassPanel variant="standard" className="flex flex-col justify-center h-28">
+            <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-muted mb-3 flex items-center gap-2">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              Weekly Time Budget
+            </div>
+            <div className="flex justify-between items-end">
+              <div className="text-3xl font-bold tracking-tight text-white">{totalHours} <span className="text-lg text-muted font-semibold tracking-normal">hrs</span></div>
+              <div className="text-xs font-bold text-accent-2 uppercase tracking-widest">{selectedProjectBudgetShare}% Active</div>
+            </div>
+          </GlassPanel>
+
+          <GlassPanel variant="standard" className="flex flex-col h-[400px]">
+            <SectionHeader title="Signals & Insights" />
+            <SignalActionPanel groupedInsights={groupedInsights} runInsightAction={runInsightAction} />
+          </GlassPanel>
+
+          <GlassPanel variant="standard" className="flex flex-col h-[200px]">
+            <SectionHeader title="Local Git" subtitle={selectedProjectRepo?.name} />
+            <div className="mt-4 flex-1 flex flex-col pt-4 items-center justify-center text-center">
+              <div className="text-4xl mb-3 text-subtle/50">⎇</div>
+              <div className="font-bold mb-1 text-base text-white/90">{selectedProject?.localRepoPath ? `${selectedProjectRepo?.todayCommitCount ?? 0} Commits Today` : "Not Linked"}</div>
+              <p className="text-xs text-muted mb-0">{selectedProject?.localRepoPath ? "Tree is clean" : "Update project settings to link repo."}</p>
+              {!selectedProject?.localRepoPath && (
+                <button className="text-[10px] uppercase font-bold tracking-widest text-accent mt-4 hover:text-accent-100" onClick={() => setActiveTab("Project Settings")}>Link Repo →</button>
+              )}
+            </div>
+          </GlassPanel>
+        </div>
       </div>
 
-      <Modal
+      <ProjectModal
         open={projectModalOpen}
+        project={null}
+        repos={uniqueRepos}
         onClose={() => setProjectModalOpen(false)}
-        title="Create Project"
-        footer={
-          <div className="flex justify-end gap-2">
-            <button className="button-secondary" onClick={() => setProjectModalOpen(false)} aria-label="Cancel project modal">
-              Cancel
-            </button>
-            <button className="button-primary" onClick={saveNewProject} aria-label="Create project">
-              Create
-            </button>
-          </div>
-        }
-      >
-        <ProjectEditorFields
-          draft={projectDraft}
-          setDraft={setProjectDraft}
-          repos={uniqueRepos}
-          githubRepoOptions={githubRepoOptions}
-          githubRepoListId="project-create-github-list"
-        />
-      </Modal>
+        onSave={saveNewProject}
+        onArchive={() => { }}
+        onDelete={() => { }}
+      />
 
-      {activeTab === "Project Settings" && selectedProject && (
-        <Modal
-          open
-          onClose={() => setActiveTab("Tasks")}
-          title="Project Settings"
-          footer={
-            <div className="flex justify-end gap-3">
-              <button className="button-secondary text-red-500 hover:bg-red-500/10 mr-auto border-red-500/20" onClick={() => deleteProject(selectedProject.id)}>Delete</button>
-              <button className="button-secondary" onClick={() => setProjectArchived(selectedProject.id, !isArchivedProject(selectedProject))}>
-                {isArchivedProject(selectedProject) ? "Restore" : "Archive"}
-              </button>
-              <button className="button-primary" onClick={() => { saveProjectSettings(); setActiveTab("Tasks"); }}>Save</button>
-            </div>
-          }
-        >
-          <ProjectEditorFields
-            draft={projectSettingsDraft}
-            setDraft={setProjectSettingsDraft}
-            repos={uniqueRepos}
-            githubRepoOptions={githubRepoOptions}
-            githubRepoListId="project-settings-github-list"
-          />
-        </Modal>
-      )}
+      <ProjectModal
+        open={activeTab === "Project Settings" && !!selectedProject}
+        project={selectedProject}
+        repos={uniqueRepos}
+        onClose={() => setActiveTab("Tasks")}
+        onSave={saveProjectSettings}
+        onArchive={(archive) => selectedProject && setProjectArchived(selectedProject.id, archive)}
+        onDelete={() => selectedProject && deleteProject(selectedProject.id)}
+      />
     </>
   );
 }
@@ -1091,23 +1018,6 @@ function successMessageForInsightAction(type: SuggestedAction["type"]) {
       return "Insight dismissed.";
     default:
       return "Insight action applied.";
-  }
-}
-
-function shortLabelForInsightAction(action: SuggestedAction) {
-  switch (action.type) {
-    case "MOVE_ROADMAP_NOW":
-      return "Move to Now";
-    case "MOVE_ROADMAP_CARD":
-      return "Move Card";
-    case "COPY_REPO_PATH":
-      return "Copy Path";
-    case "SNOOZE_1D":
-      return "Snooze 1d";
-    case "SNOOZE_1W":
-      return "Snooze 1w";
-    default:
-      return action.label;
   }
 }
 
@@ -1267,143 +1177,8 @@ function insightActionPriority(type: SuggestedAction["type"]) {
   }
 }
 
-function ProjectEditorFields({
-  draft,
-  setDraft,
-  repos,
-  githubRepoOptions,
-  githubRepoListId
-}: {
-  draft: ProjectDraft;
-  setDraft: React.Dispatch<React.SetStateAction<ProjectDraft>>;
-  repos: LocalRepo[];
-  githubRepoOptions: string[];
-  githubRepoListId: string;
-}) {
-  return (
-    <div className="grid gap-4">
-      <div>
-        <label className="mb-1 block text-xs text-muted">Emoji</label>
-        <EmojiPicker value={draft.emoji} onChange={(emoji) => setDraft((prev) => ({ ...prev, emoji }))} />
-      </div>
-      <label className="grid gap-1">
-        <span className="text-xs text-muted">Name</span>
-        <input
-          className="input"
-          value={draft.name}
-          onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
-          placeholder="Project name"
-          aria-label="Project name"
-        />
-      </label>
-      <label className="grid gap-1">
-        <span className="text-xs text-muted">Subtitle</span>
-        <input
-          className="input"
-          value={draft.subtitle}
-          onChange={(event) => setDraft((prev) => ({ ...prev, subtitle: event.target.value }))}
-          placeholder="Optional subtitle"
-          aria-label="Project subtitle"
-        />
-      </label>
-      <div className="grid gap-3 md:grid-cols-2">
-        <label className="grid gap-1">
-          <span className="text-xs text-muted">Status</span>
-          <Select
-            className="w-full"
-            value={draft.status}
-            onChange={(val) => setDraft((prev) => ({ ...prev, status: val as UiProjectStatus }))}
-            options={uiStatuses.map((status) => ({ value: status, label: status }))}
-          />
-        </label>
-        <label className="grid gap-1">
-          <span className="text-xs text-muted">Weekly Hours</span>
-          <div className="grid grid-cols-[40px_1fr_40px] gap-2">
-            <button
-              type="button"
-              className="button-secondary px-0"
-              onClick={() =>
-                setDraft((prev) => ({ ...prev, weeklyHours: clampWeeklyHours(prev.weeklyHours - 1) }))
-              }
-              aria-label="Decrease weekly hours"
-            >
-              -
-            </button>
-            <input
-              className="input text-center"
-              type="number"
-              min={0}
-              max={40}
-              value={draft.weeklyHours}
-              onChange={(event) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  weeklyHours: clampWeeklyHours(Number(event.target.value) || 0)
-                }))
-              }
-              aria-label="Weekly hours"
-            />
-            <button
-              type="button"
-              className="button-secondary px-0"
-              onClick={() =>
-                setDraft((prev) => ({ ...prev, weeklyHours: clampWeeklyHours(prev.weeklyHours + 1) }))
-              }
-              aria-label="Increase weekly hours"
-            >
-              +
-            </button>
-          </div>
-        </label>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <label className="grid gap-1">
-          <span className="text-xs text-muted">Local Repo</span>
-          <Select
-            className="w-full"
-            value={draft.localRepoPath || ""}
-            onChange={(val) => setDraft((prev) => ({ ...prev, localRepoPath: val }))}
-            options={[
-              { value: "", label: "Not linked" },
-              ...repos.map((repo) => ({ value: repo.path, label: `${repo.name} - ${repo.path}` }))
-            ]}
-          />
-        </label>
-        <label className="grid gap-1">
-          <span className="text-xs text-muted">GitHub Repo</span>
-          <input
-            className="input"
-            value={draft.githubRepo}
-            list={githubRepoListId}
-            onChange={(event) => setDraft((prev) => ({ ...prev, githubRepo: event.target.value }))}
-            placeholder="owner/repo"
-            aria-label="GitHub repository"
-          />
-          <datalist id={githubRepoListId}>
-            {githubRepoOptions.map((repo) => (
-              <option key={repo} value={repo} />
-            ))}
-          </datalist>
-        </label>
-      </div>
-    </div>
-  );
-}
-
 function clampWeeklyHours(value: number) {
   return Math.max(0, Math.min(40, value));
-}
-
-function projectToDraft(project: Project): ProjectDraft {
-  return {
-    emoji: project.icon,
-    name: project.name,
-    subtitle: project.subtitle,
-    status: project.status,
-    weeklyHours: project.weeklyHours,
-    localRepoPath: project.localRepoPath ?? "",
-    githubRepo: project.githubRepo ?? project.remoteRepo ?? ""
-  };
 }
 
 function createProjectFromDraft(draft: ProjectDraft, color: string): Project {
@@ -1412,13 +1187,13 @@ function createProjectFromDraft(draft: ProjectDraft, color: string): Project {
     id: crypto.randomUUID(),
     name: draft.name.trim(),
     subtitle: draft.subtitle.trim(),
-    icon: draft.emoji,
+    icon: draft.icon,
     color,
     status: draft.status,
     progress: 0,
     weeklyHours: clampWeeklyHours(Number(draft.weeklyHours) || 0),
-    githubRepo: draft.githubRepo.trim() || null,
-    remoteRepo: draft.githubRepo.trim() || null,
+    githubRepo: draft.remoteRepo?.trim() || null,
+    remoteRepo: draft.remoteRepo?.trim() || null,
     localRepoPath: draft.localRepoPath || null,
     healthScore: null,
     archivedAt: draft.status === "Archived" ? nowIso : null,
@@ -1432,11 +1207,11 @@ function applyProjectDraftToProject(project: Project, draft: ProjectDraft) {
   const nowIso = new Date().toISOString();
   project.name = draft.name.trim();
   project.subtitle = draft.subtitle.trim();
-  project.icon = draft.emoji;
+  project.icon = draft.icon;
   project.status = draft.status;
   project.weeklyHours = clampWeeklyHours(Number(draft.weeklyHours) || 0);
-  project.githubRepo = draft.githubRepo.trim() || null;
-  project.remoteRepo = draft.githubRepo.trim() || null;
+  project.githubRepo = draft.remoteRepo?.trim() || null;
+  project.remoteRepo = draft.remoteRepo?.trim() || null;
   project.localRepoPath = draft.localRepoPath || null;
   project.archivedAt = draft.status === "Archived" ? project.archivedAt ?? nowIso : null;
   project.updatedAt = nowIso;

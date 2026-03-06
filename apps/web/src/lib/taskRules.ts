@@ -66,3 +66,15 @@ export function computeTodayPlan(
     .slice(0, maxTasks)
     .map((item) => item.taskId);
 }
+
+export function shortLabelForInsightAction(action: { type: string; label: string }) {
+  if (action.type === "CREATE_TASK") return "Add Task";
+  if (action.type === "SCHEDULE_FOCUS") return "Focus";
+  if (action.type === "MOVE_ROADMAP_NOW" || action.type === "MOVE_ROADMAP_CARD") return "Move";
+  if (action.type === "OPEN_REPO") return "Open Repo";
+  if (action.type === "ARCHIVE_PROJECT") return "Archive";
+  if (action.type === "DISMISS") return "Dismiss";
+  if (action.type === "SNOOZE_1D") return "Snooze 1d";
+  if (action.type === "SNOOZE_1W") return "Snooze 1w";
+  return action.label;
+}

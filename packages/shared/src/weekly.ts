@@ -136,12 +136,14 @@ export function generateWeeklyReview(state: AppState, weekStart: string): Weekly
         )
         .reduce((sum, session) => sum + session.durationMinutes, 0),
       journalCount: journalEntries.filter((entry) => entry.projectId === project.id).length,
-      roadmapMoved: projectRoadmapMoved
+      roadmapMoved: projectRoadmapMoved,
+      activity: 0 // Will be computed in map
     };
+  }).map(item => {
+    item.activity = item.tasksDone + item.tasksCreated + item.commitsCount + item.journalCount + item.roadmapMoved + Math.floor(item.focusMinutes / 30);
+    return item;
   }).sort((a, b) => {
-    const activityA = a.tasksDone + a.tasksCreated + a.commitsCount + a.journalCount + a.roadmapMoved;
-    const activityB = b.tasksDone + b.tasksCreated + b.commitsCount + b.journalCount + b.roadmapMoved;
-    return activityB - activityA;
+    return b.activity - a.activity;
   });
 
   const topProject = [...perProject].sort(
@@ -163,6 +165,21 @@ export function generateWeeklyReview(state: AppState, weekStart: string): Weekly
     topProject ? `${topProject.projectName} led with ${topProject.tasksDone} completed tasks` : "No top project yet"
   ];
 
+  const shippedProjects = perProject.filter(p => (state.projects.find(x => x.id === p.projectId)?.progress === 100) && p.activity > 0);
+  const activeProjects = perProject.filter(p => p.activity > 0 && state.projects.find(x => x.id === p.projectId)?.progress !== 100);
+  const stuckProjects = perProject.filter(p => p.activity === 0);
+
+  const renderProjectLines = (project: any) => [
+    `### ${project.projectName}`,
+    `- Tasks done: ${project.tasksDone}`,
+    `- Tasks created: ${project.tasksCreated}`,
+    `- Commits linked: ${project.commitsCount}`,
+    `- Focus minutes: ${project.focusMinutes}`,
+    `- Journal entries: ${project.journalCount}`,
+    `- Roadmap moves: ${project.roadmapMoved}`,
+    ``
+  ];
+
   const markdown = [
     `# Weekly Review (${weekStart} → ${weekEnd})`,
     ``,
@@ -181,20 +198,20 @@ export function generateWeeklyReview(state: AppState, weekStart: string): Weekly
     `- Streak delta: ${streakDelta}`,
     ``,
     `**Project Breakdown**`,
-    ...(
-      perProject.length
-        ? perProject.flatMap((project) => [
-            `### ${project.projectName}`,
-            `- Tasks done: ${project.tasksDone}`,
-            `- Tasks created: ${project.tasksCreated}`,
-            `- Commits linked: ${project.commitsCount}`,
-            `- Focus minutes: ${project.focusMinutes}`,
-            `- Journal entries: ${project.journalCount}`,
-            `- Roadmap moves: ${project.roadmapMoved}`,
-            ``
-          ])
-        : [`- No project activity logged`, ``]
-    ),
+    ``,
+    ...(shippedProjects.length > 0 ? [
+      `## Shipped 🟢`,
+      ...shippedProjects.flatMap(renderProjectLines)
+    ] : []),
+    ...(activeProjects.length > 0 ? [
+      `## Moved Forward 🔵`,
+      ...activeProjects.flatMap(renderProjectLines)
+    ] : []),
+    ...(stuckProjects.length > 0 ? [
+      `## Stuck / Idle 🔴`,
+      ...stuckProjects.flatMap(renderProjectLines)
+    ] : []),
+    ...(perProject.length === 0 ? [`- No project activity logged`, ``] : []),
     `**Review Notes**`,
     `- Decisions captured: ${decisionsLogged}`,
     `- Blockers logged: ${blockersLogged}`,

@@ -112,16 +112,14 @@ export default function QuickCapture() {
   };
 
   return (
-    <div className="panel space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Quick Capture</p>
-          <h3 className="text-base font-semibold">Instant capture</h3>
-        </div>
-        <span className="badge">Instant</span>
+    <div className="panel p-4 pb-3 flex flex-col gap-3">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-[10px] font-bold uppercase tracking-[0.25em] text-accent">Quick Capture</h3>
+        <span className="text-[10px] font-medium text-muted bg-white/5 px-2 py-0.5 rounded-md border border-white/5">Instant</span>
       </div>
-      <div className="grid gap-2 md:grid-cols-[150px_190px_1fr_auto]">
+      <div className="flex flex-col md:flex-row gap-2 items-start">
         <Select
+          className="w-full md:w-[130px] flex-shrink-0"
           value={type}
           onChange={(val) => setType(val as any)}
           options={[
@@ -132,6 +130,7 @@ export default function QuickCapture() {
           ]}
         />
         <Select
+          className="w-full md:w-[160px] flex-shrink-0"
           value={projectId}
           onChange={(val) => setProjectId(val)}
           options={[
@@ -142,7 +141,7 @@ export default function QuickCapture() {
           ]}
         />
         <input
-          className="input"
+          className="input flex-1 min-w-0"
           placeholder="Capture a thought, task, or roadmap card..."
           value={text}
           onChange={(event) => setText(event.target.value)}

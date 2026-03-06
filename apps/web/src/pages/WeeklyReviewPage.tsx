@@ -33,6 +33,46 @@ function upsertByWeekStart<T extends { weekStart: string }>(items: T[], nextItem
   return [nextItem, ...items.filter((item) => item.weekStart !== nextItem.weekStart)];
 }
 
+const renderProjectCard = (item: any) => (
+  <div key={item.projectId || item.projectName} className="rounded-xl border border-white/5 bg-white/5 p-4 hover:bg-white/10 transition">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="text-sm font-bold text-white tracking-tight">
+          {item.project?.icon ?? "🧩"} {item.projectName}
+        </div>
+        <div className="mt-1 text-xs text-muted font-medium">
+          {item.project?.subtitle || "No subtitle"}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Pill tone="accent">{item.tasksDone} done</Pill>
+        <Pill>{item.tasksCreated} created</Pill>
+        <Pill>{item.roadmapMoved} roadmap</Pill>
+      </div>
+    </div>
+    <div className="mt-4 grid gap-2 text-xs text-muted font-mono bg-black/20 p-3 rounded-lg md:grid-cols-3">
+      <div>Commits: {item.commitsCount}</div>
+      <div>Focus: {formatMinutes(item.focusMinutes)}</div>
+      <div>Journal: {item.journalCount}</div>
+      <div>Decisions: {item.decisions}</div>
+      <div>Blockers: {item.blockers}</div>
+      <div>Next steps: {item.nexts}</div>
+    </div>
+    {item.latestEntry && (
+      <div className="mt-3 rounded-lg border border-white/5 bg-black/40 p-3 text-sm text-muted">
+        <div className="text-[10px] uppercase tracking-widest font-bold text-muted mb-1 flex items-center gap-2">
+          <span>Latest Log</span>
+          <span className="opacity-50">•</span>
+          <span>{formatDate(item.latestEntry.ts)}</span>
+        </div>
+        <div className="font-medium text-white/90">
+          {item.latestEntry.title || item.latestEntry.type}
+        </div>
+      </div>
+    )}
+  </div>
+);
+
 export default function WeeklyReviewPage() {
   const { state, save } = useAppState();
   const { push } = useToast();
@@ -146,11 +186,11 @@ export default function WeeklyReviewPage() {
           nexts: item.nexts,
           latestEntry: item.latestEntry
             ? {
-                id: item.latestEntry.id,
-                type: item.latestEntry.type,
-                title: item.latestEntry.title,
-                ts: item.latestEntry.ts
-              }
+              id: item.latestEntry.id,
+              type: item.latestEntry.type,
+              title: item.latestEntry.title,
+              ts: item.latestEntry.ts
+            }
             : null
         }))
       }
@@ -267,42 +307,42 @@ export default function WeeklyReviewPage() {
           />
           <div className="mt-4 grid gap-3">
             {breakdown.length === 0 && <p className="text-sm text-muted">No project activity logged for this week.</p>}
-            {breakdown.map((item) => (
-              <div key={item.projectId || item.projectName} className="rounded-xl border border-muted bg-subtle p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold">
-                      {item.project?.icon ?? "🧩"} {item.projectName}
-                    </div>
-                    <div className="mt-1 text-xs text-muted">
-                      {item.project?.subtitle || "No subtitle"}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Pill tone="accent">{item.tasksDone} done</Pill>
-                    <Pill>{item.tasksCreated} created</Pill>
-                    <Pill>{item.roadmapMoved} roadmap</Pill>
-                  </div>
+
+            {/* Shipped / Completed */}
+            {breakdown.filter(p => p.project?.progress === 100 && p.activity > 0).length > 0 && (
+              <div className="mb-4">
+                <div className="text-xs uppercase tracking-widest text-emerald-400 mb-3 font-bold flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span> Shipped
                 </div>
-                <div className="mt-3 grid gap-2 text-sm text-muted md:grid-cols-3">
-                  <div>Commit signals: {item.commitsCount}</div>
-                  <div>Focus: {formatMinutes(item.focusMinutes)}</div>
-                  <div>Journal: {item.journalCount}</div>
-                  <div>Decisions: {item.decisions}</div>
-                  <div>Blockers: {item.blockers}</div>
-                  <div>Next steps: {item.nexts}</div>
+                <div className="grid gap-3">
+                  {breakdown.filter(p => p.project?.progress === 100 && p.activity > 0).map(renderProjectCard)}
                 </div>
-                {item.latestEntry && (
-                  <div className="mt-3 rounded-lg border border-muted bg-black/20 p-3 text-sm text-muted">
-                    <div className="text-xs uppercase tracking-[0.2em] text-muted">Latest note</div>
-                    <div className="mt-1 font-medium">
-                      {item.latestEntry.title || item.latestEntry.type}
-                    </div>
-                    <div className="mt-1 text-xs text-muted">{formatDate(item.latestEntry.ts)}</div>
-                  </div>
-                )}
               </div>
-            ))}
+            )}
+
+            {/* Moved / Active */}
+            {breakdown.filter(p => p.activity > 0 && p.project?.progress !== 100).length > 0 && (
+              <div className="mb-4">
+                <div className="text-xs uppercase tracking-widest text-accent mb-3 font-bold flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-accent"></span> Moved Forward
+                </div>
+                <div className="grid gap-3">
+                  {breakdown.filter(p => p.activity > 0 && p.project?.progress !== 100).map(renderProjectCard)}
+                </div>
+              </div>
+            )}
+
+            {/* Stuck / No Activity */}
+            {breakdown.filter(p => p.activity === 0).length > 0 && (
+              <div className="mb-4">
+                <div className="text-xs uppercase tracking-widest text-red-400/80 mb-3 font-bold flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-400/50"></span> Stuck / Idle
+                </div>
+                <div className="grid gap-3">
+                  {breakdown.filter(p => p.activity === 0).map(renderProjectCard)}
+                </div>
+              </div>
+            )}
           </div>
         </GlassPanel>
 
@@ -394,6 +434,6 @@ export default function WeeklyReviewPage() {
           aria-label="Weekly review markdown"
         />
       </GlassPanel>
-    </div>
+    </div >
   );
 }

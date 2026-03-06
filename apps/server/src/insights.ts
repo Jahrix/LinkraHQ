@@ -121,6 +121,38 @@ export function computeInsights(state: AppState): Insight[] {
       }
     }
 
+    if (rule.id === "DEAD_WEIGHT") {
+      const days = Number(rule.settings?.days ?? 14);
+      for (const project of activeProjects) {
+        const pUpdated = new Date(project.updatedAt).getTime();
+        const repo = project.localRepoPath ? state.localRepos.find(r => r.path === project.localRepoPath) : null;
+        const lastCommit = repo?.lastCommitAt ? new Date(repo.lastCommitAt).getTime() : 0;
+
+        const lastActive = Math.max(pUpdated, lastCommit);
+        if (lastActive > 0) {
+          const ageDays = (now.getTime() - lastActive) / (1000 * 60 * 60 * 24);
+          if (ageDays >= days) {
+            const existing = findExisting(state, rule.id, project.id, null);
+            if (isDismissed(existing)) continue;
+            insights.push(
+              createInsight({
+                ruleId: rule.id,
+                severity: "crit",
+                title: "Dead Weight",
+                reason: `${project.name} has been untouched for ${Math.floor(ageDays)} days.`,
+                metrics: { ageDays, days },
+                projectId: project.id,
+                actions: [
+                  action("archive-project", "ARCHIVE_PROJECT", "Archive Project", { projectId: project.id }),
+                  action("schedule-focus", "SCHEDULE_FOCUS", "Revive (30m focus)", { projectId: project.id, minutes: 30 })
+                ]
+              })
+            );
+          }
+        }
+      }
+    }
+
     if (rule.id === "DIRTY_DEBT") {
       const days = Number(rule.settings?.days ?? 3);
       for (const repo of state.localRepos) {
@@ -384,6 +416,18 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
       const command =
         platform === "darwin" ? "open" : platform === "win32" ? "explorer" : "xdg-open";
       await execFileAsync(command, [repoPath]).catch(() => null);
+    }
+  }
+
+  if (action.type === "ARCHIVE_PROJECT") {
+    const project = next.projects.find((p) => p.id === action.payload.projectId);
+    if (project) {
+      project.status = "Archived";
+      project.archivedAt = now;
+      project.updatedAt = now;
+
+      // Auto-dismiss all insights associated with this project that triggered it.
+      next.insights = next.insights.filter((item) => item.projectId !== project.id);
     }
   }
 

@@ -17,6 +17,14 @@ export const insightRules: InsightRuleConfig[] = [
     settings: { days: 7 }
   },
   {
+    id: "DEAD_WEIGHT",
+    title: "Project is dead weight",
+    description: "Project untouched for X days. Consider archiving.",
+    defaultEnabled: true,
+    severity: "crit",
+    settings: { days: 14 }
+  },
+  {
     id: "DIRTY_DEBT",
     title: "Working tree has been dirty too long",
     description: "Repo has uncommitted changes for X days.",

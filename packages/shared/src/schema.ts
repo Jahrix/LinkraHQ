@@ -207,7 +207,8 @@ export const SuggestedActionSchema = z.object({
     "SNOOZE_1D",
     "SNOOZE_1W",
     "DISMISS",
-    "CREATE_JOURNAL"
+    "CREATE_JOURNAL",
+    "ARCHIVE_PROJECT"
   ]),
   label: z.string(),
   payload: z.record(z.any()).default({})
