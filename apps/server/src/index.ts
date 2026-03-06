@@ -447,6 +447,16 @@ app.get("/auth/github/start", (req, res) => {
   }
   const state = crypto.randomBytes(16).toString("hex");
   req.session.oauthState = state;
+
+  // Dynamically record where the user came from so we redirect back to the correct frontend (e.g. Cloudflare Pages)
+  const referer = req.get("referer");
+  if (referer) {
+    try {
+      const url = new URL(referer);
+      (req.session as any).oauthOrigin = url.origin;
+    } catch { }
+  }
+
   const redirectUri = `http://localhost:${PORT}/auth/github/callback`;
   res.redirect(githubAuthUrl(GITHUB_CLIENT_ID, redirectUri, state));
 });
@@ -467,9 +477,11 @@ app.get("/auth/github/callback", async (req, res) => {
     const user = await fetchGithubUser(token);
     req.session.githubToken = token;
     req.session.githubUser = user;
-    res.redirect(`${CLIENT_ORIGIN}/#/settings?auth=success`);
+    const clientOrigin = (req.session as any).oauthOrigin || CLIENT_ORIGIN;
+    res.redirect(`${clientOrigin}/#/settings?auth=success`);
   } catch (err) {
-    res.redirect(`${CLIENT_ORIGIN}/#/settings?auth=error`);
+    const clientOrigin = (req.session as any).oauthOrigin || CLIENT_ORIGIN;
+    res.redirect(`${clientOrigin}/#/settings?auth=error`);
   }
 });
 

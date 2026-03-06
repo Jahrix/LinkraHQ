@@ -1,6 +1,6 @@
 import type { AppState, ExportBundle, LocalRepo, Insight, WeeklyReview } from "@linkra/shared";
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
+export const API_BASE = import.meta.env.VITE_API_URL || "";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { type RepoConfig } from "@linkra/shared";
-import { api } from "../lib/api";
+import { api, API_BASE } from "../lib/api";
 import { useAppState } from "../lib/state";
 import { formatDate } from "../lib/date";
 import { useToast } from "../lib/toast";
@@ -82,7 +82,7 @@ export default function CommitsPage() {
         <p className="text-sm text-muted">
           Log in to GitHub to view latest commits. The app still works without it.
         </p>
-        <a className="button-primary inline-flex w-fit" href="/auth/github/start">
+        <a className="button-primary inline-flex w-fit" href={`${API_BASE}/auth/github/start`}>
           Log in with GitHub
         </a>
       </div>
