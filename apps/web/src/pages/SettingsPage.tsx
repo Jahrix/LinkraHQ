@@ -59,16 +59,6 @@ export default function SettingsPage() {
     }
   };
 
-  const updateAppearance = async (key: "accent" | "reduceMotion", value: string | boolean) => {
-    await persistState((next) => {
-      if (key === "accent" && typeof value === "string") {
-        next.userSettings.accent = value;
-      }
-      if (key === "reduceMotion" && typeof value === "boolean") {
-        next.userSettings.reduceMotion = value;
-      }
-    }, "Failed to update appearance.");
-  };
 
   const toggleInsightRule = async (ruleId: string) => {
     const saved = await persistState((next) => {
@@ -379,30 +369,6 @@ export default function SettingsPage() {
         )}
       </div>
 
-      <div className="panel space-y-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Appearance</p>
-          <h2 className="text-lg font-semibold">Personalize</h2>
-        </div>
-        <div className="filter-row flex-wrap">
-          <label className="toggle">
-            Accent Color
-            <input
-              type="color"
-              value={state.userSettings.accent}
-              onChange={(e) => updateAppearance("accent", e.target.value)}
-            />
-          </label>
-          <label className="toggle">
-            Reduce Motion
-            <input
-              type="checkbox"
-              checked={state.userSettings.reduceMotion}
-              onChange={(e) => updateAppearance("reduceMotion", e.target.checked)}
-            />
-          </label>
-        </div>
-      </div>
     </div>
   );
 }

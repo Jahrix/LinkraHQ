@@ -33,29 +33,6 @@
     --panel-radius-quiet: 14px;
   }
 
-  .light {
-    color-scheme: light;
-    --bg: #EAE8E3;
-    --bg-2: #FFFFFF;
-    --accent-2: #6A8E7A;
-    --glass: rgba(255, 255, 255, 0.82);
-    --glass-strong: rgba(255, 255, 255, 1);
-    --stroke: rgba(0, 0, 0, 0.08);
-    --stroke-strong: rgba(0, 0, 0, 0.15);
-    --text: #333333;
-    --text-strong: #111111;
-    --text-muted: rgba(0, 0, 0, 0.6);
-    --text-subtle: rgba(0, 0, 0, 0.35);
-    --el-subtle: rgba(0, 0, 0, 0.05);
-    --el-muted: rgba(0, 0, 0, 0.10);
-    --el-strong: rgba(0, 0, 0, 0.20);
-    --muted: rgba(0, 0, 0, 0.5);
-    --accent: #6A8E7A;
-    --accent-purple: rgba(106, 142, 122, 0.22);
-    --accent-purple-strong: rgba(106, 142, 122, 0.3);
-    --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1);
-    --shadow-lift: 0 12px 28px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 1);
-  }
 
   body {
     font-family: inherit;
@@ -64,7 +41,7 @@
     min-height: 100vh;
   }
 
-  body:not(.light)::before {
+  body::before {
     content: "";
     position: fixed;
     inset: -50vmax;
@@ -76,7 +53,7 @@
     z-index: -2;
   }
 
-  body:not(.light)::after {
+  body::after {
     content: "";
     position: fixed;
     inset: 0;
@@ -171,15 +148,6 @@
     background: var(--glass-strong);
   }
 
-  .light .panel,
-  .light .glass-standard,
-  .light .card,
-  .light .glass-hero,
-  .light .glass-quiet {
-    background: #ffffff;
-    box-shadow: var(--shadow-soft);
-    border: 1px solid var(--stroke);
-  }
 
   .glass-hero {
     border-radius: var(--panel-radius-hero);
@@ -384,10 +352,6 @@
     /* Chrome/Safari */
   }
 
-  body.reduce-motion * {
-    transition: none !important;
-    animation: none !important;
-  }
 
   .text-strong {
     color: var(--text-strong);

@@ -582,10 +582,17 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     push(source === "auto" ? "Today plan auto-generated." : "Today plan saved.", "success");
   };
 
-  const autoGenerateTodayPlan = async () => {
-    const generated = generateAutoPlan();
-    setTodayPlanDraft(generated);
-    await persistTodayPlan(generated, "auto");
+  const buildMyPlanWithAI = async () => {
+    try {
+      return await api.buildMyPlan(state);
+    } catch {
+      push("AI plan failed, using local heuristic fallback", "warning");
+      const localPlan = generateAutoPlan();
+      return {
+        taskIds: localPlan,
+        rationale: "Fell back to local heuristics: prioritized overdue, roadmap, and high-signal tasks."
+      };
+    }
   };
 
   const movePlanItem = (index: number, direction: -1 | 1) => {
@@ -896,8 +903,8 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
           <TodayPlanQueue
             planDraft={todayPlanDraft}
             allTaskLookup={allTaskLookup}
-            autoGenerate={autoGenerateTodayPlan}
-            onSave={saveTodayPlan}
+            onBuildPlan={buildMyPlanWithAI}
+            onSave={persistTodayPlan}
             onRemove={removePlanItem}
             onStartFocus={startFocus}
           />
