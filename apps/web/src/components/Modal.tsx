@@ -22,18 +22,26 @@ export default function Modal({
   footer?: React.ReactNode;
 }) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  // Keep a stable ref to onClose so the effect never needs it as a dependency
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open || !bodyRef.current) return;
     const root = bodyRef.current;
+
+    // Only auto-focus the first element when the modal first opens.
+    // We intentionally DON'T re-run this on every render, so typing in
+    // a text field does not yank focus away.
     const focusables = focusableElements(root);
-    const first = focusables[0];
-    first?.focus();
+    focusables[0]?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -53,7 +61,8 @@ export default function Modal({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+    // ↓ Only re-run when `open` changes, NOT when onClose changes reference
+  }, [open]);
 
   if (!open) return null;
 
@@ -82,3 +91,4 @@ export default function Modal({
     </div>
   );
 }
+
