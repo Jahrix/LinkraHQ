@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import type { JournalEntry, LocalRepo, Project, ProjectTask, RoadmapCard } from "@linkra/shared";
 import { formatDate } from "../lib/date";
+import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
 import { dedupeById } from "../lib/collections";
@@ -192,7 +193,8 @@ export default function ProjectJournalPanel({
       updatedAt: nowIso
     };
 
-    const next = { ...state, journalEntries: [...currentEntries] };
+    const next = cloneAppState(state);
+    next.journalEntries = [...currentEntries];
     if (editingId) {
       next.journalEntries = next.journalEntries.map((entry) => (entry.id === editingId ? nextEntry : entry));
       push("Journal entry updated.", "success");
@@ -209,7 +211,8 @@ export default function ProjectJournalPanel({
     const confirmed = window.confirm("Delete this journal entry?");
     if (!confirmed) return;
 
-    const next = { ...state, journalEntries: [...(state.journalEntries ?? [])] };
+    const next = cloneAppState(state);
+    next.journalEntries = [...(state.journalEntries ?? [])];
     next.journalEntries = next.journalEntries.filter((entry) => entry.id !== entryId);
     await save(next);
     push("Journal entry deleted.", "success");

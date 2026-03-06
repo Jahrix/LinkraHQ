@@ -1,15 +1,15 @@
 # Linkra by Jahrix
 
-Local-first lock-in dashboard with a Liquid Glass UI. Runs entirely on localhost with a Node backend + React frontend.
+Supabase-backed lock-in dashboard with a Liquid Glass UI. The React app owns canonical user state; the localhost server is limited to local tooling, Git/GitHub helpers, and OS integrations.
 
-## v0.2 Highlights
+## v0.2.1 Highlights
 - Projects CRUD with emoji picker (create/edit/rename/archive/delete)
 - Local Git hardening (dedupe, scan lock, incremental cache, watcher debounce, path safety)
 - Insights engine with grouped “Signals → Actions” recommendations
 - Today Plan auto-generation + editable list + quick “Start Focus”
 - Project Journal (typed entries + links to tasks/roadmap)
-- Weekly Review recap + markdown + close-week snapshots
-- Import migration support through schema version `3`
+- Weekly Review recap + corrected streak / commit rollups + close-week snapshots
+- Strict import migration support through schema version `3`
 
 ## Prerequisites
 - Node.js 18+
@@ -19,6 +19,16 @@ Local-first lock-in dashboard with a Liquid Glass UI. Runs entirely on localhost
 ```bash
 npm install
 ```
+
+Create the frontend env file with your Supabase project values:
+
+```bash
+cp apps/web/.env.example apps/web/.env
+```
+
+Required frontend env vars:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 
 ## GitHub OAuth Setup
 1. Create a GitHub OAuth App.
@@ -67,11 +77,12 @@ launchctl load -w ~/Library/LaunchAgents/linkra_macos.plist
 3. Choose **Run only when user is logged on**.
 
 ## Data Model
-- All data stored locally at `~/.linkra/linkra-db.json`.
-- Export/Import in Settings uses a single JSON bundle with `schema_version` and `created_at`.
+- Canonical user-visible app state lives in Supabase.
+- Export/Import/Wipe in Settings operate against that same Supabase-backed state model.
+- The localhost server does not persist competing user app state.
 - Current schema version: `3`.
 - Older exports (`schema_version` 1/2) are auto-migrated on import.
-- Daily backups stored at `~/.linkra/backups` (default retention 14 days).
+- Daily local backup files are written to `~/.linkra/backups` (default retention 14 days) from the current Supabase-backed state snapshot.
 
 ## Import / Merge Modes
 - `Replace All`: replace local state with imported data.
@@ -84,4 +95,4 @@ launchctl load -w ~/Library/LaunchAgents/linkra_macos.plist
 - **Port already in use**: change `PORT` in `apps/server/.env` and restart.
 - **GitHub login fails**: verify `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `SESSION_SECRET`.
 - **Git scan not running**: check Settings → Local Git and ensure watch dirs exist and Git CLI is installed.
-- **Dashboard shows `Request failed: 500`**: open server logs and verify `~/.linkra/linkra-db.json` is valid JSON. Re-import via Settings if needed.
+- **App fails at startup**: verify `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set correctly in `apps/web/.env`.

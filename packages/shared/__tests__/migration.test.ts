@@ -115,4 +115,60 @@ describe("migrations", () => {
     expect(migrated.data.weeklyReviews[0].perProject[0].roadmapMoved).toBe(0);
     expect(migrated.data.weeklySnapshots[0].data).toEqual({});
   });
+
+  it("rejects malformed bundles instead of silently defaulting them", () => {
+    expect(() =>
+      applyMigrations({
+        schema_version: 2,
+        created_at: "2026-02-19T00:00:00.000Z",
+        data: {}
+      })
+    ).toThrow();
+  });
+
+  it("rejects unsupported schema versions", () => {
+    expect(() =>
+      applyMigrations({
+        schema_version: 99,
+        created_at: "2026-02-19T00:00:00.000Z",
+        data: {
+          metadata: { schema_version: 3, created_at: "2026-02-19T00:00:00.000Z" },
+          userSettings: {
+            theme: "dark",
+            accent: "#5DD8FF",
+            reduceMotion: false,
+            startOnLogin: false,
+            selectedRepos: [],
+            goalTemplate: [],
+            repoWatchDirs: [],
+            repoScanIntervalMinutes: 15,
+            repoExcludePatterns: [],
+            gitWatcherEnabled: true,
+            disabledInsightRules: [],
+            enableDailyBackup: true,
+            backupRetentionDays: 14,
+            schemaVersion: 3
+          },
+          projects: [],
+          localRepos: [],
+          dailyGoalsByDate: {},
+          roadmapCards: [],
+          sessionLogs: [],
+          focusSessions: [],
+          quickCaptures: [],
+          journalEntries: [],
+          insights: [],
+          weeklyReviews: [],
+          weeklySnapshots: [],
+          todayPlanByDate: {},
+          github: {
+            loggedIn: false,
+            user: null,
+            lastSyncAt: null,
+            rateLimit: null
+          }
+        }
+      })
+    ).toThrow();
+  });
 });

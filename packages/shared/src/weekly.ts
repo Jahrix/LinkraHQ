@@ -1,4 +1,11 @@
-import { type AppState, type JournalEntry, type Project, type RoadmapCard, type WeeklyReview } from "./schema.js";
+import {
+  STREAK_THRESHOLD,
+  type AppState,
+  type JournalEntry,
+  type Project,
+  type RoadmapCard,
+  type WeeklyReview
+} from "./schema.js";
 import { todayKey } from "./utils.js";
 
 export function weekBounds(weekStart: string) {
@@ -27,49 +34,75 @@ function getJournalEntriesInWeek(entries: JournalEntry[], weekStart: string, wee
   return entries.filter((entry) => isBetween(entry.ts, weekStart, weekEnd));
 }
 
-function collectCommitSignals({
-  state,
-  weekStart,
-  weekEnd,
-  projectId
-}: {
-  state: AppState;
-  weekStart: string;
-  weekEnd: string;
-  projectId?: string;
-}) {
+function addCommitSha(projectCommitShas: Map<string, Set<string>>, projectId: string, sha: string) {
+  const projectSet = projectCommitShas.get(projectId) ?? new Set<string>();
+  projectSet.add(sha);
+  projectCommitShas.set(projectId, projectSet);
+}
+
+function collectAuthoritativeCommits(state: AppState, weekStart: string, weekEnd: string) {
   const commitShas = new Set<string>();
+  const projectCommitShas = new Map<string, Set<string>>();
 
   for (const project of state.projects) {
-    if (projectId && project.id !== projectId) continue;
     for (const task of project.tasks) {
       if (!task.linkedCommit?.sha) continue;
-      const relevantDate = task.completedAt ?? task.createdAt;
+      const relevantDate = task.linkedCommit.date ?? task.completedAt ?? task.createdAt;
       if (isBetween(relevantDate, weekStart, weekEnd)) {
         commitShas.add(task.linkedCommit.sha);
+        addCommitSha(projectCommitShas, project.id, task.linkedCommit.sha);
       }
     }
   }
 
   for (const entry of getJournalEntriesInWeek(state.journalEntries, weekStart, weekEnd)) {
-    if (projectId && entry.projectId !== projectId) continue;
     for (const sha of entry.links.commitShas ?? []) {
-      if (sha) commitShas.add(sha);
+      if (!sha) continue;
+      commitShas.add(sha);
+      if (entry.projectId) {
+        addCommitSha(projectCommitShas, entry.projectId, sha);
+      }
     }
+  }
+
+  return { commitShas, projectCommitShas };
+}
+
+function collectRepoFallbackCounts(
+  state: AppState,
+  weekStart: string,
+  weekEnd: string,
+  projectCommitShas: Map<string, Set<string>>
+) {
+  const fallbackByProject = new Map<string, number>();
+  const today = todayKey();
+
+  if (today < weekStart || today > weekEnd) {
+    return fallbackByProject;
   }
 
   for (const project of state.projects) {
-    if (projectId && project.id !== projectId) continue;
     if (!project.localRepoPath) continue;
+    if ((projectCommitShas.get(project.id)?.size ?? 0) > 0) continue;
     const repo = state.localRepos.find((item) => item.path === project.localRepoPath);
-    if (!repo?.lastCommitAt || !isBetween(repo.lastCommitAt, weekStart, weekEnd)) continue;
-    const count = weekEnd >= todayKey() ? Math.max(repo.todayCommitCount, 1) : 1;
-    for (let index = 0; index < count; index += 1) {
-      commitShas.add(`${repo.id}:${repo.lastCommitAt}:${index}`);
-    }
+    if (!repo?.lastCommitAt) continue;
+    if (repo.lastCommitAt.slice(0, 10) !== today) continue;
+    if (repo.todayCommitCount <= 0) continue;
+    fallbackByProject.set(project.id, repo.todayCommitCount);
   }
 
-  return commitShas.size;
+  return fallbackByProject;
+}
+
+function collectCommitCounts(state: AppState, weekStart: string, weekEnd: string) {
+  const { commitShas, projectCommitShas } = collectAuthoritativeCommits(state, weekStart, weekEnd);
+  const fallbackByProject = collectRepoFallbackCounts(state, weekStart, weekEnd, projectCommitShas);
+  const fallbackCount = Array.from(fallbackByProject.values()).reduce((sum, count) => sum + count, 0);
+
+  return {
+    total: commitShas.size + fallbackCount,
+    byProject: (projectId: string) => (projectCommitShas.get(projectId)?.size ?? 0) + (fallbackByProject.get(projectId) ?? 0)
+  };
 }
 
 export function generateWeeklyReview(state: AppState, weekStart: string): WeeklyReview {
@@ -104,7 +137,8 @@ export function generateWeeklyReview(state: AppState, weekStart: string): Weekly
     return isBetween(card.updatedAt, weekStart, weekEnd);
   }).length;
 
-  const commitsCount = collectCommitSignals({ state, weekStart, weekEnd });
+  const commitCounts = collectCommitCounts(state, weekStart, weekEnd);
+  const commitsCount = commitCounts.total;
   const focusMinutes = state.focusSessions.reduce((sum, session) => {
     return isBetween(session.completedAt ?? session.startedAt, weekStart, weekEnd)
       ? sum + session.durationMinutes
@@ -113,7 +147,7 @@ export function generateWeeklyReview(state: AppState, weekStart: string): Weekly
   const journalEntries = getJournalEntriesInWeek(state.journalEntries, weekStart, weekEnd);
   const journalCount = journalEntries.length;
 
-  const streakDelta = dailyEntries.filter((entry) => entry.score >= 80).length;
+  const streakDelta = dailyEntries.filter((entry) => entry.completedPoints >= STREAK_THRESHOLD).length;
 
   const perProject = state.projects.map((project) => {
     const projectRoadmapMoved = state.roadmapCards.filter((card) => {
@@ -127,7 +161,7 @@ export function generateWeeklyReview(state: AppState, weekStart: string): Weekly
         (task) => task.completedAt && isBetween(task.completedAt, weekStart, weekEnd)
       ).length,
       tasksCreated: project.tasks.filter((task) => isBetween(task.createdAt, weekStart, weekEnd)).length,
-      commitsCount: collectCommitSignals({ state, weekStart, weekEnd, projectId: project.id }),
+      commitsCount: commitCounts.byProject(project.id),
       focusMinutes: state.focusSessions
         .filter(
           (session) =>
@@ -137,7 +171,7 @@ export function generateWeeklyReview(state: AppState, weekStart: string): Weekly
         .reduce((sum, session) => sum + session.durationMinutes, 0),
       journalCount: journalEntries.filter((entry) => entry.projectId === project.id).length,
       roadmapMoved: projectRoadmapMoved,
-      activity: 0 // Will be computed in map
+      activity: 0
     };
   }).map(item => {
     item.activity = item.tasksDone + item.tasksCreated + item.commitsCount + item.journalCount + item.roadmapMoved + Math.floor(item.focusMinutes / 30);

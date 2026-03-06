@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chokidar, { type FSWatcher } from "chokidar";
 import type { AppState, LocalRepo, Project } from "@linkra/shared";
-import { getState, saveState } from "./store.js";
+import { getState } from "./store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,6 +25,7 @@ type ScanStatus = {
 type ScanResult = {
   repos: LocalRepo[];
   lastScanAt: string | null;
+  nextState?: AppState;
 } & ScanStatus;
 
 type PendingScanRequest = {
@@ -188,12 +189,16 @@ function consumePendingScanRequest() {
   return { full: true, repoPath: undefined as string | undefined };
 }
 
-function buildScanResult(repos: LocalRepo[]): ScanResult {
-  return {
+function buildScanResult(repos: LocalRepo[], nextState?: AppState): ScanResult {
+  const result: ScanResult = {
     repos,
     lastScanAt,
     ...getScanStatus()
   };
+  if (nextState) {
+    result.nextState = nextState;
+  }
+  return result;
 }
 
 function compileExcludeTokens(patterns: string[]) {
@@ -267,8 +272,7 @@ export function getScanStatus() {
   } satisfies ScanStatus;
 }
 
-export function getGitHealth() {
-  const state = getState();
+export function getGitHealth(state = getState()) {
   const repos = dedupeRepos(state.localRepos);
   const watchDirs = normalizeWatchDirs(state.userSettings.repoWatchDirs);
   return {
@@ -281,8 +285,7 @@ export function getGitHealth() {
   };
 }
 
-export async function runGitScanNow(repoPath?: string) {
-  const state = getState();
+export async function runGitScanNow(state = getState(), repoPath?: string) {
   const normalizedWatchDirs = normalizeWatchDirs(state.userSettings.repoWatchDirs);
   const targetRepoPath = repoPath ? normalizeRepoPath(repoPath) : undefined;
 
@@ -295,14 +298,14 @@ export async function runGitScanNow(repoPath?: string) {
 
   if (activeScanPromise) {
     enqueueScanRequest(targetRepoPath);
-    return buildScanResult(dedupeRepos(getState().localRepos));
+    return buildScanResult(dedupeRepos(state.localRepos), state);
   }
 
-  activeScanPromise = executeGitScan(targetRepoPath, normalizedWatchDirs).finally(() => {
+  activeScanPromise = executeGitScan(state, targetRepoPath, normalizedWatchDirs).finally(() => {
     activeScanPromise = null;
     const pending = consumePendingScanRequest();
     if (pending) {
-      void runGitScanNow(pending.repoPath).catch((error) => {
+      void runGitScanNow(state, pending.repoPath).catch((error) => {
         const message = error instanceof Error ? error.message : "Queued git scan failed";
         lastScanErrors = [message];
         scanState = "error";
@@ -314,7 +317,11 @@ export async function runGitScanNow(repoPath?: string) {
   return activeScanPromise;
 }
 
-async function executeGitScan(targetRepoPath: string | undefined, normalizedWatchDirs: string[]) {
+async function executeGitScan(
+  state: AppState,
+  targetRepoPath: string | undefined,
+  normalizedWatchDirs: string[]
+) {
   const start = Date.now();
   scanInProgress = true;
   scanState = "running";
@@ -326,7 +333,6 @@ async function executeGitScan(targetRepoPath: string | undefined, normalizedWatc
   });
 
   try {
-    const state = getState();
     const existingRepos = dedupeRepos(state.localRepos);
     const excludeTokens = compileExcludeTokens(state.userSettings.repoExcludePatterns);
     const repoTargets = targetRepoPath
@@ -374,7 +380,6 @@ async function executeGitScan(targetRepoPath: string | undefined, normalizedWatc
       projects: state.projects.map((project) => applyHealthScore(project, uniqueRepos))
     };
 
-    await saveState(next);
     scanInProgress = false;
     logGitScan("completed scan", {
       scope,
@@ -385,7 +390,7 @@ async function executeGitScan(targetRepoPath: string | undefined, normalizedWatc
       errors: lastScanErrors.length
     });
 
-    return buildScanResult(uniqueRepos);
+    return buildScanResult(uniqueRepos, next);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Git scan failed";
     lastScanErrors = [message];
@@ -399,7 +404,7 @@ async function executeGitScan(targetRepoPath: string | undefined, normalizedWatc
       repoPath: targetRepoPath ?? null,
       error: message
     });
-    return buildScanResult(dedupeRepos(getState().localRepos));
+    return buildScanResult(dedupeRepos(state.localRepos), state);
   }
 }
 
@@ -496,7 +501,7 @@ function scheduleWatchScan(repoPath?: string) {
       enqueueScanRequest(normalizedRepoPath);
       return;
     }
-    void runGitScanNow(normalizedRepoPath).catch((error) => {
+    void runGitScanNow(getState(), normalizedRepoPath).catch((error) => {
       const message = error instanceof Error ? error.message : "Watcher git scan failed";
       lastScanErrors = [message];
       scanState = "error";
@@ -537,9 +542,14 @@ export function stopGitWatcher() {
   watcherSignature = "";
 }
 
-export async function fetchLocalCommits(repoPath: string, limit: number, since?: string) {
+export async function fetchLocalCommits(
+  repoPath: string,
+  limit: number,
+  since?: string,
+  watchDirs?: string[]
+) {
   const normalizedPath = normalizeRepoPath(repoPath);
-  assertRepoPathAllowed(normalizedPath);
+  assertRepoPathAllowed(normalizedPath, watchDirs);
   if (!hasGitMetadata(normalizedPath)) {
     throw new Error("repo path is not a git repository");
   }

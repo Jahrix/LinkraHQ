@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { todayKey, computeGoalMetrics, type RoadmapCard } from "@linkra/shared";
+import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
 import Select from "./Select";
@@ -17,7 +18,7 @@ export default function QuickCapture() {
   const handleCapture = async () => {
     if (!text.trim()) return;
     const now = new Date().toISOString();
-    const next = { ...state };
+    const next = cloneAppState(state);
 
     next.quickCaptures = [
       { id: crypto.randomUUID(), type, text: text.trim(), createdAt: now },

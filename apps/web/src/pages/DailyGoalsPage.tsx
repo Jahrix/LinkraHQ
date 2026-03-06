@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { computeGoalMetrics, todayKey, type Goal } from "@linkra/shared";
+import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
 import { formatDate, formatDay } from "../lib/date";
 import { useToast } from "../lib/toast";
@@ -31,7 +32,7 @@ export default function DailyGoalsPage() {
 
   const updateGoal = async (goalId: string, done: boolean) => {
     if (!todayEntry) return;
-    const next = { ...state };
+    const next = cloneAppState(state);
     const entry = next.dailyGoalsByDate[key];
     entry.goals = entry.goals.map((goal) =>
       goal.id === goalId
@@ -51,7 +52,7 @@ export default function DailyGoalsPage() {
   const addGoal = async () => {
     if (!title.trim() || !todayEntry) return;
     const now = new Date().toISOString();
-    const next = { ...state };
+    const next = cloneAppState(state);
     const entry = next.dailyGoalsByDate[key];
     const goal: Goal = {
       id: crypto.randomUUID(),
@@ -73,7 +74,7 @@ export default function DailyGoalsPage() {
   const addTemplateGoal = async () => {
     if (!templateTitle.trim()) return;
     const now = new Date().toISOString();
-    const next = { ...state };
+    const next = cloneAppState(state);
     next.userSettings.goalTemplate = [
       {
         id: crypto.randomUUID(),
@@ -92,7 +93,7 @@ export default function DailyGoalsPage() {
   };
 
   const removeTemplateGoal = async (id: string) => {
-    const next = { ...state };
+    const next = cloneAppState(state);
     next.userSettings.goalTemplate = next.userSettings.goalTemplate.filter((goal) => goal.id !== id);
     await save(next);
   };

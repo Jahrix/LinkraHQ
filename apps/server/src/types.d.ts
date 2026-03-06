@@ -9,5 +9,6 @@ declare module "express-session" {
       avatarUrl: string | null;
     };
     oauthState?: string;
+    oauthOrigin?: string;
   }
 }

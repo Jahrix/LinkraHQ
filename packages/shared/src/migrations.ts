@@ -5,6 +5,7 @@ import {
   type AppState,
   type ExportBundle
 } from "./schema.js";
+import { z } from "zod";
 
 const VALID_PROJECT_STATUSES = new Set([
   "Not Started",
@@ -17,6 +18,23 @@ const VALID_PROJECT_STATUSES = new Set([
 const VALID_ROADMAP_LANES = new Set(["now", "next", "later", "shipped"]);
 const VALID_JOURNAL_TYPES = new Set(["note", "decision", "blocker", "next", "idea"]);
 const VALID_QUICK_CAPTURE_TYPES = new Set(["note", "task", "roadmap", "journal"]);
+const LegacyImportStateSchema = z
+  .object({
+    userSettings: z.record(z.any()),
+    projects: z.array(z.any()),
+    dailyGoalsByDate: z.record(z.any()).default({}),
+    roadmapCards: z.array(z.any()),
+    sessionLogs: z.array(z.any()),
+    focusSessions: z.array(z.any()),
+    quickCaptures: z.array(z.any()),
+    github: z.record(z.any())
+  })
+  .passthrough();
+const LegacyExportBundleSchema = z.object({
+  schema_version: z.union([z.literal(1), z.literal(2)]),
+  created_at: z.string(),
+  data: LegacyImportStateSchema
+});
 
 function toIso(value: unknown, fallback: string) {
   if (typeof value !== "string" || !value) return fallback;
@@ -378,17 +396,26 @@ export function migrateV2ToV3(state: any): AppState {
 
 export function applyMigrations(bundle: any): ExportBundle {
   const parsed = ExportBundleSchema.safeParse(bundle);
-  if (parsed.success && parsed.data.schema_version === SCHEMA_VERSION) {
-    return parsed.data;
+  if (parsed.success) {
+    if (parsed.data.schema_version === SCHEMA_VERSION) {
+      return parsed.data;
+    }
+    throw new Error(`Unsupported export schema version: ${parsed.data.schema_version}`);
   }
 
-  const schemaVersion = bundle?.schema_version ?? 1;
-  const data = bundle?.data ?? {};
+  const legacy = LegacyExportBundleSchema.safeParse(bundle);
+  if (!legacy.success) {
+    throw new Error("Invalid export bundle");
+  }
+
+  const schemaVersion = legacy.data.schema_version;
+  const createdAt = toIso(legacy.data.created_at, new Date().toISOString());
+  const data = legacy.data.data;
 
   if (schemaVersion === 1) {
     return {
       schema_version: SCHEMA_VERSION,
-      created_at: bundle?.created_at ?? new Date().toISOString(),
+      created_at: createdAt,
       data: migrateV1ToV2(data)
     };
   }
@@ -396,14 +423,10 @@ export function applyMigrations(bundle: any): ExportBundle {
   if (schemaVersion === 2) {
     return {
       schema_version: SCHEMA_VERSION,
-      created_at: bundle?.created_at ?? new Date().toISOString(),
+      created_at: createdAt,
       data: migrateV2ToV3(data)
     };
   }
 
-  return {
-    schema_version: SCHEMA_VERSION,
-    created_at: bundle?.created_at ?? new Date().toISOString(),
-    data: migrateStateToCurrent(data)
-  };
+  throw new Error(`Unsupported export schema version: ${schemaVersion}`);
 }

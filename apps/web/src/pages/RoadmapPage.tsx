@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { type RoadmapCard, type RoadmapLane } from "@linkra/shared";
+import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
 import Select from "../components/Select";
 
@@ -50,7 +51,8 @@ export default function RoadmapPage() {
       createdAt: now,
       updatedAt: now
     };
-    const next = { ...state, roadmapCards: [card, ...state.roadmapCards] };
+    const next = cloneAppState(state);
+    next.roadmapCards = [card, ...next.roadmapCards];
     setTitle("");
     setDescription("");
     setTags("");
@@ -65,7 +67,7 @@ export default function RoadmapPage() {
   const onDrop = async (event: React.DragEvent, lane: RoadmapLane) => {
     event.preventDefault();
     const id = event.dataTransfer.getData("text/plain");
-    const next = { ...state };
+    const next = cloneAppState(state);
     next.roadmapCards = next.roadmapCards.map((card) =>
       card.id === id
         ? {
