@@ -64,9 +64,10 @@ const defaultProjectDraft: ProjectDraft = {
   githubRepo: ""
 };
 
-export default function DashboardPage() {
+export default function DashboardPage({ projectId }: { projectId?: string | null }) {
   const { state, save, refresh } = useAppState();
   const { push } = useToast();
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("Tasks");
   const [showArchived, setShowArchived] = useState(false);
@@ -112,9 +113,17 @@ export default function DashboardPage() {
   });
 
   const visibleProjects = showArchived ? projects : projects.filter((project) => !isArchivedProject(project));
+
+  // Force selection lock if projectId is passed via route hash
+  const forcedIndex = projectId ? visibleProjects.findIndex(p => p.id === projectId) : -1;
+  const activeIndex = forcedIndex >= 0 ? forcedIndex : selectedIndex;
+
   const selectedProject =
-    projects.find((project) => project.id === selectedId) ??
-    (visibleProjects.length ? visibleProjects[0] : projects[0] ?? null);
+    visibleProjects.length > 0 && activeIndex < visibleProjects.length ? visibleProjects[activeIndex] : null;
+
+  // Narrow all view variables if projectId is provided (isolate to one project)
+  const dashboardProjects = projectId && selectedProject ? [selectedProject] : visibleProjects;
+  const dashboardTasks = projectId && selectedProject ? selectedProject.tasks : projects.flatMap((p) => p.tasks);
 
   const selectedTasks = selectedProject ? dedupeById(selectedProject.tasks).items : [];
   const selectedProjectInsights = activeInsights.filter((insight) => insight.projectId === selectedProject?.id);
@@ -843,7 +852,7 @@ export default function DashboardPage() {
           <div className="flex justify-between items-end mt-2 px-2">
             <div className="text-3xl font-semibold tracking-tight">{todayEntry?.score ?? 0}%</div>
             <div className="text-sm font-medium text-emerald-400">
-               {todayEntry?.completedPoints ?? 0}/{todayEntry?.goals.length ?? 0} pts
+              {todayEntry?.completedPoints ?? 0}/{todayEntry?.goals.length ?? 0} pts
             </div>
           </div>
         </GlassPanel>
@@ -880,7 +889,7 @@ export default function DashboardPage() {
                 const tasksDone = project.tasks.filter((task) => task.done).length;
                 const tasksTotal = project.tasks.length;
                 return (
-                  <button 
+                  <button
                     key={project.id}
                     className={`text-left p-4 rounded-xl border transition ${isSelected ? 'bg-muted border-strong shadow-lg' : 'bg-subtle border-subtle hover:bg-muted'}`}
                     onClick={() => { setSelectedId(project.id); setActiveTab("Tasks"); }}
@@ -891,8 +900,8 @@ export default function DashboardPage() {
                     </div>
                     <div className="mt-3 font-semibold truncate text-[15px]">{project.name}</div>
                     <div className="mt-1 flex justify-between items-center text-xs text-muted">
-                       <span className="truncate">{project.status}</span>
-                       <span>{tasksDone}/{tasksTotal} done</span>
+                      <span className="truncate">{project.status}</span>
+                      <span>{tasksDone}/{tasksTotal} done</span>
                     </div>
                   </button>
                 );
@@ -904,15 +913,15 @@ export default function DashboardPage() {
         <GlassPanel variant="standard" className="flex flex-col items-center justify-center text-center">
           <div className="text-xs uppercase tracking-[0.2em] text-muted mb-7">Task Progress</div>
           <div className="relative w-36 h-36 flex items-center justify-center group mb-5">
-             <div className="absolute inset-0 rounded-full border-[10px] border-subtle"></div>
-             <div 
-               className="absolute inset-0 rounded-full border-[10px] border-accent"
-               style={{ 
-                 clipPath: 'polygon(50% 0%, 100% 0, 100% 100%, 0% 100%, 0% 0%, 50% 0%)',
-                 transform: `rotate(${(tasksProgress / 100) * 360}deg)`
-               }}
-             ></div>
-             <div className="text-4xl font-semibold tracking-tight">{tasksProgress}%</div>
+            <div className="absolute inset-0 rounded-full border-[10px] border-subtle"></div>
+            <div
+              className="absolute inset-0 rounded-full border-[10px] border-accent"
+              style={{
+                clipPath: 'polygon(50% 0%, 100% 0, 100% 100%, 0% 100%, 0% 0%, 50% 0%)',
+                transform: `rotate(${(tasksProgress / 100) * 360}deg)`
+              }}
+            ></div>
+            <div className="text-4xl font-semibold tracking-tight">{tasksProgress}%</div>
           </div>
           <div className="text-sm tracking-wide text-muted">{completedTasks} of {totalTasks} global tasks</div>
         </GlassPanel>
@@ -948,11 +957,11 @@ export default function DashboardPage() {
               ))}
             </div>
             <div className="flex gap-2 mt-4">
-              <input 
-                value={taskText} 
+              <input
+                value={taskText}
                 onChange={(e) => setTaskText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addTask()}
-                placeholder="New task..." 
+                placeholder="New task..."
                 className="input flex-1"
               />
               <button onClick={addTask} className="button-secondary">Add</button>
@@ -981,12 +990,12 @@ export default function DashboardPage() {
         <GlassPanel variant="standard" className="flex flex-col h-[300px]">
           <SectionHeader title="Local Git" subtitle={selectedProjectRepo?.name} />
           <div className="mt-4 flex-1 flex flex-col pt-4 items-center text-center">
-             <div className="text-5xl mb-4 text-subtle">⎇</div>
-             <div className="font-medium mb-1 text-lg">{selectedProject?.localRepoPath ? `${selectedProjectRepo?.todayCommitCount ?? 0} Commits Today` : "Not Linked"}</div>
-             <p className="text-xs text-muted mb-6">{selectedProject?.localRepoPath ? "Tree is clean" : "Update settings to link local path."}</p>
-             {!selectedProject?.localRepoPath && (
-               <button className="button-secondary" onClick={() => setActiveTab("Project Settings")}>Link Repo</button>
-             )}
+            <div className="text-5xl mb-4 text-subtle">⎇</div>
+            <div className="font-medium mb-1 text-lg">{selectedProject?.localRepoPath ? `${selectedProjectRepo?.todayCommitCount ?? 0} Commits Today` : "Not Linked"}</div>
+            <p className="text-xs text-muted mb-6">{selectedProject?.localRepoPath ? "Tree is clean" : "Update settings to link local path."}</p>
+            {!selectedProject?.localRepoPath && (
+              <button className="button-secondary" onClick={() => setActiveTab("Project Settings")}>Link Repo</button>
+            )}
           </div>
         </GlassPanel>
       </div>
@@ -1016,9 +1025,9 @@ export default function DashboardPage() {
       </Modal>
 
       {activeTab === "Project Settings" && selectedProject && (
-        <Modal 
-          open 
-          onClose={() => setActiveTab("Tasks")} 
+        <Modal
+          open
+          onClose={() => setActiveTab("Tasks")}
           title="Project Settings"
           footer={
             <div className="flex justify-end gap-3">
@@ -1116,10 +1125,10 @@ function formatInsightMetrics(items: Insight[]) {
           ? `${rawValue}`
           : rawValue.toFixed(1)
         : Array.isArray(rawValue)
-        ? rawValue.join(", ")
-        : typeof rawValue === "object" && rawValue !== null
-        ? JSON.stringify(rawValue)
-        : String(rawValue);
+          ? rawValue.join(", ")
+          : typeof rawValue === "object" && rawValue !== null
+            ? JSON.stringify(rawValue)
+            : String(rawValue);
     const list = grouped.get(label) ?? [];
     if (!list.includes(display)) {
       list.push(display);

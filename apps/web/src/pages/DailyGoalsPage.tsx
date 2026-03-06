@@ -36,10 +36,10 @@ export default function DailyGoalsPage() {
     entry.goals = entry.goals.map((goal) =>
       goal.id === goalId
         ? {
-            ...goal,
-            done,
-            completedAt: done ? new Date().toISOString() : null
-          }
+          ...goal,
+          done,
+          completedAt: done ? new Date().toISOString() : null
+        }
         : goal
     );
     const metrics = computeGoalMetrics(entry.goals);
@@ -108,30 +108,30 @@ export default function DailyGoalsPage() {
           <div className="flex items-center gap-3">
             <span className="pill">Auto-synced</span>
             <span className="chip">
-              {todayEntry.completedPoints}/{totalPoints} pts
+              {todayEntry.completedPoints} / {totalPoints} completed
             </span>
-            <span className="chip">Score {todayEntry.score}%</span>
           </div>
         </div>
         <div className="table">
           {todayEntry.goals.map((goal) => (
-            <label key={goal.id} className="table-row hover-lift cursor-pointer">
-              <div className="flex flex-col gap-1">
+            <div key={goal.id} className="table-row hover-lift transition items-center">
+              <div className="flex flex-col gap-1 flex-1">
                 <strong>{goal.title}</strong>
                 <div className="text-xs text-muted">{goal.category}</div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="chip">{goal.points} pts</span>
+              <div className="flex items-center gap-4">
+                <span className="chip w-16 text-center">{goal.points} pts</span>
                 <input
                   type="checkbox"
                   checked={goal.done}
                   onChange={(event) => updateGoal(goal.id, event.target.checked)}
+                  className="w-5 h-5 cursor-pointer accent-accent rounded border-stroke"
                 />
               </div>
-            </label>
+            </div>
           ))}
         </div>
-        <div className="grid gap-2 md:grid-cols-[1.4fr_1fr_120px_auto]">
+        <div className="grid gap-2 grid-cols-2 md:grid-cols-[1fr_1fr_100px_auto]">
           <input className="input" placeholder="New goal" value={title} onChange={(e) => setTitle(e.target.value)} />
           <input className="input" placeholder="Category" value={category} onChange={(e) => setCategory(e.target.value)} />
           <input
@@ -157,21 +157,21 @@ export default function DailyGoalsPage() {
         </div>
         <div className="table">
           {state.userSettings.goalTemplate.map((goal) => (
-            <div key={goal.id} className="table-row">
-              <div className="flex flex-col gap-1">
+            <div key={goal.id} className="table-row items-center">
+              <div className="flex flex-col gap-1 flex-1">
                 <strong>{goal.title}</strong>
                 <div className="text-xs text-muted">{goal.category}</div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="chip">{goal.points} pts</span>
-                <button className="button-secondary" onClick={() => removeTemplateGoal(goal.id)}>
-                  Remove
+              <div className="flex items-center gap-4">
+                <span className="chip w-16 text-center">{goal.points} pts</span>
+                <button className="button-secondary p-1 h-auto" onClick={() => removeTemplateGoal(goal.id)}>
+                  X
                 </button>
               </div>
             </div>
           ))}
         </div>
-        <div className="grid gap-2 md:grid-cols-[1.4fr_1fr_120px_auto]">
+        <div className="grid gap-2 grid-cols-2 md:grid-cols-[1fr_1fr_100px_auto]">
           <input
             className="input"
             placeholder="Template goal"
@@ -215,7 +215,7 @@ export default function DailyGoalsPage() {
                   Archived {entry.archivedAt ? formatDate(entry.archivedAt) : "—"}
                 </div>
               </div>
-              <span className="chip">Score {entry.score}%</span>
+              <span className="chip">Score: {entry.score}</span>
             </div>
           ))}
         </div>

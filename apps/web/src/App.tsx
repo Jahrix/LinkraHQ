@@ -12,22 +12,55 @@ import RoadmapPage from "./pages/RoadmapPage";
 import CommitsPage from "./pages/CommitsPage";
 import ToolsPage from "./pages/ToolsPage";
 import SettingsPage from "./pages/SettingsPage";
+import AccountSettingsPage from "./pages/AccountSettingsPage";
 import WeeklyReviewPage from "./pages/WeeklyReviewPage";
 import { computeStreak, todayKey } from "@linkra/shared";
+import type { Session } from "@supabase/supabase-js";
+import { supabase } from "./lib/supabase";
+import AuthPage from "./pages/AuthPage";
 
 function Shell() {
   const { state, loading, error, refresh } = useAppState();
   const [active, setActive] = useState<NavItem>("Dashboard");
   const [commandOpen, setCommandOpen] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   useEffect(() => {
-    const hash = window.location.hash.replace("#", "");
-    if (hash) {
-      const match = ["Dashboard", "Daily Goals", "Roadmap", "Weekly Review", "Commits", "Tools", "Settings"].find(
-        (item) => item.toLowerCase().replace(" ", "-") === hash
-      ) as NavItem | undefined;
-      if (match) setActive(match);
-    }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace("#", "");
+      if (hash.startsWith("project/")) {
+        setProjectId(hash.split("/")[1]);
+        setActive("Dashboard");
+      } else if (hash) {
+        const match = ["Dashboard", "Daily Goals", "Roadmap", "Weekly Review", "Commits", "Tools", "Settings", "Account"].find(
+          (item) => item.toLowerCase().replace(" ", "-") === hash
+        ) as NavItem | undefined;
+        if (match) {
+          setActive(match);
+          setProjectId(null);
+        }
+      } else {
+        setProjectId(null);
+      }
+    };
+    handleHashChange();
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   useEffect(() => {
@@ -43,8 +76,9 @@ function Shell() {
 
   useEffect(() => {
     const hash = active.toLowerCase().replace(" ", "-");
-    window.history.replaceState(null, "", `#${hash}`);
-  }, [active]);
+    const newHash = projectId && active === "Dashboard" ? `project/${projectId}` : hash;
+    window.history.replaceState(null, "", `#${newHash}`);
+  }, [active, projectId]);
 
   useEffect(() => {
     if (!state) return;
@@ -67,13 +101,17 @@ function Shell() {
     ];
   }, [refresh]);
 
-  const score = state?.dailyGoalsByDate[todayKey()]?.score ?? 0;
+  const score = Object.values(state?.dailyGoalsByDate || {}).reduce((acc, entry) => acc + entry.score, 0);
   const streak = state ? computeStreak(Object.values(state.dailyGoalsByDate)) : 0;
 
+  if (!session) {
+    return <AuthPage />;
+  }
+
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[80px_1fr]">
+    <div className="min-h-screen flex flex-col lg:flex-row">
       <Sidebar active={active} onChange={(item) => setActive(item)} />
-      <main className="px-6 py-6 flex flex-col gap-6">
+      <main className="flex-1 px-4 lg:px-6 py-6 pb-28 lg:pb-6 flex flex-col gap-6 overflow-x-hidden">
         <div className="sticky-header">
           <Header score={score} onOpenCommand={() => setCommandOpen(true)} />
         </div>
@@ -81,13 +119,14 @@ function Shell() {
         {error && <div className="panel">Error: {error}</div>}
         {state && !loading && (
           <div className="grid gap-6">
-            {active === "Dashboard" && <DashboardPage />}
+            {active === "Dashboard" && <DashboardPage projectId={projectId} />}
             {active === "Daily Goals" && <DailyGoalsPage />}
             {active === "Roadmap" && <RoadmapPage />}
             {active === "Weekly Review" && <WeeklyReviewPage />}
             {active === "Commits" && <CommitsPage />}
             {active === "Tools" && <ToolsPage />}
             {active === "Settings" && <SettingsPage />}
+            {active === "Account" && <AccountSettingsPage />}
           </div>
         )}
         <div className="text-xs text-muted">Streak: {streak} days · Local-first mode active</div>

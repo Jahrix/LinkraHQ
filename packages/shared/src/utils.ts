@@ -15,7 +15,10 @@ export function computeGoalMetrics(goals: Goal[]): {
   const completedPoints = goals
     .filter((goal) => goal.done)
     .reduce((sum, goal) => sum + goal.points, 0);
-  const score = totalPoints === 0 ? 0 : Math.round((completedPoints / totalPoints) * 100);
+
+  // The user requested `score` be purely cumulative of raw points, rather than a completion percentage.
+  // We keep `completedPoints` mapped 1:1 so 3 pts = 3 score, not an unexpected 50.
+  const score = completedPoints;
   return { completedPoints, score };
 }
 

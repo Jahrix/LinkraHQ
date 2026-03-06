@@ -24,11 +24,11 @@ const DATA_DIR = process.env.LINKRA_DATA_DIR || path.join(os.homedir(), ".linkra
 const DB_FILE = path.join(DATA_DIR, "linkra-db.json");
 
 const seedProjects = [
-  { name: "CruiseControl", subtitle: "Ops control suite", color: "#60a5fa", icon: "🛰️" },
-  { name: "Indus Gaming Command", subtitle: "Gaming HQ dashboard", color: "#a855f7", icon: "🕹️" },
-  { name: "Olympia Metropolis Web", subtitle: "City web experience", color: "#22c55e", icon: "🌆" },
-  { name: "Video Editing", subtitle: "Post-production pipeline", color: "#f97316", icon: "🎬" },
-  { name: "Tools Lab", subtitle: "Internal tooling", color: "#14b8a6", icon: "🧪" }
+  { name: "Main Project", subtitle: "Primary focus", color: "#60a5fa", icon: "🚀" },
+  { name: "Side Hustle", subtitle: "Evening project", color: "#a855f7", icon: "💡" },
+  { name: "Learning", subtitle: "Skill development", color: "#22c55e", icon: "📚" },
+  { name: "Content Creation", subtitle: "Blog/Video production", color: "#f97316", icon: "✍️" },
+  { name: "Internal Tooling", subtitle: "Workflow automation", color: "#14b8a6", icon: "⚙️" }
 ];
 
 const VALID_PROJECT_STATUSES = new Set([

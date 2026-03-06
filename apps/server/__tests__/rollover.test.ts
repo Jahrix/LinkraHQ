@@ -5,7 +5,10 @@ import { todayKey } from "@linkra/shared";
 
 describe("daily rollover", () => {
   it("archives previous day and creates today entry", () => {
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    // Create a date for yesterday in local time, formatted as YYYY-MM-DD
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const yesterday = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const state = AppStateSchema.parse({
       metadata: { schema_version: 3, created_at: new Date().toISOString() },
       userSettings: {
