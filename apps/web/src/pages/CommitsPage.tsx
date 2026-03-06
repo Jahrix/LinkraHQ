@@ -45,6 +45,7 @@ export default function CommitsPage() {
       if (!state.github.loggedIn) {
         const next = cloneAppState(state);
         next.github.loggedIn = true;
+        next.github.user = result.user;
         await save(next);
       }
     } catch {
@@ -124,6 +125,7 @@ export default function CommitsPage() {
       if (state.github.loggedIn) {
         const next = cloneAppState(state);
         next.github.loggedIn = false;
+        next.github.user = null;
         await save(next);
       }
       push("GitHub disconnected.");
