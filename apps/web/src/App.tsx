@@ -42,7 +42,8 @@ function Shell() {
 
   useEffect(() => {
     const handleHashChange = () => {
-      const hash = window.location.hash.replace("#", "");
+      const raw = window.location.hash.replace("#", "");
+      const hash = raw.split("?")[0]; // strip hash query params before route matching
       if (hash.startsWith("project/")) {
         setProjectId(hash.split("/")[1]);
         setActive("Dashboard");
