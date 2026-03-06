@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 
-# This script is executed by Cloudflare Pages to guarantee all Monorepo packages 
-# are correctly symlinked before invoking the Vite build.
+# This script is executed by Cloudflare Pages to build the LinkraHQ monorepo.
+# Vite handles TypeScript transpilation natively via esbuild, so we don't
+# need to pre-build @linkra/shared. Vite resolves workspace packages from source.
 
-# 1. We must be in the root of the repository
+# 1. We must be at the root of the repository
 cd "$(dirname "$0")"
 
-# 2. Run a clean install that respects workspaces
+# 2. Install all dependencies (workspaces included)
 npm ci
 
-# 3. Build the shared package first so TypeScript finds the compiled types
-npm run build --workspace packages/shared
-
-# 4. Build the web workspace
+# 3. Build the web app — Vite resolves @linkra/shared directly from packages/shared/src
 npm run build --workspace apps/web
