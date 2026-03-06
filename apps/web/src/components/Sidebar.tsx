@@ -1,40 +1,65 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 const navItems = [
-  "Dashboard",
-  "Daily Goals",
-  "Roadmap",
-  "Weekly Review",
-  "Commits",
-  "Tools",
-  "Settings"
-];
+  { id: "Dashboard", icon: "❖" },
+  { id: "Daily Goals", icon: "✓" },
+  { id: "Roadmap", icon: "◫" },
+  { id: "Weekly Review", icon: "📅" },
+  { id: "Commits", icon: "⎇" },
+  { id: "Tools", icon: "🔧" },
+  { id: "Settings", icon: "⚙️" }
+] as const;
 
-export type NavItem = (typeof navItems)[number];
+export type NavItem = (typeof navItems)[number]["id"];
 
 export default function Sidebar({ active, onChange }: { active: NavItem; onChange: (item: NavItem) => void }) {
+  const [isLight, setIsLight] = useState(false);
+
+  useEffect(() => {
+    // Dark mode is default, we only toggle the .light class
+    const isLightMode = document.documentElement.classList.contains("light");
+    setIsLight(isLightMode);
+  }, []);
+
+  const toggleTheme = () => {
+    document.documentElement.classList.toggle("light");
+    setIsLight(!isLight);
+  };
+
   return (
-    <aside className="flex flex-row lg:flex-col gap-6 px-5 py-6 bg-white/5 border-b lg:border-b-0 lg:border-r border-white/10 backdrop-blur-2xl flex-wrap">
-      <div>
-        <p className="text-xs uppercase tracking-[0.4em] text-white/50">Linkra</p>
-        <h1 className="text-lg font-semibold">by Jahrix</h1>
+    <aside className="flex flex-row space-around w-full lg:flex-col lg:w-[80px] lg:h-screen lg:justify-between items-center py-6 bg-subtle border-b lg:border-b-0 lg:border-r border-stroke">
+      {/* Top logo */}
+      <div className="flex-shrink-0 lg:mb-8 text-2xl">
+        <span role="img" aria-label="Logo">✨</span>
       </div>
-      <nav className="flex flex-row lg:flex-col gap-2 flex-wrap">
+
+      {/* Nav Actions */}
+      <nav className="flex flex-row lg:flex-col gap-4 flex-1 justify-center">
         {navItems.map((item) => (
           <button
-            key={item}
-            className={`text-left px-4 py-2 rounded-xl transition ${
-              active === item ? "bg-white/10 text-white" : "text-white/60 hover:text-white"
-            }`}
-            onClick={() => onChange(item)}
+            key={item.id}
+            title={item.id}
+            className={`w-12 h-12 flex items-center justify-center rounded-2xl transition text-xl ${active === item.id ? "bg-black text-strong" : "text-muted hover:text-strong"
+              }`}
+            onClick={() => onChange(item.id)}
           >
-            {item}
+            {item.icon}
           </button>
         ))}
       </nav>
-      <div className="panel">
-        <p className="text-xs text-white/60">Liquid Glass mode active.</p>
-        <p className="mt-2 font-semibold">Lock in, stay local.</p>
+
+      {/* Bottom actions */}
+      <div className="flex flex-row lg:flex-col gap-4 mt-auto items-center">
+        <button
+          onClick={toggleTheme}
+          className="w-10 h-10 flex items-center justify-center rounded-full bg-muted hover:bg-strong transition text-lg"
+          title="Toggle Theme"
+        >
+          {isLight ? "🌙" : "☀️"}
+        </button>
+        <div className="w-10 h-10 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center overflow-hidden">
+          <span role="img" aria-label="User" className="text-xl">👤</span>
+        </div>
       </div>
     </aside>
   );

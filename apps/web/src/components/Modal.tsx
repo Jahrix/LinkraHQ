@@ -70,14 +70,14 @@ export default function Modal({
         className="glass-panel glass-standard w-full max-h-[92vh] max-w-2xl overflow-auto border-white/12 bg-[rgba(11,15,22,0.94)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4">
+        <div className="flex items-center justify-between gap-3 border-b border-muted pb-4">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button className="button-secondary" onClick={onClose} aria-label="Close modal">
             Close
           </button>
         </div>
         <div className="pt-4">{children}</div>
-        {footer && <div className="mt-5 border-t border-white/10 pt-4">{footer}</div>}
+        {footer && <div className="mt-5 border-t border-muted pt-4">{footer}</div>}
       </div>
     </div>
   );

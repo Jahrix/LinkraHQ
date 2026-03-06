@@ -90,7 +90,7 @@ export default function ToolsPage() {
         <div className="panel space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-white/50">Focus Timer</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-muted">Focus Timer</p>
               <h2 className="text-lg font-semibold">Pomodoro session</h2>
             </div>
             <span className="chip">{state.focusSessions.length} sessions</span>
@@ -121,12 +121,12 @@ export default function ToolsPage() {
               Reset
             </button>
           </div>
-          <p className="text-sm text-white/60">Completed sessions: {state.focusSessions.length}</p>
+          <p className="text-sm text-muted">Completed sessions: {state.focusSessions.length}</p>
         </div>
 
         <div className="panel space-y-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Session Log</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Session Log</p>
             <h2 className="text-lg font-semibold">What you did</h2>
           </div>
           <div className="table">
@@ -134,7 +134,7 @@ export default function ToolsPage() {
               <div key={log.id} className="table-row">
                 <div>
                   <strong>{log.text}</strong>
-                  <div className="text-xs text-white/60">{formatTime(log.ts)}</div>
+                  <div className="text-xs text-muted">{formatTime(log.ts)}</div>
                 </div>
               </div>
             ))}
@@ -155,12 +155,12 @@ export default function ToolsPage() {
 
       <div className="panel space-y-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Planned Focus</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Planned Focus</p>
           <h2 className="text-lg font-semibold">Queued sessions</h2>
         </div>
         <div className="table">
           {state.focusSessions.filter((s) => s.planned).length === 0 && (
-            <p className="text-sm text-white/60">No planned sessions.</p>
+            <p className="text-sm text-muted">No planned sessions.</p>
           )}
           {state.focusSessions
             .filter((s) => s.planned)
@@ -169,7 +169,7 @@ export default function ToolsPage() {
               <div key={session.id} className="table-row">
                 <div>
                   <strong>{session.durationMinutes}m focus</strong>
-                  <div className="text-xs text-white/60">{session.reason ?? "Insight"}</div>
+                  <div className="text-xs text-muted">{session.reason ?? "Insight"}</div>
                 </div>
               </div>
             ))}

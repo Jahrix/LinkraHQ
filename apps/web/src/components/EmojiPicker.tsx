@@ -151,15 +151,15 @@ export default function EmojiPicker({
       >
         <span className="flex items-center gap-3">
           <span className="text-2xl">{value}</span>
-          <span className="text-sm text-white/70">
+          <span className="text-sm text-muted">
             {EMOJI_BY_VALUE.get(value)?.label ?? "Select emoji"}
           </span>
         </span>
-        <span className="text-xs uppercase tracking-[0.2em] text-white/40">{open ? "Close" : "Browse"}</span>
+        <span className="text-xs uppercase tracking-[0.2em] text-muted">{open ? "Close" : "Browse"}</span>
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 z-30 mt-2 rounded-2xl border border-white/10 bg-[#0a0d14]/95 p-3 shadow-2xl backdrop-blur">
+        <div className="absolute left-0 right-0 z-30 mt-2 rounded-2xl border border-muted bg-[#0a0d14]/95 p-3 shadow-2xl backdrop-blur">
           <input
             className="input"
             value={query}
@@ -183,7 +183,7 @@ export default function EmojiPicker({
               </button>
             ))}
           </div>
-          <div className="mt-3 grid max-h-56 grid-cols-6 gap-2 overflow-auto rounded-xl border border-white/10 bg-black/20 p-3 md:grid-cols-8">
+          <div className="mt-3 grid max-h-56 grid-cols-6 gap-2 overflow-auto rounded-xl border border-muted bg-black/20 p-3 md:grid-cols-8">
             {activeItems.map((entry) => (
               <button
                 key={entry.emoji}
@@ -191,7 +191,7 @@ export default function EmojiPicker({
                 className={`rounded-xl border px-2 py-2 text-center ${
                   value === entry.emoji
                     ? "border-[color:var(--accent)] bg-white/15"
-                    : "border-white/10 bg-white/5 hover:border-white/30"
+                    : "border-muted bg-subtle hover:border-white/30"
                 }`}
                 onClick={() => {
                   rememberRecentEmoji(entry.emoji);
@@ -202,11 +202,11 @@ export default function EmojiPicker({
                 aria-label={`Choose ${entry.label}`}
               >
                 <div className="text-xl">{entry.emoji}</div>
-                <div className="mt-1 text-[10px] text-white/55">{entry.label}</div>
+                <div className="mt-1 text-[10px] text-muted">{entry.label}</div>
               </button>
             ))}
             {activeItems.length === 0 && (
-              <p className="col-span-full text-sm text-white/60">No emojis match that search.</p>
+              <p className="col-span-full text-sm text-muted">No emojis match that search.</p>
             )}
           </div>
         </div>

@@ -89,7 +89,7 @@ export default function RoadmapPage() {
     <div className="space-y-6">
       <div className="panel flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-1">
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Roadmap</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Roadmap</p>
           <h2 className="text-lg font-semibold">Plan what ships next</h2>
         </div>
         <div className="flex flex-1 items-center gap-2 md:justify-end">
@@ -105,7 +105,7 @@ export default function RoadmapPage() {
 
       <div className="panel space-y-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">New Card</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">New Card</p>
           <h3 className="text-base font-semibold">Capture an idea</h3>
         </div>
         <div className="grid gap-2 md:grid-cols-2">
@@ -148,7 +148,7 @@ export default function RoadmapPage() {
             onDrop={(event) => onDrop(event, lane.key)}
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-white/70">{lane.label}</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted">{lane.label}</h3>
               <span className="chip">
                 {filteredCards.filter((card) => card.lane === lane.key).length}
               </span>
@@ -163,7 +163,7 @@ export default function RoadmapPage() {
                   onDragStart={(event) => onDragStart(event, card.id)}
                 >
                   <strong>{card.title}</strong>
-                  {card.description && <p className="mt-2 text-xs text-white/60">{card.description}</p>}
+                  {card.description && <p className="mt-2 text-xs text-muted">{card.description}</p>}
                   <div className="mt-3 flex items-center justify-between gap-2">
                     <button className="button-secondary" onClick={() => copyLink(card.id)}>
                       Copy Link

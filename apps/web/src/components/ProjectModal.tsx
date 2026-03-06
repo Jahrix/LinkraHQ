@@ -88,7 +88,7 @@ export default function ProjectModal({
       <div className="glass-hero w-full max-w-2xl">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">
               {isEditing ? "Edit Project" : "Create Project"}
             </p>
             <h3 className="text-lg font-semibold">{isEditing ? "Project Settings" : "New Project"}</h3>
@@ -99,8 +99,8 @@ export default function ProjectModal({
         </div>
 
         <div className="mt-4 grid gap-4">
-          <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-            <label className="text-xs uppercase tracking-[0.2em] text-white/50">Emoji Picker</label>
+          <div className="rounded-xl border border-muted bg-black/30 p-3">
+            <label className="text-xs uppercase tracking-[0.2em] text-muted">Emoji Picker</label>
             <div className="mt-2 grid gap-2 md:grid-cols-[1fr_auto]">
               <input
                 className="input"
@@ -117,12 +117,12 @@ export default function ProjectModal({
                   key={entry.emoji}
                   className={`rounded-lg border px-2 py-1 text-sm ${
                     draft.icon === entry.emoji
-                      ? "border-white/30 bg-white/20"
-                      : "border-white/10 bg-white/5 hover:bg-white/10"
+                      ? "border-white/30 bg-strong"
+                      : "border-muted bg-subtle hover:bg-muted"
                   }`}
                   onClick={() => setDraft((prev) => ({ ...prev, icon: entry.emoji }))}
                 >
-                  {entry.emoji} <span className="text-white/60">{entry.label}</span>
+                  {entry.emoji} <span className="text-muted">{entry.label}</span>
                 </button>
               ))}
             </div>
@@ -130,7 +130,7 @@ export default function ProjectModal({
 
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm">
-              <span className="text-white/60">Name *</span>
+              <span className="text-muted">Name *</span>
               <input
                 className="input"
                 value={draft.name}
@@ -138,7 +138,7 @@ export default function ProjectModal({
               />
             </label>
             <label className="grid gap-1 text-sm">
-              <span className="text-white/60">Subtitle</span>
+              <span className="text-muted">Subtitle</span>
               <input
                 className="input"
                 value={draft.subtitle}
@@ -146,7 +146,7 @@ export default function ProjectModal({
               />
             </label>
             <label className="grid gap-1 text-sm">
-              <span className="text-white/60">Status</span>
+              <span className="text-muted">Status</span>
               <select
                 className="input"
                 value={draft.status}
@@ -161,7 +161,7 @@ export default function ProjectModal({
               </select>
             </label>
             <label className="grid gap-1 text-sm">
-              <span className="text-white/60">Weekly Hours</span>
+              <span className="text-muted">Weekly Hours</span>
               <input
                 className="input"
                 type="number"
@@ -177,7 +177,7 @@ export default function ProjectModal({
               />
             </label>
             <label className="grid gap-1 text-sm md:col-span-2">
-              <span className="text-white/60">Local Repo</span>
+              <span className="text-muted">Local Repo</span>
               <select
                 className="input"
                 value={draft.localRepoPath ?? ""}
@@ -194,7 +194,7 @@ export default function ProjectModal({
               </select>
             </label>
             <label className="grid gap-1 text-sm md:col-span-2">
-              <span className="text-white/60">GitHub Repo (owner/name)</span>
+              <span className="text-muted">GitHub Repo (owner/name)</span>
               <input
                 className="input"
                 value={draft.remoteRepo ?? ""}

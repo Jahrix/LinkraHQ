@@ -11,7 +11,7 @@ export default function TabBar({
 }) {
   return (
     <div
-      className="inline-flex w-full flex-wrap gap-2 rounded-[20px] border border-white/10 bg-white/[0.045] p-2"
+      className="inline-flex w-full flex-wrap gap-2 rounded-[20px] border border-muted bg-white/[0.045] p-2"
       role="tablist"
       aria-label="Project sections"
     >
@@ -22,8 +22,8 @@ export default function TabBar({
           aria-selected={active === tab}
           className={`rounded-2xl px-4 py-2 text-sm transition ${
             active === tab
-              ? "bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-              : "text-white/55 hover:bg-white/6 hover:text-white/85"
+              ? "bg-white/12 text-strong shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+              : "text-muted hover:bg-white/6 hover:text-strong"
           }`}
           onClick={() => onChange(tab)}
         >

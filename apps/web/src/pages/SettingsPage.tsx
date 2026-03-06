@@ -245,10 +245,10 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div className="panel space-y-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">GitHub</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">GitHub</p>
           <h2 className="text-lg font-semibold">Connection</h2>
         </div>
-        <p className="text-sm text-white/60">
+        <p className="text-sm text-muted">
           {state.github.loggedIn
             ? `Connected as ${state.github.user?.login ?? "GitHub user"}.`
             : "Not connected. Login to sync commits."}
@@ -269,10 +269,10 @@ export default function SettingsPage() {
 
       <div className="panel space-y-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Local Git</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Local Git</p>
           <h2 className="text-lg font-semibold">Repo Scanning</h2>
         </div>
-        <div className="text-sm text-white/60">
+        <div className="text-sm text-muted">
           <span className="mr-2">Repos found: {localRepos.length}</span>
           <span className="mr-2">
             Last scan: {lastScanAt ? formatDate(lastScanAt) : "Never"}
@@ -292,11 +292,11 @@ export default function SettingsPage() {
         </div>
         <div className="table">
           {state.userSettings.repoWatchDirs.length === 0 && (
-            <p className="text-sm text-white/50">No watch directories yet.</p>
+            <p className="text-sm text-muted">No watch directories yet.</p>
           )}
           {state.userSettings.repoWatchDirs.map((dir) => (
             <div key={dir} className="table-row">
-              <span className="text-sm text-white/70">{dir}</span>
+              <span className="text-sm text-muted">{dir}</span>
               <button className="button-secondary" onClick={() => removeWatchDir(dir)}>
                 Remove
               </button>
@@ -346,7 +346,7 @@ export default function SettingsPage() {
           {state.userSettings.repoExcludePatterns.map((pattern) => (
             <button
               key={pattern}
-              className="chip hover:bg-white/20"
+              className="chip hover:bg-strong"
               onClick={() => removeExcludePattern(pattern)}
             >
               {pattern}
@@ -364,17 +364,17 @@ export default function SettingsPage() {
 
       <div className="panel space-y-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Insights</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Insights</p>
           <h2 className="text-lg font-semibold">Signals → Actions</h2>
         </div>
         <div className="grid gap-2">
           {insightRules.map((rule) => {
             const disabled = state.userSettings.disabledInsightRules?.includes(rule.id);
             return (
-              <label key={rule.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">
+              <label key={rule.id} className="flex items-center justify-between rounded-lg border border-muted bg-subtle px-3 py-2 text-sm">
                 <div>
                   <div className="font-medium">{rule.title}</div>
-                  <div className="text-xs text-white/50">{rule.description}</div>
+                  <div className="text-xs text-muted">{rule.description}</div>
                 </div>
                 <input
                   type="checkbox"
@@ -389,7 +389,7 @@ export default function SettingsPage() {
 
       <div className="panel space-y-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Data</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Data</p>
           <h2 className="text-lg font-semibold">Export &amp; Import</h2>
         </div>
         <div className="filter-row flex-wrap">
@@ -417,7 +417,7 @@ export default function SettingsPage() {
           <div className="panel space-y-3">
             <div>
               <h4 className="text-base font-semibold">Import Preview</h4>
-              <p className="text-sm text-white/60">
+              <p className="text-sm text-muted">
                 Schema {preview.sourceSchemaVersion} → {SCHEMA_VERSION}
               </p>
             </div>
@@ -486,14 +486,14 @@ export default function SettingsPage() {
                 Merge (Overwrite)
               </button>
             </div>
-            <div className="grid gap-2 text-sm text-white/60 md:grid-cols-3">
-              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+            <div className="grid gap-2 text-sm text-muted md:grid-cols-3">
+              <div className="rounded-lg border border-muted bg-subtle p-3">
                 Replace All swaps your local state for the imported file.
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+              <div className="rounded-lg border border-muted bg-subtle p-3">
                 Merge (Keep Local) adds missing items and keeps your current copy for {preview.diff.summary.conflicts} conflicts.
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+              <div className="rounded-lg border border-muted bg-subtle p-3">
                 Merge (Overwrite) adds missing items and replaces your current copy for {preview.diff.summary.conflicts} conflicts.
               </div>
             </div>
@@ -503,7 +503,7 @@ export default function SettingsPage() {
 
       <div className="panel space-y-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Backups</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Backups</p>
           <h2 className="text-lg font-semibold">Auto-backup</h2>
         </div>
         <div className="filter-row flex-wrap">
@@ -529,15 +529,15 @@ export default function SettingsPage() {
             Run Backup Now
           </button>
         </div>
-        <p className="text-xs text-white/50">Backups stored in ~/.linkra/backups.</p>
+        <p className="text-xs text-muted">Backups stored in ~/.linkra/backups.</p>
       </div>
 
       <div className="panel space-y-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Startup</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Startup</p>
           <h2 className="text-lg font-semibold">Autostart</h2>
         </div>
-        <p className="text-sm text-white/60">
+        <p className="text-sm text-muted">
           Generate local startup files. No admin rights needed. Copy into the OS startup folder.
         </p>
         <div className="filter-row flex-wrap">
@@ -554,14 +554,14 @@ export default function SettingsPage() {
           </button>
         </div>
         {startupInfo && (
-          <div className="mt-2 space-y-2 text-sm text-white/60">
+          <div className="mt-2 space-y-2 text-sm text-muted">
             <p>Detected OS: {startupInfo.os}</p>
-            <pre className="whitespace-pre-wrap rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+            <pre className="whitespace-pre-wrap rounded-lg border border-muted bg-subtle p-3 text-xs text-muted">
               {startupInfo.instructions}
             </pre>
             <div>
-              <p className="text-white/60">Generated files:</p>
-              <ul className="mt-2 list-disc pl-5 text-xs text-white/60">
+              <p className="text-muted">Generated files:</p>
+              <ul className="mt-2 list-disc pl-5 text-xs text-muted">
                 {startupInfo.files.map((file) => (
                   <li key={file}>{file}</li>
                 ))}
@@ -570,7 +570,7 @@ export default function SettingsPage() {
           </div>
         )}
         {startupHealth && (
-          <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/60">
+          <div className="mt-3 rounded-lg border border-muted bg-subtle p-3 text-xs text-muted">
             <div>API reachable: {startupHealth.apiReachable ? "Yes" : "No"}</div>
             <div>Git available: {startupHealth.gitAvailable ? "Yes" : "No"}</div>
             <div>Last scan: {startupHealth.lastScanAt ? formatDate(startupHealth.lastScanAt) : "Never"}</div>
@@ -589,7 +589,7 @@ export default function SettingsPage() {
 
       <div className="panel space-y-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Appearance</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Appearance</p>
           <h2 className="text-lg font-semibold">Personalize</h2>
         </div>
         <div className="filter-row flex-wrap">

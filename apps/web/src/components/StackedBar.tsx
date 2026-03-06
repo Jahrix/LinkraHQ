@@ -7,7 +7,7 @@ export default function StackedBar({
 }) {
   const total = segments.reduce((sum, seg) => sum + seg.value, 0) || 1;
   return (
-    <div className="flex h-2 w-full overflow-hidden rounded-full bg-white/10">
+    <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
       {segments.map((seg, idx) => (
         <div
           key={`${seg.color}-${idx}`}

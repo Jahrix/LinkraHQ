@@ -826,860 +826,170 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="grid gap-6 xl:gap-7">
-      <GlassPanel variant="hero">
-        <SectionHeader
-          eyebrow="Today"
-          title="Daily Goals"
-          subtitle={dateLabel}
-          size="hero"
-          rightControls={
-            <div className="flex items-center gap-2">
-              <Pill>Score {todayEntry?.score ?? 0}%</Pill>
-              <Pill tone="success">
-                {todayEntry?.completedPoints ?? 0}/{todayEntry?.goals.length ?? 0}
-              </Pill>
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+
+        {/* TOP ROW */}
+        <GlassPanel variant="standard" className="flex flex-col justify-between">
+          <div className="text-xs uppercase tracking-[0.2em] text-muted px-2 pb-2">Capacity / Budget</div>
+          <div className="flex justify-between items-end mt-2 px-2">
+            <div className="text-3xl font-semibold tracking-tight">{totalHours} <span className="text-xl text-muted">hrs</span></div>
+            <div className="text-sm font-medium text-blue-400/80 uppercase tracking-widest">{selectedProjectBudgetShare}% Active</div>
+          </div>
+        </GlassPanel>
+
+        <GlassPanel variant="standard" className="flex flex-col justify-between">
+          <div className="text-xs uppercase tracking-[0.2em] text-muted px-2 pb-2">Daily Goals</div>
+          <div className="flex justify-between items-end mt-2 px-2">
+            <div className="text-3xl font-semibold tracking-tight">{todayEntry?.score ?? 0}%</div>
+            <div className="text-sm font-medium text-emerald-400">
+               {todayEntry?.completedPoints ?? 0}/{todayEntry?.goals.length ?? 0} pts
             </div>
-          }
-        />
-        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {(todayEntry?.goals ?? []).slice(0, 5).map((goal) => (
-            <label key={goal.id} className="rounded-[20px] border border-white/10 bg-white/[0.055] px-4 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">{goal.category}</div>
-                  <div className="mt-2 text-base font-medium">{goal.title}</div>
-                </div>
-                <input
-                  className="mt-1 h-4 w-4 rounded border-white/20 bg-black/30"
-                  type="checkbox"
-                  checked={goal.done}
-                  readOnly
-                  aria-label={`Goal ${goal.title} status`}
-                />
-              </div>
-              <div className="mt-4 flex items-center justify-between text-xs text-white/55">
-                <span>{goal.points} point{goal.points === 1 ? "" : "s"}</span>
-                <span>{goal.done ? "Completed" : "In play"}</span>
-              </div>
-            </label>
-          ))}
-          {(todayEntry?.goals.length ?? 0) === 0 && (
-            <p className="rounded-[20px] border border-dashed border-white/12 bg-white/[0.03] px-4 py-6 text-sm text-white/60 md:col-span-2 xl:col-span-3">
-              No goals yet for today.
-            </p>
-          )}
-        </div>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <button className="button-secondary" onClick={handleAddGoal} aria-label="Add goal">
-            Add Goal
-          </button>
-          <button className="button-secondary" onClick={handleSaveTemplate} aria-label="Save goals as template">
-            Save as Template
-          </button>
-        </div>
-      </GlassPanel>
+          </div>
+        </GlassPanel>
 
-      <GlassPanel variant="standard">
-        <SectionHeader
-          eyebrow="Workstreams"
-          title="Projects"
-          subtitle={`${visibleProjects.length} visible${showArchived ? ` · ${projects.length} total` : ""}`}
-          rightControls={
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={showArchived}
-                onChange={(event) => setShowArchived(event.target.checked)}
-                aria-label="Show archived projects"
-              />
-              Show archived
-            </label>
-          }
-        />
-        <section className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
-          {visibleProjects.map((project) => {
-            const tasksDone = project.tasks.filter((task) => task.done).length;
-            const tasksTotal = project.tasks.length;
-            const progress = tasksTotal ? Math.round((tasksDone / tasksTotal) * 100) : project.progress;
-            const repo = project.localRepoPath ? repoByPath.get(project.localRepoPath) : null;
-            const dirty = repo?.dirty ?? false;
-            const active = repo?.todayCommitCount ?? 0;
-            const isSelected = selectedProject?.id === project.id;
+        <GlassPanel variant="standard" className="flex flex-col justify-between">
+          <div className="text-xs uppercase tracking-[0.2em] text-muted px-2 pb-2">Actions</div>
+          <div className="flex justify-between items-end mt-2 px-2">
+            <div className="text-3xl font-semibold tracking-tight">{visibleInsightCount}</div>
+            <div className="text-sm font-medium text-amber-400">Pending</div>
+          </div>
+        </GlassPanel>
 
-            return (
-              <GlassPanel
-                key={project.id}
-                as="button"
-                type="button"
-                variant="quiet"
-                className={`hover-lift relative min-h-[220px] text-left ${isSelected ? "accent-glow border-white/16" : ""}`}
-                onClick={() => {
-                  setSelectedId(project.id);
-                  setActiveTab("Tasks");
-                }}
-                aria-label={`Select project ${project.name}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-2xl">{project.icon}</div>
-                    <h4 className="mt-3 text-lg font-semibold tracking-[-0.03em]">{project.name}</h4>
-                    <p className="mt-1 text-sm text-white/55">{project.subtitle || "No subtitle"}</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <ProgressRing value={progress} />
-                    <div className="relative">
-                      <button
-                        className="button-secondary h-8 w-8 rounded-xl px-0 py-0"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setOpenProjectMenu((prev) => (prev === project.id ? null : project.id));
-                        }}
-                        aria-label={`Open ${project.name} menu`}
-                        type="button"
-                      >
-                        ...
-                      </button>
-                      {openProjectMenu === project.id && (
-                        <div className="absolute right-0 z-20 mt-2 min-w-[190px] rounded-[18px] border border-white/10 bg-[#0a0d14] p-2 shadow-2xl">
-                          <button
-                            className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-white/10"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openProjectSettings(project);
-                            }}
-                            type="button"
-                          >
-                            Project settings
-                          </button>
-                          <button
-                            className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-white/10"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void setProjectArchived(project.id, !isArchivedProject(project));
-                            }}
-                            type="button"
-                          >
-                            {isArchivedProject(project) ? "Restore" : "Archive"}
-                          </button>
-                          <button
-                            className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/20"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void deleteProject(project.id);
-                            }}
-                            type="button"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
+        <GlassPanel variant="standard" className="bg-gradient-to-br from-emerald-900/30 to-emerald-800/10 border-emerald-500/20 flex flex-col justify-between">
+          <div className="text-xs uppercase tracking-[0.2em] text-emerald-200/70 px-2 pb-2">Activity</div>
+          <div className="flex justify-between items-end mt-2 px-2">
+            <div className="text-3xl font-semibold text-emerald-100 tracking-tight">Ready</div>
+            <button className="button-primary bg-emerald-600 border-none text-strong text-xs px-4 py-1">Focus</button>
+          </div>
+        </GlassPanel>
+
+        {/* MIDDLE ROW */}
+        <div className="xl:col-span-2 flex flex-col gap-6">
+          <GlassPanel variant="hero" className="flex-1">
+            <SectionHeader
+              title="Projects"
+              subtitle={showArchived ? "All projects" : "Active projects"}
+              rightControls={
+                <button className="button-secondary" onClick={openCreateProjectModal}>+ New</button>
+              }
+            />
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {visibleProjects.slice(0, 4).map((project) => {
+                const isSelected = selectedProject?.id === project.id;
+                const tasksDone = project.tasks.filter((task) => task.done).length;
+                const tasksTotal = project.tasks.length;
+                return (
+                  <button 
+                    key={project.id}
+                    className={`text-left p-4 rounded-xl border transition ${isSelected ? 'bg-muted border-strong shadow-lg' : 'bg-subtle border-subtle hover:bg-muted'}`}
+                    onClick={() => { setSelectedId(project.id); setActiveTab("Tasks"); }}
+                  >
+                    <div className="flex justify-between">
+                      <span className="text-2xl">{project.icon}</span>
+                      <span className="text-xs text-muted px-2 py-1 rounded bg-subtle border border-muted">{project.weeklyHours}h</span>
                     </div>
-                  </div>
-                </div>
-                <div className="mt-5 flex items-center justify-between gap-2">
-                  <Pill tone={isSelected ? "accent" : isArchivedProject(project) ? "warning" : "neutral"}>
-                    {project.status}
-                  </Pill>
-                  <span className="text-xs text-white/60">{project.weeklyHours}h/week</span>
-                </div>
-                <div className="mt-3 grid gap-2 text-sm text-white/62">
-                  <div className="flex items-center justify-between">
-                    <span>Tasks</span>
-                    <span>{tasksDone}/{tasksTotal}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Local git</span>
-                    <span>{active} commits today</span>
-                  </div>
-                </div>
-                {dirty && <Pill tone="warning" className="mt-4">Dirty tree</Pill>}
-                <div
-                  className="absolute inset-x-0 bottom-0 h-1 rounded-b-xl"
-                  style={{ background: project.color, opacity: isSelected ? 0.6 : 0.25 }}
-                />
-              </GlassPanel>
-            );
-          })}
-
-          <GlassPanel
-            as="button"
-            type="button"
-            variant="quiet"
-            className="hover-lift min-h-[220px] border-dashed border-white/20 text-center"
-            onClick={openCreateProjectModal}
-            aria-label="Add project"
-          >
-            <div className="text-2xl">+</div>
-            <div className="mt-3 text-sm font-medium">Add Project</div>
-            <p className="mt-1 text-xs text-white/50">Create a new workstream</p>
+                    <div className="mt-3 font-semibold truncate text-[15px]">{project.name}</div>
+                    <div className="mt-1 flex justify-between items-center text-xs text-muted">
+                       <span className="truncate">{project.status}</span>
+                       <span>{tasksDone}/{tasksTotal} done</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </GlassPanel>
-        </section>
-      </GlassPanel>
+        </div>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.85fr)]">
-        <GlassPanel variant="hero" className="accent-glow">
-          {selectedProject ? (
-            <div className="grid gap-5">
-              <SectionHeader
-                eyebrow="Selected Project"
-                title={`${selectedProject.icon} ${selectedProject.name}`}
-                subtitle={selectedProject.subtitle || "No subtitle"}
-                size="hero"
-                titleClassName="max-w-[16ch]"
-                rightControls={<Pill tone="accent">{selectedProject.status}</Pill>}
-              />
+        <GlassPanel variant="standard" className="flex flex-col items-center justify-center text-center">
+          <div className="text-xs uppercase tracking-[0.2em] text-muted mb-7">Task Progress</div>
+          <div className="relative w-36 h-36 flex items-center justify-center group mb-5">
+             <div className="absolute inset-0 rounded-full border-[10px] border-subtle"></div>
+             <div 
+               className="absolute inset-0 rounded-full border-[10px] border-accent"
+               style={{ 
+                 clipPath: 'polygon(50% 0%, 100% 0, 100% 100%, 0% 100%, 0% 0%, 50% 0%)',
+                 transform: `rotate(${(tasksProgress / 100) * 360}deg)`
+               }}
+             ></div>
+             <div className="text-4xl font-semibold tracking-tight">{tasksProgress}%</div>
+          </div>
+          <div className="text-sm tracking-wide text-muted">{completedTasks} of {totalTasks} global tasks</div>
+        </GlassPanel>
 
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-[20px] border border-white/10 bg-white/[0.055] px-4 py-4">
-                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">Completion</div>
-                  <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{selectedProjectTaskProgress}%</div>
-                  <div className="mt-1 text-sm text-white/58">
-                    {selectedProjectTaskDone}/{selectedTasks.length} tasks closed
-                  </div>
-                </div>
-                <div className="rounded-[20px] border border-white/10 bg-white/[0.055] px-4 py-4">
-                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">Weekly Budget</div>
-                  <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{selectedProject.weeklyHours}h</div>
-                  <div className="mt-1 text-sm text-white/58">{selectedProjectBudgetShare}% of active capacity</div>
-                </div>
-                <div className="rounded-[20px] border border-white/10 bg-white/[0.055] px-4 py-4">
-                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">Live Signals</div>
-                  <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{selectedProjectInsights.length}</div>
-                  <div className="mt-1 text-sm text-white/58">
-                    {selectedProjectRepo?.dirty ? "Dirty tree needs cleanup" : selectedProjectRepo ? "Repo linked locally" : "No local repo linked"}
-                  </div>
-                </div>
-              </div>
+        <GlassPanel variant="standard" className="flex flex-col items-center justify-center text-center">
+          <div className="w-24 h-24 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-5xl mb-5 shadow-[0_0_20px_rgba(139,92,246,0.15)]">
+            {selectedProject?.icon ?? "👤"}
+          </div>
+          <h3 className="font-semibold text-lg tracking-tight">{selectedProject?.name ?? "No Selection"}</h3>
+          <p className="text-sm text-muted mt-1">{selectedProject?.subtitle ?? "Select a project to view details"}</p>
+          <div className="flex gap-6 mt-6 pt-6 border-t border-subtle w-full justify-center text-sm">
+            <div><strong className="block text-2xl font-semibold mb-1">{selectedProject?.tasks.length ?? 0}</strong> <span className="text-muted uppercase tracking-widest text-[10px]">Tasks</span></div>
+            <div><strong className="block text-2xl font-semibold mb-1">{selectedProjectTaskProgress}%</strong> <span className="text-muted uppercase tracking-widest text-[10px]">Done</span></div>
+          </div>
+          {selectedProject && (
+            <button className="text-xs text-accent mt-4 hover:underline" onClick={() => setActiveTab("Project Settings")}>Edit Settings</button>
+          )}
+        </GlassPanel>
 
-              {selectedProjectInsights.length > 0 && (
-                <div className="rounded-[22px] border border-white/10 bg-white/[0.055] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-[11px] uppercase tracking-[0.26em] text-white/45">Latest signals</div>
-                    <span className="text-xs text-white/55">Grouped items appear below in Insights</span>
-                  </div>
-                  <div className="mt-3 grid gap-2">
-                    {selectedProjectInsights.slice(0, 3).map((insight) => (
-                      <div key={insight.id} className="table-row text-xs">
-                        <span>{insight.title}</span>
-                        <Pill tone={insight.severity === "crit" ? "danger" : insight.severity === "warn" ? "warning" : "neutral"}>
-                          {insight.severity}
-                        </Pill>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <TabBar tabs={tabs} active={activeTab} onChange={setActiveTab} />
-
-              {activeTab === "Tasks" && (
-                <div className="grid gap-3">
-                  {selectedTasks.length === 0 && <p className="text-sm text-white/60">No tasks yet.</p>}
-                  {selectedTasks.map((task) => {
-                    const blocked = isTaskBlocked(task, selectedTasks);
-                    return (
-                      <div key={task.id} className="grid gap-2">
-                        <TaskRow
-                          text={task.text}
-                          done={task.done}
-                          dueLabel={task.dueDate ? deadlineLabel(task.dueDate) : undefined}
-                          meta={
-                            task.linkedCommit
-                              ? `Verified by ${task.linkedCommit.shortSha} (${task.linkedCommit.score}%)`
-                              : blocked
-                              ? "Blocked by dependencies"
-                              : task.status === "doing"
-                              ? "In progress"
-                              : undefined
-                          }
-                          onToggle={(nextValue) => toggleTask(task.id, nextValue)}
-                        />
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
-                          <label className="flex items-center gap-2">
-                            Status
-                            <select
-                              className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs"
-                              value={task.status}
-                              onChange={(event) => updateTaskStatus(task.id, event.target.value as "todo" | "doing" | "done")}
-                            >
-                              <option value="todo">Todo</option>
-                              <option value="doing">Doing</option>
-                              <option value="done">Done</option>
-                            </select>
-                          </label>
-                          <label className="flex items-center gap-2">
-                            Priority
-                            <select
-                              className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs"
-                              value={task.priority}
-                              onChange={(event) => updateTaskPriority(task.id, event.target.value as "low" | "med" | "high")}
-                            >
-                              <option value="low">Low</option>
-                              <option value="med">Med</option>
-                              <option value="high">High</option>
-                            </select>
-                          </label>
-                          <label className="flex items-center gap-2">
-                            Depends on
-                            <select
-                              multiple
-                              className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs"
-                              value={task.dependsOnIds}
-                              onChange={(event) =>
-                                updateTaskDependencies(
-                                  task.id,
-                                  Array.from(event.target.selectedOptions).map((option) => option.value)
-                                )
-                              }
-                            >
-                              {selectedTasks
-                                .filter((candidate) => candidate.id !== task.id)
-                                .map((candidate) => (
-                                  <option key={candidate.id} value={candidate.id}>
-                                    {candidate.text}
-                                  </option>
-                                ))}
-                            </select>
-                          </label>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div className="mt-2 grid gap-2 md:grid-cols-[1fr_130px_140px_120px_auto]">
-                    <input
-                      className="input"
-                      placeholder="Add a task..."
-                      value={taskText}
-                      onChange={(event) => setTaskText(event.target.value)}
-                      aria-label="Task text"
-                    />
-                    <select
-                      className="input"
-                      value={taskPriority}
-                      onChange={(event) => setTaskPriority(event.target.value as "low" | "med" | "high")}
-                      aria-label="Task priority"
-                    >
-                      <option value="low">Low</option>
-                      <option value="med">Medium</option>
-                      <option value="high">High</option>
-                    </select>
-                    <input
-                      className="input"
-                      type="date"
-                      value={taskDue}
-                      onChange={(event) => setTaskDue(event.target.value)}
-                      aria-label="Task due date"
-                    />
-                    <span className="chip self-center">{selectedTasks.length} tasks</span>
-                    <button className="button-primary" onClick={addTask} aria-label="Add task">
-                      Add
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "Roadmap" && (
-                <div className="grid gap-3">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    {lanes.map((lane) => (
-                      <div
-                        key={lane.key}
-                        className="rounded-xl border border-white/10 bg-white/5 p-2"
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={(event) => onDropRoadmap(event, lane.key)}
-                      >
-                        <div className="mb-2 flex items-center justify-between">
-                          <h4 className="text-sm font-semibold">{lane.label}</h4>
-                          <Pill>{filteredRoadmap.filter((card) => card.lane === lane.key).length}</Pill>
-                        </div>
-                        <div className="grid min-h-[120px] gap-2">
-                          {filteredRoadmap
-                            .filter((card) => card.lane === lane.key)
-                            .map((card) => (
-                              <div
-                                key={card.id}
-                                draggable
-                                onDragStart={(event) => onDragStart(event, card.id)}
-                                className="rounded-lg border border-white/10 bg-white/10 px-2 py-2 text-xs"
-                              >
-                                <div className="font-medium">{card.title}</div>
-                                {card.tags.length > 0 && <div className="text-white/50">{card.tags.join(", ")}</div>}
-                              </div>
-                            ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "GitHub" && (
-                <div className="grid gap-4">
-                  <div className="grid gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                    <div className="text-xs uppercase tracking-[0.28em] text-white/50">Local repo</div>
-                    {selectedProject.localRepoPath ? (
-                      <div className="grid gap-2">
-                        <div className="text-sm font-medium">{repoByPath.get(selectedProject.localRepoPath)?.name ?? "Linked"}</div>
-                        <div className="text-xs text-white/60">{selectedProject.localRepoPath}</div>
-                        <div className="flex flex-wrap gap-2">
-                          <button className="button-secondary" onClick={loadLocalCommits} aria-label="Load local commits">
-                            Load Local Commits
-                          </button>
-                          <button className="button-secondary" onClick={unlinkLocalRepo} aria-label="Unlink local repo">
-                            Unlink
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid gap-2 md:grid-cols-[1fr_auto]">
-                        <select
-                          className="input"
-                          value={localRepoInput}
-                          onChange={(event) => setLocalRepoInput(event.target.value)}
-                          aria-label="Select local repository"
-                        >
-                          <option value="">Select local repo</option>
-                          {uniqueRepos.map((repo) => (
-                            <option key={repo.id} value={repo.path}>
-                              {repo.name} - {repo.path}
-                            </option>
-                          ))}
-                        </select>
-                        <button className="button-secondary" onClick={linkLocalRepo} aria-label="Link local repository">
-                          Link
-                        </button>
-                      </div>
-                    )}
-                    {localCommitFeed.length > 0 && (
-                      <div className="grid gap-2">
-                        {localCommitFeed.map((commit) => (
-                          <div key={commit.sha} className="table-row">
-                            <div>
-                              <div className="text-sm font-medium">{commit.message}</div>
-                              <div className="text-xs text-white/50">{commit.author} - {commit.shortSha}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                    <div className="text-xs uppercase tracking-[0.28em] text-white/50">GitHub repo</div>
-                    <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
-                      <input
-                        className="input"
-                        placeholder="owner/repo"
-                        value={remoteRepoInput}
-                        list="github-repo-list"
-                        onChange={(event) => setRemoteRepoInput(event.target.value)}
-                        aria-label="GitHub repository"
-                      />
-                      <datalist id="github-repo-list">
-                        {githubRepoOptions.map((repo) => (
-                          <option key={repo} value={repo} />
-                        ))}
-                      </datalist>
-                      <button className="button-secondary" onClick={setProjectRepo} aria-label="Save GitHub repository">
-                        Save
-                      </button>
-                      <button className="button-secondary" onClick={loadCommits} aria-label="Load GitHub commits">
-                        Load
-                      </button>
-                    </div>
-                    {commitFeed.length === 0 && (
-                      <p className="text-sm text-white/60">No GitHub commits loaded.</p>
-                    )}
-                    {commitFeed.length > 0 && (
-                      <div className="grid gap-2">
-                        {commitFeed.map((commit) => (
-                          <div key={commit.sha} className="table-row">
-                            <div>
-                              <div className="text-sm font-medium">{commit.message}</div>
-                              <div className="text-xs text-white/50">{commit.author} - {commit.shortSha}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "Journal" && (
-                <ProjectJournalPanel
-                  project={selectedProject}
-                  tasks={selectedTasks}
-                  roadmapCards={filteredRoadmap}
-                  journalEntries={state.journalEntries}
-                  repo={selectedProjectRepo}
-                  commitOptions={[
-                    ...localCommitFeed.map((commit) => ({
-                      sha: commit.sha,
-                      shortSha: commit.shortSha,
-                      message: commit.message
-                    })),
-                    ...commitFeed.map((commit) => ({
-                      sha: commit.sha,
-                      shortSha: commit.shortSha,
-                      message: commit.message
-                    }))
-                  ]}
+        {/* BOTTOM ROW */}
+        <div className="xl:col-span-2 flex flex-col gap-6">
+          <GlassPanel variant="standard" className="flex-1 flex flex-col min-h-[300px]">
+            <SectionHeader title="Tasks" subtitle={selectedProject?.name ?? "Global"} />
+            <div className="mt-4 flex-1 grid gap-2 overflow-y-auto pr-2">
+              {selectedTasks.length === 0 && <p className="text-sm text-muted">No tasks.</p>}
+              {selectedTasks.map(task => (
+                <TaskRow
+                  key={task.id}
+                  text={task.text}
+                  done={task.done}
+                  onToggle={(nextValue) => toggleTask(task.id, nextValue)}
                 />
-              )}
-
-              {activeTab === "Project Settings" && (
-                <div className="grid gap-4">
-                  <ProjectEditorFields
-                    draft={projectSettingsDraft}
-                    setDraft={setProjectSettingsDraft}
-                    repos={uniqueRepos}
-                    githubRepoOptions={githubRepoOptions}
-                    githubRepoListId="project-settings-github-list"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button className="button-primary" onClick={saveProjectSettings} aria-label="Save project settings">
-                      Save Changes
-                    </button>
-                    <button
-                      className="button-secondary"
-                      onClick={() => setProjectSettingsDraft(projectToDraft(selectedProject))}
-                      aria-label="Reset project settings"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      className="button-secondary"
-                      onClick={() => setProjectArchived(selectedProject.id, !isArchivedProject(selectedProject))}
-                      aria-label="Archive project"
-                    >
-                      {isArchivedProject(selectedProject) ? "Restore" : "Archive"}
-                    </button>
-                  </div>
-                  <div className="rounded-xl border border-red-300/20 bg-red-500/10 p-3">
-                    <div className="text-sm font-semibold text-red-100">Danger Zone</div>
-                    <p className="mt-1 text-xs text-red-100/70">Delete is permanent and cannot be undone.</p>
-                    <button
-                      className="button-secondary mt-3 border-red-300/30 text-red-100"
-                      onClick={() => deleteProject(selectedProject.id)}
-                      aria-label="Delete project permanently"
-                    >
-                      Delete Project
-                    </button>
-                  </div>
-                </div>
-              )}
+              ))}
             </div>
-          ) : (
-            <p className="text-sm text-white/60">Create a project to start planning.</p>
-          )}
-        </GlassPanel>
-
-        <GlassPanel variant="standard">
-          <SectionHeader
-            eyebrow="Capacity"
-            title="Weekly Budget"
-            subtitle={`${totalHours}h / week`}
-            rightControls={<Pill>{tasksProgress}% completion</Pill>}
-          />
-          <div className="mt-4">
-            <StackedBar segments={visibleProjects.map((project) => ({ color: project.color, value: project.weeklyHours }))} />
-          </div>
-          <div className="mt-5 grid gap-3">
-            {visibleProjects.map((project) => (
-              <div key={project.id} className="rounded-[18px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full" style={{ background: project.color }} />
-                    <span>{project.name}</span>
-                  </div>
-                  <span className="text-xs text-white/55">
-                    {totalHours ? Math.round((project.weeklyHours / totalHours) * 100) : 0}% share
-                  </span>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <span className="text-xs text-white/55">{project.tasks.filter((task) => !task.done).length} open tasks</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="h-8 w-8 rounded-xl border border-white/10 bg-white/10"
-                      onClick={() => adjustHours(project.id, -1)}
-                      aria-label={`Decrease ${project.name} weekly hours`}
-                    >
-                      -
-                    </button>
-                    <span className="w-14 text-center text-white/60">{project.weeklyHours}h</span>
-                    <button
-                      className="h-8 w-8 rounded-xl border border-white/10 bg-white/10"
-                      onClick={() => adjustHours(project.id, 1)}
-                      aria-label={`Increase ${project.name} weekly hours`}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {visibleProjects.length === 0 && <p className="text-sm text-white/60">No active projects to budget.</p>}
-          </div>
-        </GlassPanel>
-      </section>
-
-      <GlassPanel variant="standard">
-        <SectionHeader
-          eyebrow="Signals"
-          title="Insights → Actions"
-          subtitle={`${visibleInsightCount} grouped signals, sorted by severity`}
-          rightControls={
-            <div className="flex flex-wrap gap-2">
-              <button
-                className={insightFilter === "priority" ? "button-primary" : "button-secondary"}
-                onClick={() => setInsightFilter("priority")}
-                aria-label="Filter critical and warnings"
-              >
-                Critical + Warnings
-              </button>
-              <button
-                className={insightFilter === "all" ? "button-primary" : "button-secondary"}
-                onClick={() => setInsightFilter("all")}
-                aria-label="Filter all insights"
-              >
-                All
-              </button>
-              <button
-                className={insightFilter === "crit" ? "button-primary" : "button-secondary"}
-                onClick={() => setInsightFilter("crit")}
-                aria-label="Filter critical insights"
-              >
-                Critical
-              </button>
-              <button
-                className={insightFilter === "warn" ? "button-primary" : "button-secondary"}
-                onClick={() => setInsightFilter("warn")}
-                aria-label="Filter warnings"
-              >
-                Warnings
-              </button>
+            <div className="flex gap-2 mt-4">
+              <input 
+                value={taskText} 
+                onChange={(e) => setTaskText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addTask()}
+                placeholder="New task..." 
+                className="input flex-1"
+              />
+              <button onClick={addTask} className="button-secondary">Add</button>
             </div>
-          }
-        />
+          </GlassPanel>
+        </div>
 
-        <div className="mt-5 grid gap-3">
-          {groupedInsights.length === 0 && (
-            <p className="rounded-[20px] border border-dashed border-white/12 bg-white/[0.03] px-4 py-6 text-sm text-white/60">
-              {insightFilter === "priority" ? "No critical or warning insights right now." : "No insights match this filter."}
-            </p>
-          )}
-          {groupedInsights.map((group) => {
-            const project = group.projectId ? projects.find((item) => item.id === group.projectId) : null;
-            const repo = group.repoId ? repoById.get(group.repoId) : null;
-            return (
-              <GlassPanel key={group.key} variant="quiet">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-base font-semibold tracking-[-0.03em]">
-                        {group.title} {group.items.length > 1 ? `x${group.items.length}` : ""}
-                      </div>
-                      {project && <Pill>{project.name}</Pill>}
-                      {repo && <Pill>{repo.name}</Pill>}
-                    </div>
-                    <p className="mt-2 text-sm text-white/66">{group.reason}</p>
-                  </div>
-                  <Pill tone={group.severity === "crit" ? "danger" : group.severity === "warn" ? "warning" : "neutral"}>
+        <GlassPanel variant="standard" className="flex flex-col h-[300px]">
+          <SectionHeader title="Signals & Insights" />
+          <div className="mt-4 flex-1 grid gap-3 overflow-y-auto pr-2">
+            {groupedInsights.length === 0 && <p className="text-sm text-muted">No insights to review.</p>}
+            {groupedInsights.map(group => (
+              <div key={group.key} className="p-3 bg-subtle rounded-xl border border-subtle">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="font-medium text-sm leading-tight text-strong">{group.title}</div>
+                  <Pill tone={group.severity === 'crit' ? 'danger' : group.severity === 'warn' ? 'warning' : 'neutral'}>
                     {group.severity}
                   </Pill>
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {group.actions.map((action) => (
-                    <button
-                      key={action.id}
-                      className="button-secondary"
-                      onClick={() => runInsightAction(group, action)}
-                    >
-                      {shortLabelForInsightAction(action)}
-                    </button>
-                  ))}
-                </div>
-                <details className="mt-4 rounded-[18px] border border-white/10 bg-black/20 p-3">
-                  <summary className="cursor-pointer text-xs uppercase tracking-[0.2em] text-white/50">Why?</summary>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {formatInsightMetrics(group.items).map(([key, value]) => (
-                      <div key={`${group.key}-${key}`} className="rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2">
-                        <div className="text-[11px] uppercase tracking-[0.2em] text-white/45">{key}</div>
-                        <div className="mt-1 text-sm text-white/72">{value}</div>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              </GlassPanel>
-            );
-          })}
-        </div>
-      </GlassPanel>
-
-      <GlassPanel variant="quiet">
-        <SectionHeader
-          eyebrow="Local Git"
-          title="Status Strip"
-          subtitle={`${uniqueRepos.length} repos monitored`}
-          rightControls={
-            <Pill tone={scanErrorCount > 0 ? "warning" : "neutral"}>
-              {lastScanAt ? `Last scan ${formatDate(lastScanAt)}` : "No scan yet"}
-            </Pill>
-          }
-        />
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <div className="rounded-[18px] border border-white/10 bg-white/[0.045] px-4 py-3">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Active Today</div>
-            <div className="mt-2 text-xl font-semibold tracking-[-0.03em]">
-              {uniqueRepos.filter((repo) => repo.todayCommitCount > 0).length}
-            </div>
-          </div>
-          <div className="rounded-[18px] border border-white/10 bg-white/[0.045] px-4 py-3">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Dirty Trees</div>
-            <div className="mt-2 text-xl font-semibold tracking-[-0.03em]">{uniqueRepos.filter((repo) => repo.dirty).length}</div>
-          </div>
-          <div className="rounded-[18px] border border-white/10 bg-white/[0.045] px-4 py-3">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Scan Errors</div>
-            <div className="mt-2 text-xl font-semibold tracking-[-0.03em]">{scanErrorCount}</div>
-          </div>
-          <div className="rounded-[18px] border border-white/10 bg-white/[0.045] px-4 py-3">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Linked to Projects</div>
-            <div className="mt-2 text-xl font-semibold tracking-[-0.03em]">
-              {projects.filter((project) => project.localRepoPath).length}
-            </div>
-          </div>
-        </div>
-      </GlassPanel>
-
-      <GlassPanel variant="standard">
-        <SectionHeader
-          eyebrow="Focus"
-          title="Today Plan"
-          subtitle="Auto-generate, then tune quickly"
-          rightControls={
-            <button className="button-secondary" onClick={autoGenerateTodayPlan} aria-label="Auto-generate today plan">
-              Auto-generate
-            </button>
-          }
-        />
-
-        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-          <div className="grid gap-2">
-            {todayPlanDraft.length === 0 && (
-              <p className="rounded-[20px] border border-dashed border-white/12 bg-white/[0.03] px-4 py-6 text-sm text-white/60">
-                No tasks selected yet.
-              </p>
-            )}
-            {todayPlanDraft.map((taskId, index) => {
-              const entry = allTaskLookup.get(taskId);
-              const project = entry?.project;
-              const task = entry?.task;
-              if (!task || !project) return null;
-              return (
-                <div key={taskId} className="table-row">
-                  <div>
-                    <div className="text-sm font-medium">{task.text}</div>
-                    <div className="text-xs text-white/50">
-                      {project.name}
-                      {isArchivedProject(project) ? " • Archived project" : ""}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Pill tone={task.priority === "high" ? "danger" : task.priority === "med" ? "warning" : "neutral"}>
-                      {task.priority}
-                    </Pill>
-                    {index === 0 && (
-                      <button className="button-secondary" onClick={() => startFocus(taskId)} aria-label="Start focus on top task">
-                        Start Focus
-                      </button>
-                    )}
-                    <button
-                      className="button-secondary"
-                      onClick={() => movePlanItem(index, -1)}
-                      disabled={index === 0}
-                      aria-label="Move task up"
-                    >
-                      Up
-                    </button>
-                    <button
-                      className="button-secondary"
-                      onClick={() => movePlanItem(index, 1)}
-                      disabled={index === todayPlanDraft.length - 1}
-                      aria-label="Move task down"
-                    >
-                      Down
-                    </button>
-                    <button
-                      className="button-secondary"
-                      onClick={() => removePlanItem(taskId)}
-                      aria-label="Remove task from plan"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="grid gap-4">
-            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
-              <label className="text-xs text-white/60">Add from tasks ({todayPlanDraft.length}/7)</label>
-              <input
-                className="input mt-2"
-                value={todayTaskQuery}
-                onChange={(event) => setTodayTaskQuery(event.target.value)}
-                placeholder="Search tasks to add..."
-                aria-label="Search tasks for today plan"
-              />
-              <div className="mt-3 grid max-h-56 gap-2 overflow-auto rounded-xl border border-white/10 bg-black/20 p-2">
-                {todayTaskOptions.slice(0, 12).map((task) => (
-                  <button
-                    key={task.id}
-                    className="table-row text-left"
-                    onClick={() => addPlanItem(task.id)}
-                    aria-label={`Add ${task.text} to plan`}
-                  >
-                    <span>
-                      {task.projectName}: {task.text}
-                    </span>
-                    <Pill tone={task.priority === "high" ? "danger" : task.priority === "med" ? "warning" : "neutral"}>
-                      {task.priority}
-                    </Pill>
-                  </button>
-                ))}
-                {todayTaskOptions.length === 0 && (
-                  <p className="text-sm text-white/60">No matching tasks available.</p>
-                )}
+                <div className="text-xs text-muted mt-2 line-clamp-2 leading-relaxed">{group.reason}</div>
               </div>
-            </div>
-
-            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
-              <label className="text-xs text-white/60">Notes</label>
-              <input
-                className="input mt-2"
-                placeholder="Notes for today..."
-                value={todayPlanNotes}
-                onChange={(event) => setTodayPlanNotes(event.target.value)}
-                aria-label="Today plan notes"
-              />
-              <button className="button-primary mt-3" onClick={saveTodayPlan} aria-label="Save today plan">
-                Save Plan
-              </button>
-            </div>
+            ))}
           </div>
-        </div>
+        </GlassPanel>
 
-        {todayPlan && (
-          <p className="mt-3 text-xs text-white/50">
-            Last saved {formatDate(todayPlan.generatedAt)} ({todayPlan.source})
-          </p>
-        )}
-      </GlassPanel>
+        <GlassPanel variant="standard" className="flex flex-col h-[300px]">
+          <SectionHeader title="Local Git" subtitle={selectedProjectRepo?.name} />
+          <div className="mt-4 flex-1 flex flex-col pt-4 items-center text-center">
+             <div className="text-5xl mb-4 text-subtle">⎇</div>
+             <div className="font-medium mb-1 text-lg">{selectedProject?.localRepoPath ? `${selectedProjectRepo?.todayCommitCount ?? 0} Commits Today` : "Not Linked"}</div>
+             <p className="text-xs text-muted mb-6">{selectedProject?.localRepoPath ? "Tree is clean" : "Update settings to link local path."}</p>
+             {!selectedProject?.localRepoPath && (
+               <button className="button-secondary" onClick={() => setActiveTab("Project Settings")}>Link Repo</button>
+             )}
+          </div>
+        </GlassPanel>
+      </div>
 
       <Modal
         open={projectModalOpen}
@@ -1705,7 +1015,31 @@ export default function DashboardPage() {
         />
       </Modal>
 
-    </div>
+      {activeTab === "Project Settings" && selectedProject && (
+        <Modal 
+          open 
+          onClose={() => setActiveTab("Tasks")} 
+          title="Project Settings"
+          footer={
+            <div className="flex justify-end gap-3">
+              <button className="button-secondary text-red-500 hover:bg-red-500/10 mr-auto border-red-500/20" onClick={() => deleteProject(selectedProject.id)}>Delete</button>
+              <button className="button-secondary" onClick={() => setProjectArchived(selectedProject.id, !isArchivedProject(selectedProject))}>
+                {isArchivedProject(selectedProject) ? "Restore" : "Archive"}
+              </button>
+              <button className="button-primary" onClick={() => { saveProjectSettings(); setActiveTab("Tasks"); }}>Save</button>
+            </div>
+          }
+        >
+          <ProjectEditorFields
+            draft={projectSettingsDraft}
+            setDraft={setProjectSettingsDraft}
+            repos={uniqueRepos}
+            githubRepoOptions={githubRepoOptions}
+            githubRepoListId="project-settings-github-list"
+          />
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -1939,11 +1273,11 @@ function ProjectEditorFields({
   return (
     <div className="grid gap-4">
       <div>
-        <label className="mb-1 block text-xs text-white/60">Emoji</label>
+        <label className="mb-1 block text-xs text-muted">Emoji</label>
         <EmojiPicker value={draft.emoji} onChange={(emoji) => setDraft((prev) => ({ ...prev, emoji }))} />
       </div>
       <label className="grid gap-1">
-        <span className="text-xs text-white/60">Name</span>
+        <span className="text-xs text-muted">Name</span>
         <input
           className="input"
           value={draft.name}
@@ -1953,7 +1287,7 @@ function ProjectEditorFields({
         />
       </label>
       <label className="grid gap-1">
-        <span className="text-xs text-white/60">Subtitle</span>
+        <span className="text-xs text-muted">Subtitle</span>
         <input
           className="input"
           value={draft.subtitle}
@@ -1964,7 +1298,7 @@ function ProjectEditorFields({
       </label>
       <div className="grid gap-3 md:grid-cols-2">
         <label className="grid gap-1">
-          <span className="text-xs text-white/60">Status</span>
+          <span className="text-xs text-muted">Status</span>
           <select
             className="input"
             value={draft.status}
@@ -1979,7 +1313,7 @@ function ProjectEditorFields({
           </select>
         </label>
         <label className="grid gap-1">
-          <span className="text-xs text-white/60">Weekly Hours</span>
+          <span className="text-xs text-muted">Weekly Hours</span>
           <div className="grid grid-cols-[40px_1fr_40px] gap-2">
             <button
               type="button"
@@ -2020,7 +1354,7 @@ function ProjectEditorFields({
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         <label className="grid gap-1">
-          <span className="text-xs text-white/60">Local Repo</span>
+          <span className="text-xs text-muted">Local Repo</span>
           <select
             className="input"
             value={draft.localRepoPath}
@@ -2036,7 +1370,7 @@ function ProjectEditorFields({
           </select>
         </label>
         <label className="grid gap-1">
-          <span className="text-xs text-white/60">GitHub Repo</span>
+          <span className="text-xs text-muted">GitHub Repo</span>
           <input
             className="input"
             value={draft.githubRepo}

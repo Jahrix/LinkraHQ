@@ -23,12 +23,12 @@ export default function SectionHeader({
       : size === "compact"
       ? "text-base font-semibold tracking-[-0.02em]"
       : "text-xl font-semibold tracking-[-0.03em]";
-  const subtitleClass = size === "hero" ? "text-sm text-white/62 md:text-[15px]" : "text-sm text-white/60";
+  const subtitleClass = size === "hero" ? "text-sm text-muted md:text-[15px]" : "text-sm text-muted";
 
   return (
     <div className={`flex flex-wrap items-start justify-between gap-4 ${className}`.trim()}>
       <div className="space-y-1">
-        {eyebrow && <p className="text-[11px] uppercase tracking-[0.28em] text-white/45">{eyebrow}</p>}
+        {eyebrow && <p className="text-[11px] uppercase tracking-[0.28em] text-muted">{eyebrow}</p>}
         <h3 className={`${titleSize} leading-tight ${titleClassName}`.trim()}>{title}</h3>
         {subtitle && <p className={subtitleClass}>{subtitle}</p>}
       </div>

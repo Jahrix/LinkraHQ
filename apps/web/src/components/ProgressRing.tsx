@@ -9,7 +9,7 @@ export default function ProgressRing({ value, size = 44 }: { value: number; size
   const gradientId = useId();
 
   return (
-    <svg width={size} height={size} className="text-white/60">
+    <svg width={size} height={size} className="text-muted">
       <circle
         cx={size / 2}
         cy={size / 2}

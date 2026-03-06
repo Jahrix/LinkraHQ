@@ -114,7 +114,7 @@ export default function QuickCapture() {
     <div className="panel space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Quick Capture</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Quick Capture</p>
           <h3 className="text-base font-semibold">Instant capture</h3>
         </div>
         <span className="badge">Instant</span>
@@ -155,7 +155,7 @@ export default function QuickCapture() {
             <option value="next">Next</option>
             <option value="idea">Idea</option>
           </select>
-          <p className="text-xs text-white/50 self-center">Journal capture type</p>
+          <p className="text-xs text-muted self-center">Journal capture type</p>
         </div>
       )}
     </div>

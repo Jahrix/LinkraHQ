@@ -13,6 +13,12 @@
     --stroke: rgba(255, 255, 255, 0.08);
     --stroke-strong: rgba(255, 255, 255, 0.16);
     --text: #f3f6ff;
+    --text-strong: #ffffff;
+    --text-muted: rgba(255, 255, 255, 0.6);
+    --text-subtle: rgba(255, 255, 255, 0.35);
+    --el-subtle: rgba(255, 255, 255, 0.05);
+    --el-muted: rgba(255, 255, 255, 0.10);
+    --el-strong: rgba(255, 255, 255, 0.20);
     --muted: rgba(214, 222, 240, 0.65);
     --accent: #8b5cf6;
     --accent-purple: rgba(124, 58, 237, 0.22);
@@ -27,18 +33,38 @@
     --panel-radius-quiet: 20px;
   }
 
+  .light {
+    color-scheme: light;
+    --bg: #EAE8E3;
+    --bg-2: #FFFFFF;
+    --accent-2: #6A8E7A;
+    --glass: rgba(255, 255, 255, 0.82);
+    --glass-strong: rgba(255, 255, 255, 1);
+    --stroke: rgba(0, 0, 0, 0.08);
+    --stroke-strong: rgba(0, 0, 0, 0.15);
+    --text: #333333;
+    --text-strong: #111111;
+    --text-muted: rgba(0, 0, 0, 0.6);
+    --text-subtle: rgba(0, 0, 0, 0.35);
+    --el-subtle: rgba(0, 0, 0, 0.05);
+    --el-muted: rgba(0, 0, 0, 0.10);
+    --el-strong: rgba(0, 0, 0, 0.20);
+    --muted: rgba(0, 0, 0, 0.5);
+    --accent: #6A8E7A;
+    --accent-purple: rgba(106, 142, 122, 0.22);
+    --accent-purple-strong: rgba(106, 142, 122, 0.3);
+    --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1);
+    --shadow-lift: 0 12px 28px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 1);
+  }
+
   body {
-    font-family: "Space Grotesk", system-ui, -apple-system, sans-serif;
+    font-family: inherit;
     color: var(--text);
-    background:
-      radial-gradient(circle at 20% 12%, var(--accent-purple-strong), transparent 45%),
-      radial-gradient(circle at 80% 8%, rgba(64, 118, 255, 0.14), transparent 40%),
-      radial-gradient(circle at 55% 85%, rgba(60, 200, 170, 0.08), transparent 45%),
-      linear-gradient(180deg, #0a0b12 0%, #0c0e15 100%);
+    background: var(--bg);
     min-height: 100vh;
   }
 
-  body::before {
+  body:not(.light)::before {
     content: "";
     position: fixed;
     inset: -50vmax;
@@ -50,7 +76,7 @@
     z-index: -2;
   }
 
-  body::after {
+  body:not(.light)::after {
     content: "";
     position: fixed;
     inset: 0;
@@ -76,7 +102,7 @@
   }
 
   .pill-neutral {
-    @apply text-white/80;
+    @apply text-strong;
     background: rgba(255, 255, 255, 0.08);
   }
 
@@ -142,9 +168,17 @@
   .glass-standard {
     border-radius: var(--panel-radius-standard);
     padding: var(--panel-padding-standard);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.085) 0%, rgba(255, 255, 255, 0.02) 100%),
-      rgba(15, 19, 28, 0.84);
+    background: var(--glass-strong);
+  }
+
+  .light .panel,
+  .light .glass-standard,
+  .light .card,
+  .light .glass-hero,
+  .light .glass-quiet {
+    background: #ffffff;
+    box-shadow: var(--shadow-soft);
+    border: 1px solid var(--stroke);
   }
 
   .glass-hero {
@@ -206,7 +240,7 @@
   }
 
   .muted {
-    @apply text-white/60;
+    @apply text-muted;
   }
 
   .button-primary {
@@ -237,7 +271,7 @@
   }
 
   .input {
-    @apply w-full rounded-lg px-3 py-2 text-sm text-white outline-none;
+    @apply w-full rounded-lg px-3 py-2 text-sm text-strong outline-none;
     background: linear-gradient(180deg, rgba(10, 12, 18, 0.8), rgba(8, 10, 14, 0.9));
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
@@ -253,7 +287,7 @@
   }
 
   .chip {
-    @apply rounded-full px-3 py-1 text-xs text-white/60;
+    @apply rounded-full px-3 py-1 text-xs text-muted;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.12);
   }
@@ -288,11 +322,11 @@
   }
 
   .tag {
-    @apply rounded-full bg-white/10 px-2 py-1 text-[11px] text-white/60;
+    @apply rounded-full bg-white/10 px-2 py-1 text-[11px] text-muted;
   }
 
   .badge {
-    @apply rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.28em] text-white/60;
+    @apply rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.28em] text-muted;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.12);
   }
@@ -328,5 +362,41 @@
   body.reduce-motion * {
     transition: none !important;
     animation: none !important;
+  }
+
+  .text-strong {
+    color: var(--text-strong);
+  }
+
+  .text-muted {
+    color: var(--text-muted);
+  }
+
+  .text-subtle {
+    color: var(--text-subtle);
+  }
+
+  .bg-subtle {
+    background-color: var(--el-subtle);
+  }
+
+  .bg-muted {
+    background-color: var(--el-muted);
+  }
+
+  .bg-strong {
+    background-color: var(--el-strong);
+  }
+
+  .border-subtle {
+    border-color: var(--el-subtle);
+  }
+
+  .border-muted {
+    border-color: var(--el-muted);
+  }
+
+  .border-strong {
+    border-color: var(--el-strong);
   }
 }

@@ -259,7 +259,7 @@ export default function ProjectJournalPanel({
       )}
 
       {visibleEntries.length === 0 && (
-        <p className="text-sm text-white/60">No journal entries for this project yet.</p>
+        <p className="text-sm text-muted">No journal entries for this project yet.</p>
       )}
 
       <div className="grid gap-2">
@@ -274,13 +274,13 @@ export default function ProjectJournalPanel({
           const missingRoadmap = entry.links.roadmapCardIds.length - linkedRoadmap.length;
 
           return (
-            <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+            <div key={entry.id} className="rounded-xl border border-muted bg-subtle px-3 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Pill tone={entry.type === "blocker" ? "warning" : entry.type === "decision" ? "accent" : "neutral"}>
                     {entry.type}
                   </Pill>
-                  <span className="text-xs text-white/50">{formatDate(entry.ts)}</span>
+                  <span className="text-xs text-muted">{formatDate(entry.ts)}</span>
                 </div>
                 <div className="flex gap-2">
                   <button className="button-secondary" onClick={() => openEdit(entry)}>
@@ -292,7 +292,7 @@ export default function ProjectJournalPanel({
                 </div>
               </div>
               <div className="mt-2 text-sm font-semibold">{entry.title || "Untitled"}</div>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-white/70">{entry.body}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-muted">{entry.body}</p>
 
               {(entry.tags.length > 0 ||
                 linkedTasks.length > 0 ||
@@ -309,7 +309,7 @@ export default function ProjectJournalPanel({
                   )}
 
                   {linkedTasks.length > 0 && (
-                    <div className="flex flex-wrap gap-2 text-xs text-white/60">
+                    <div className="flex flex-wrap gap-2 text-xs text-muted">
                       {linkedTasks.map((task) => (
                         <Pill key={task.id}>{task.text}</Pill>
                       ))}
@@ -317,7 +317,7 @@ export default function ProjectJournalPanel({
                   )}
 
                   {linkedRoadmap.length > 0 && (
-                    <div className="flex flex-wrap gap-2 text-xs text-white/60">
+                    <div className="flex flex-wrap gap-2 text-xs text-muted">
                       {linkedRoadmap.map((card) => (
                         <Pill key={card.id}>{card.title}</Pill>
                       ))}
@@ -325,7 +325,7 @@ export default function ProjectJournalPanel({
                   )}
 
                   {entry.links.commitShas.length > 0 && (
-                    <div className="flex flex-wrap gap-2 text-xs text-white/60">
+                    <div className="flex flex-wrap gap-2 text-xs text-muted">
                       {entry.links.commitShas.map((sha) => (
                         <Pill key={`${entry.id}-${sha}`} tone="accent">
                           {sha.slice(0, 7)}
@@ -335,7 +335,7 @@ export default function ProjectJournalPanel({
                   )}
 
                   {repo?.id === entry.links.repoIds[0] && (
-                    <div className="text-xs text-white/45">Repo linked: {repo.name}</div>
+                    <div className="text-xs text-muted">Repo linked: {repo.name}</div>
                   )}
 
                   {(missingTasks > 0 || missingRoadmap > 0) && (
@@ -369,7 +369,7 @@ export default function ProjectJournalPanel({
       >
         <div className="grid gap-3">
           <label className="grid gap-1">
-            <span className="text-xs text-white/60">Type</span>
+            <span className="text-xs text-muted">Type</span>
             <select
               className="input"
               value={draft.type}
@@ -388,7 +388,7 @@ export default function ProjectJournalPanel({
             </select>
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-white/60">Title</span>
+            <span className="text-xs text-muted">Title</span>
             <input
               className="input"
               value={draft.title}
@@ -397,7 +397,7 @@ export default function ProjectJournalPanel({
             />
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-white/60">Body</span>
+            <span className="text-xs text-muted">Body</span>
             <textarea
               className="input"
               rows={5}
@@ -407,7 +407,7 @@ export default function ProjectJournalPanel({
             />
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-white/60">Tags (comma separated)</span>
+            <span className="text-xs text-muted">Tags (comma separated)</span>
             <input
               className="input"
               value={draft.tags}
@@ -416,7 +416,7 @@ export default function ProjectJournalPanel({
             />
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-white/60">Link Tasks</span>
+            <span className="text-xs text-muted">Link Tasks</span>
             <select
               multiple
               className="input"
@@ -436,7 +436,7 @@ export default function ProjectJournalPanel({
             </select>
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-white/60">Link Roadmap Cards</span>
+            <span className="text-xs text-muted">Link Roadmap Cards</span>
             <select
               multiple
               className="input"
@@ -456,7 +456,7 @@ export default function ProjectJournalPanel({
             </select>
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-white/60">Pick Recent Commits</span>
+            <span className="text-xs text-muted">Pick Recent Commits</span>
             <select
               multiple
               className="input"
@@ -476,7 +476,7 @@ export default function ProjectJournalPanel({
             </select>
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-white/60">Manual Commit SHAs</span>
+            <span className="text-xs text-muted">Manual Commit SHAs</span>
             <input
               className="input"
               value={draft.manualCommitShas}

@@ -251,7 +251,7 @@ export default function WeeklyReviewPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {statCards.map((card) => (
           <GlassPanel key={card.label} variant="standard">
-            <div className="text-xs uppercase tracking-[0.24em] text-white/50">{card.label}</div>
+            <div className="text-xs uppercase tracking-[0.24em] text-muted">{card.label}</div>
             <div className="mt-2 text-2xl font-semibold">{card.value}</div>
           </GlassPanel>
         ))}
@@ -266,15 +266,15 @@ export default function WeeklyReviewPage() {
             rightControls={<Pill>{activeReview.highlights.length} highlights</Pill>}
           />
           <div className="mt-4 grid gap-3">
-            {breakdown.length === 0 && <p className="text-sm text-white/60">No project activity logged for this week.</p>}
+            {breakdown.length === 0 && <p className="text-sm text-muted">No project activity logged for this week.</p>}
             {breakdown.map((item) => (
-              <div key={item.projectId || item.projectName} className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div key={item.projectId || item.projectName} className="rounded-xl border border-muted bg-subtle p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold">
                       {item.project?.icon ?? "🧩"} {item.projectName}
                     </div>
-                    <div className="mt-1 text-xs text-white/50">
+                    <div className="mt-1 text-xs text-muted">
                       {item.project?.subtitle || "No subtitle"}
                     </div>
                   </div>
@@ -284,7 +284,7 @@ export default function WeeklyReviewPage() {
                     <Pill>{item.roadmapMoved} roadmap</Pill>
                   </div>
                 </div>
-                <div className="mt-3 grid gap-2 text-sm text-white/70 md:grid-cols-3">
+                <div className="mt-3 grid gap-2 text-sm text-muted md:grid-cols-3">
                   <div>Commit signals: {item.commitsCount}</div>
                   <div>Focus: {formatMinutes(item.focusMinutes)}</div>
                   <div>Journal: {item.journalCount}</div>
@@ -293,12 +293,12 @@ export default function WeeklyReviewPage() {
                   <div>Next steps: {item.nexts}</div>
                 </div>
                 {item.latestEntry && (
-                  <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-white/70">
-                    <div className="text-xs uppercase tracking-[0.2em] text-white/45">Latest note</div>
+                  <div className="mt-3 rounded-lg border border-muted bg-black/20 p-3 text-sm text-muted">
+                    <div className="text-xs uppercase tracking-[0.2em] text-muted">Latest note</div>
                     <div className="mt-1 font-medium">
                       {item.latestEntry.title || item.latestEntry.type}
                     </div>
-                    <div className="mt-1 text-xs text-white/50">{formatDate(item.latestEntry.ts)}</div>
+                    <div className="mt-1 text-xs text-muted">{formatDate(item.latestEntry.ts)}</div>
                   </div>
                 )}
               </div>
@@ -315,7 +315,7 @@ export default function WeeklyReviewPage() {
             />
             <div className="mt-4 grid gap-2">
               {activeReview.highlights.map((highlight) => (
-                <div key={highlight} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/75">
+                <div key={highlight} className="rounded-lg border border-muted bg-subtle px-3 py-2 text-sm text-muted">
                   {highlight}
                 </div>
               ))}
@@ -339,13 +339,13 @@ export default function WeeklyReviewPage() {
                   <span>
                     {item.weekStart} to {item.weekEnd}
                   </span>
-                  <span className="text-xs text-white/50">
+                  <span className="text-xs text-muted">
                     {item.closedAt ? formatDate(item.closedAt) : "Open"}
                   </span>
                 </button>
               ))}
               {reviewHistory.items.length === 0 && (
-                <p className="text-sm text-white/60">No weeks closed yet.</p>
+                <p className="text-sm text-muted">No weeks closed yet.</p>
               )}
             </div>
           </GlassPanel>
@@ -367,13 +367,13 @@ export default function WeeklyReviewPage() {
                   <span>
                     {item.weekStart} to {item.weekEnd}
                   </span>
-                  <span className="text-xs text-white/50">
+                  <span className="text-xs text-muted">
                     {reviewHistory.items.some((reviewItem) => reviewItem.weekStart === item.weekStart) ? "Review attached" : "Snapshot only"}
                   </span>
                 </button>
               ))}
               {snapshotHistory.items.length === 0 && (
-                <p className="text-sm text-white/60">Close a week to store a snapshot locally.</p>
+                <p className="text-sm text-muted">Close a week to store a snapshot locally.</p>
               )}
             </div>
           </GlassPanel>

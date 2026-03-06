@@ -71,7 +71,7 @@ function Shell() {
   const streak = state ? computeStreak(Object.values(state.dailyGoalsByDate)) : 0;
 
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[240px_1fr]">
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[80px_1fr]">
       <Sidebar active={active} onChange={(item) => setActive(item)} />
       <main className="px-6 py-6 flex flex-col gap-6">
         <div className="sticky-header">
@@ -90,7 +90,7 @@ function Shell() {
             {active === "Settings" && <SettingsPage />}
           </div>
         )}
-        <div className="text-xs text-white/50">Streak: {streak} days · Local-first mode active</div>
+        <div className="text-xs text-muted">Streak: {streak} days · Local-first mode active</div>
       </main>
       <CommandPalette open={commandOpen} commands={commands} onClose={() => setCommandOpen(false)} />
       <ToastHost />

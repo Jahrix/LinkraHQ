@@ -102,7 +102,7 @@ export default function DailyGoalsPage() {
       <div className="panel space-y-4">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Daily Goals</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Daily Goals</p>
             <h2 className="text-lg font-semibold">{todayLabel}</h2>
           </div>
           <div className="flex items-center gap-3">
@@ -118,7 +118,7 @@ export default function DailyGoalsPage() {
             <label key={goal.id} className="table-row hover-lift cursor-pointer">
               <div className="flex flex-col gap-1">
                 <strong>{goal.title}</strong>
-                <div className="text-xs text-white/60">{goal.category}</div>
+                <div className="text-xs text-muted">{goal.category}</div>
               </div>
               <div className="flex items-center gap-3">
                 <span className="chip">{goal.points} pts</span>
@@ -150,7 +150,7 @@ export default function DailyGoalsPage() {
       <div className="panel space-y-4">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Template Goals</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Template Goals</p>
             <h3 className="text-base font-semibold">Midnight auto-rollover</h3>
           </div>
           <span className="chip">{state.userSettings.goalTemplate.length} templates</span>
@@ -160,7 +160,7 @@ export default function DailyGoalsPage() {
             <div key={goal.id} className="table-row">
               <div className="flex flex-col gap-1">
                 <strong>{goal.title}</strong>
-                <div className="text-xs text-white/60">{goal.category}</div>
+                <div className="text-xs text-muted">{goal.category}</div>
               </div>
               <div className="flex items-center gap-3">
                 <span className="chip">{goal.points} pts</span>
@@ -200,18 +200,18 @@ export default function DailyGoalsPage() {
       <div className="panel space-y-4">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Archive</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Archive</p>
             <h3 className="text-base font-semibold">Past days</h3>
           </div>
           <span className="chip">{archive.length} days</span>
         </div>
         <div className="table">
-          {archive.length === 0 && <p className="text-sm text-white/60">No archived days yet.</p>}
+          {archive.length === 0 && <p className="text-sm text-muted">No archived days yet.</p>}
           {archive.map((entry) => (
             <div key={entry.date} className="table-row">
               <div>
                 <strong>{entry.date}</strong>
-                <div className="text-xs text-white/60">
+                <div className="text-xs text-muted">
                   Archived {entry.archivedAt ? formatDate(entry.archivedAt) : "—"}
                 </div>
               </div>

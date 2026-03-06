@@ -76,10 +76,10 @@ export default function CommitsPage() {
     return (
       <div className="panel space-y-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">GitHub</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">GitHub</p>
           <h2 className="text-lg font-semibold">Connect GitHub</h2>
         </div>
-        <p className="text-sm text-white/60">
+        <p className="text-sm text-muted">
           Log in to GitHub to view latest commits. The app still works without it.
         </p>
         <a className="button-primary inline-flex w-fit" href="/auth/github/start">
@@ -94,7 +94,7 @@ export default function CommitsPage() {
       <div className="panel space-y-3">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Commits</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Commits</p>
             <h2 className="text-lg font-semibold">Latest activity</h2>
           </div>
           <span className="chip">{state.userSettings.selectedRepos.length} repos</span>
@@ -120,9 +120,9 @@ export default function CommitsPage() {
           </button>
         </div>
         {error && <p className="text-sm text-red-300">{error}</p>}
-        {loading && <p className="text-sm text-white/60">Loading commits...</p>}
+        {loading && <p className="text-sm text-muted">Loading commits...</p>}
         {rateLimit && (
-          <p className="text-sm text-white/60">
+          <p className="text-sm text-muted">
             Rate limit remaining: {rateLimit.remaining} · resets at{" "}
             {new Date(rateLimit.reset * 1000).toLocaleTimeString()}
           </p>
@@ -136,7 +136,7 @@ export default function CommitsPage() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h3 className="text-base font-semibold">{repo.repo}</h3>
-                <p className="text-sm text-white/60">Branch: {repo.branch}</p>
+                <p className="text-sm text-muted">Branch: {repo.branch}</p>
               </div>
               <button className="button-secondary" onClick={() => removeRepo(repo)}>
                 Remove
@@ -147,15 +147,15 @@ export default function CommitsPage() {
                 <div key={commit.sha} className="table-row">
                   <div>
                     <strong>{commit.message}</strong>
-                    <div className="text-xs text-white/60">
+                    <div className="text-xs text-muted">
                       {commit.author} · {formatDate(commit.date)} · {commit.shortSha}
                     </div>
-                    <div className="text-[11px] text-white/40">{commit.url}</div>
+                    <div className="text-[11px] text-muted">{commit.url}</div>
                   </div>
                   <span className="chip">{commit.shortSha}</span>
                 </div>
               ))}
-              {!commits[key] && <p className="text-sm text-white/60">No commits loaded.</p>}
+              {!commits[key] && <p className="text-sm text-muted">No commits loaded.</p>}
             </div>
           </div>
         );
