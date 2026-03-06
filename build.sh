@@ -9,5 +9,8 @@ cd "$(dirname "$0")"
 # 2. Run a clean install that respects workspaces
 npm ci
 
-# 3. Build only the web workspace
+# 3. Build the shared package first so TypeScript finds the compiled types
+npm run build --workspace packages/shared
+
+# 4. Build the web workspace
 npm run build --workspace apps/web
