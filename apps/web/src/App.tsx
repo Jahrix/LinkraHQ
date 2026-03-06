@@ -111,14 +111,29 @@ function Shell() {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
       <Sidebar active={active} onChange={(item) => setActive(item)} />
-      <main className="flex-1 px-4 lg:px-6 py-6 pb-28 lg:pb-6 flex flex-col gap-6 overflow-x-hidden">
+      <main className="flex-1 px-3 lg:px-6 py-3 lg:py-6 pb-24 lg:pb-6 flex flex-col gap-4 lg:gap-6 overflow-x-hidden min-w-0">
         <div className="sticky-header">
           <Header score={score} onOpenCommand={() => setCommandOpen(true)} />
         </div>
-        {loading && <div className="panel">Loading Linkra data...</div>}
-        {error && <div className="panel">Error: {error}</div>}
+        {loading && (
+          <div className="panel flex items-center gap-3 text-sm text-muted">
+            <svg className="animate-spin w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Loading Linkra data…
+          </div>
+        )}
+        {error && (
+          <div className="panel flex items-start gap-3 border-red-500/30 bg-red-900/20 text-sm text-red-200">
+            <svg className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+            <span>{error}</span>
+          </div>
+        )}
         {state && !loading && (
-          <div className="grid gap-6">
+          <div className="grid gap-4 lg:gap-6">
             {active === "Dashboard" && <DashboardPage projectId={projectId} />}
             {active === "Daily Goals" && <DailyGoalsPage />}
             {active === "Roadmap" && <RoadmapPage />}
@@ -129,7 +144,7 @@ function Shell() {
             {active === "Account" && <AccountSettingsPage />}
           </div>
         )}
-        <div className="text-xs text-muted">Streak: {streak} days · Local-first mode active</div>
+        <div className="text-xs text-muted mt-auto pt-2">Streak: {streak} days · Local-first mode active</div>
       </main>
       <CommandPalette open={commandOpen} commands={commands} onClose={() => setCommandOpen(false)} />
       <ToastHost />

@@ -341,9 +341,16 @@
 
   .sticky-header {
     position: sticky;
-    top: 12px;
+    top: 4px;
     z-index: 40;
-    padding-bottom: 12px;
+    padding-bottom: 8px;
+  }
+
+  @media (min-width: 1024px) {
+    .sticky-header {
+      top: 12px;
+      padding-bottom: 12px;
+    }
   }
 
   .app-header-shell {
@@ -357,6 +364,19 @@
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Hide scrollbar but keep scrollability */
+  .no-scrollbar {
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* IE/Edge */
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+    /* Chrome/Safari */
   }
 
   body.reduce-motion * {
