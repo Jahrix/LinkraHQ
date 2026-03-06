@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { todayKey, computeGoalMetrics, type RoadmapCard } from "@linkra/shared";
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
+import Select from "./Select";
 
 export default function QuickCapture() {
   const { state, save } = useAppState();
@@ -120,22 +121,26 @@ export default function QuickCapture() {
         <span className="badge">Instant</span>
       </div>
       <div className="grid gap-2 md:grid-cols-[150px_190px_1fr_auto]">
-        <select className="input" value={type} onChange={(event) => setType(event.target.value as any)}>
-          <option value="note">Note</option>
-          <option value="task">Task</option>
-          <option value="roadmap">Roadmap</option>
-          <option value="journal">Journal</option>
-        </select>
-        <select className="input" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-          <option value="">No project</option>
-          {state.projects
-            .filter((project) => project.status !== "Archived")
-            .map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-        </select>
+        <Select
+          value={type}
+          onChange={(val) => setType(val as any)}
+          options={[
+            { value: "note", label: "Note" },
+            { value: "task", label: "Task" },
+            { value: "roadmap", label: "Roadmap" },
+            { value: "journal", label: "Journal" }
+          ]}
+        />
+        <Select
+          value={projectId}
+          onChange={(val) => setProjectId(val)}
+          options={[
+            { value: "", label: "No project" },
+            ...state.projects
+              .filter((project) => project.status !== "Archived")
+              .map((project) => ({ value: project.id, label: project.name }))
+          ]}
+        />
         <input
           className="input"
           placeholder="Capture a thought, task, or roadmap card..."
@@ -148,13 +153,17 @@ export default function QuickCapture() {
       </div>
       {type === "journal" && (
         <div className="grid gap-2 md:grid-cols-[200px_1fr]">
-          <select className="input" value={journalType} onChange={(event) => setJournalType(event.target.value as any)}>
-            <option value="note">Note</option>
-            <option value="decision">Decision</option>
-            <option value="blocker">Blocker</option>
-            <option value="next">Next</option>
-            <option value="idea">Idea</option>
-          </select>
+          <Select
+            value={journalType}
+            onChange={(val) => setJournalType(val as any)}
+            options={[
+              { value: "note", label: "Note" },
+              { value: "decision", label: "Decision" },
+              { value: "blocker", label: "Blocker" },
+              { value: "next", label: "Next" },
+              { value: "idea", label: "Idea" }
+            ]}
+          />
           <p className="text-xs text-muted self-center">Journal capture type</p>
         </div>
       )}

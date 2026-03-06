@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { type RoadmapCard, type RoadmapLane } from "@linkra/shared";
 import { useAppState } from "../lib/state";
+import Select from "../components/Select";
 
 const lanes: { key: RoadmapLane; label: string }[] = [
   { key: "now", label: "Now" },
@@ -68,10 +69,10 @@ export default function RoadmapPage() {
     next.roadmapCards = next.roadmapCards.map((card) =>
       card.id === id
         ? {
-            ...card,
-            lane,
-            updatedAt: new Date().toISOString()
-          }
+          ...card,
+          lane,
+          updatedAt: new Date().toISOString()
+        }
         : card
     );
     await save(next);
@@ -110,14 +111,15 @@ export default function RoadmapPage() {
         </div>
         <div className="grid gap-2 md:grid-cols-2">
           <input className="input" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            <option value="">No linked project</option>
-            {activeProjects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            className="w-full"
+            value={projectId}
+            onChange={(val) => setProjectId(val)}
+            options={[
+              { value: "", label: "No linked project" },
+              ...activeProjects.map((project) => ({ value: project.id, label: project.name }))
+            ]}
+          />
         </div>
         <textarea
           className="input"

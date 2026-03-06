@@ -19,6 +19,7 @@ import GlassPanel from "../components/GlassPanel";
 import SectionHeader from "../components/SectionHeader";
 import Pill from "../components/Pill";
 import Modal from "../components/Modal";
+import Select from "../components/Select";
 import EmojiPicker from "../components/EmojiPicker";
 import ProjectJournalPanel from "../components/ProjectJournalPanel";
 import { api } from "../lib/api";
@@ -1308,18 +1309,12 @@ function ProjectEditorFields({
       <div className="grid gap-3 md:grid-cols-2">
         <label className="grid gap-1">
           <span className="text-xs text-muted">Status</span>
-          <select
-            className="input"
+          <Select
+            className="w-full"
             value={draft.status}
-            onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value as UiProjectStatus }))}
-            aria-label="Project status"
-          >
-            {uiStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
+            onChange={(val) => setDraft((prev) => ({ ...prev, status: val as UiProjectStatus }))}
+            options={uiStatuses.map((status) => ({ value: status, label: status }))}
+          />
         </label>
         <label className="grid gap-1">
           <span className="text-xs text-muted">Weekly Hours</span>
@@ -1364,19 +1359,15 @@ function ProjectEditorFields({
       <div className="grid gap-3 md:grid-cols-2">
         <label className="grid gap-1">
           <span className="text-xs text-muted">Local Repo</span>
-          <select
-            className="input"
-            value={draft.localRepoPath}
-            onChange={(event) => setDraft((prev) => ({ ...prev, localRepoPath: event.target.value }))}
-            aria-label="Local repository"
-          >
-            <option value="">Not linked</option>
-            {repos.map((repo) => (
-              <option key={repo.id} value={repo.path}>
-                {repo.name} - {repo.path}
-              </option>
-            ))}
-          </select>
+          <Select
+            className="w-full"
+            value={draft.localRepoPath || ""}
+            onChange={(val) => setDraft((prev) => ({ ...prev, localRepoPath: val }))}
+            options={[
+              { value: "", label: "Not linked" },
+              ...repos.map((repo) => ({ value: repo.path, label: `${repo.name} - ${repo.path}` }))
+            ]}
+          />
         </label>
         <label className="grid gap-1">
           <span className="text-xs text-muted">GitHub Repo</span>

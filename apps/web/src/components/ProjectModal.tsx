@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import type { LocalRepo, Project } from "@linkra/shared";
+import Select from "./Select";
 
 type ProjectStatus = Project["status"];
 
@@ -115,11 +116,10 @@ export default function ProjectModal({
                 <button
                   type="button"
                   key={entry.emoji}
-                  className={`rounded-lg border px-2 py-1 text-sm ${
-                    draft.icon === entry.emoji
+                  className={`rounded-lg border px-2 py-1 text-sm ${draft.icon === entry.emoji
                       ? "border-white/30 bg-strong"
                       : "border-muted bg-subtle hover:bg-muted"
-                  }`}
+                    }`}
                   onClick={() => setDraft((prev) => ({ ...prev, icon: entry.emoji }))}
                 >
                   {entry.emoji} <span className="text-muted">{entry.label}</span>
@@ -147,18 +147,19 @@ export default function ProjectModal({
             </label>
             <label className="grid gap-1 text-sm">
               <span className="text-muted">Status</span>
-              <select
-                className="input"
+              <Select
+                className="w-full"
                 value={draft.status}
-                onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value as ProjectStatus }))}
-              >
-                <option>Not Started</option>
-                <option>In Progress</option>
-                <option>Review</option>
-                <option>On Hold</option>
-                <option>Done</option>
-                <option>Archived</option>
-              </select>
+                onChange={(val) => setDraft((prev) => ({ ...prev, status: val as ProjectStatus }))}
+                options={[
+                  { value: "Not Started", label: "Not Started" },
+                  { value: "In Progress", label: "In Progress" },
+                  { value: "Review", label: "Review" },
+                  { value: "On Hold", label: "On Hold" },
+                  { value: "Done", label: "Done" },
+                  { value: "Archived", label: "Archived" }
+                ]}
+              />
             </label>
             <label className="grid gap-1 text-sm">
               <span className="text-muted">Weekly Hours</span>
@@ -178,20 +179,17 @@ export default function ProjectModal({
             </label>
             <label className="grid gap-1 text-sm md:col-span-2">
               <span className="text-muted">Local Repo</span>
-              <select
-                className="input"
+              <Select
+                className="w-full"
                 value={draft.localRepoPath ?? ""}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, localRepoPath: event.target.value || null }))
+                onChange={(val) =>
+                  setDraft((prev) => ({ ...prev, localRepoPath: val || null }))
                 }
-              >
-                <option value="">None</option>
-                {repos.map((repo) => (
-                  <option key={repo.id} value={repo.path}>
-                    {repo.name} — {repo.path}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "", label: "None" },
+                  ...repos.map((repo) => ({ value: repo.path, label: `${repo.name} — ${repo.path}` }))
+                ]}
+              />
             </label>
             <label className="grid gap-1 text-sm md:col-span-2">
               <span className="text-muted">GitHub Repo (owner/name)</span>

@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
 import { formatDate } from "../lib/date";
+import Select from "../components/Select";
 
 export default function SettingsPage() {
   const { state, save, refresh } = useAppState();
@@ -196,16 +197,17 @@ export default function SettingsPage() {
         <div className="grid gap-2 md:grid-cols-2">
           <label className="toggle">
             Scan interval
-            <select
-              className="input"
-              value={state.userSettings.repoScanIntervalMinutes}
-              onChange={(e) => updateScanInterval(Number(e.target.value))}
-            >
-              <option value={5}>Every 5 min</option>
-              <option value={15}>Every 15 min</option>
-              <option value={30}>Every 30 min</option>
-              <option value={60}>Every 60 min</option>
-            </select>
+            <Select
+              className="w-full"
+              value={String(state.userSettings.repoScanIntervalMinutes)}
+              onChange={(val) => updateScanInterval(Number(val))}
+              options={[
+                { value: "5", label: "Every 5 min" },
+                { value: "15", label: "Every 15 min" },
+                { value: "30", label: "Every 30 min" },
+                { value: "60", label: "Every 60 min" }
+              ]}
+            />
           </label>
           <label className="toggle">
             Watcher enabled

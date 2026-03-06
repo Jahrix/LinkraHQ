@@ -75,6 +75,12 @@ function Shell() {
   }, []);
 
   useEffect(() => {
+    if (
+      window.location.hash.includes("access_token=") ||
+      window.location.hash.includes("error_description=")
+    ) {
+      return;
+    }
     const hash = active.toLowerCase().replace(" ", "-");
     const newHash = projectId && active === "Dashboard" ? `project/${projectId}` : hash;
     window.history.replaceState(null, "", `#${newHash}`);

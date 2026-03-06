@@ -6,6 +6,7 @@ import { useToast } from "../lib/toast";
 import { dedupeById } from "../lib/collections";
 import Modal from "./Modal";
 import Pill from "./Pill";
+import Select from "./Select";
 
 type CommitOption = {
   sha: string;
@@ -225,19 +226,19 @@ export default function ProjectJournalPanel({
             onChange={(event) => setQuery(event.target.value)}
             aria-label="Search journal entries"
           />
-          <select
-            className="input w-[160px]"
+          <Select
+            className="w-[160px]"
             value={typeFilter}
-            onChange={(event) => setTypeFilter(event.target.value as "all" | JournalEntry["type"])}
-            aria-label="Filter journal type"
-          >
-            <option value="all">All types</option>
-            <option value="note">Note</option>
-            <option value="decision">Decision</option>
-            <option value="blocker">Blocker</option>
-            <option value="next">Next</option>
-            <option value="idea">Idea</option>
-          </select>
+            onChange={(val) => setTypeFilter(val as "all" | JournalEntry["type"])}
+            options={[
+              { value: "all", label: "All types" },
+              { value: "note", label: "Note" },
+              { value: "decision", label: "Decision" },
+              { value: "blocker", label: "Blocker" },
+              { value: "next", label: "Next" },
+              { value: "idea", label: "Idea" }
+            ]}
+          />
         </div>
         <button className="button-primary" onClick={openCreate} aria-label="Create journal entry">
           Add Entry
@@ -299,54 +300,54 @@ export default function ProjectJournalPanel({
                 linkedRoadmap.length > 0 ||
                 entry.links.commitShas.length > 0 ||
                 repo?.id === entry.links.repoIds[0]) && (
-                <div className="mt-3 grid gap-2">
-                  {entry.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {entry.tags.map((tag) => (
-                        <Pill key={`${entry.id}-${tag}`}>{tag}</Pill>
-                      ))}
-                    </div>
-                  )}
+                  <div className="mt-3 grid gap-2">
+                    {entry.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {entry.tags.map((tag) => (
+                          <Pill key={`${entry.id}-${tag}`}>{tag}</Pill>
+                        ))}
+                      </div>
+                    )}
 
-                  {linkedTasks.length > 0 && (
-                    <div className="flex flex-wrap gap-2 text-xs text-muted">
-                      {linkedTasks.map((task) => (
-                        <Pill key={task.id}>{task.text}</Pill>
-                      ))}
-                    </div>
-                  )}
+                    {linkedTasks.length > 0 && (
+                      <div className="flex flex-wrap gap-2 text-xs text-muted">
+                        {linkedTasks.map((task) => (
+                          <Pill key={task.id}>{task.text}</Pill>
+                        ))}
+                      </div>
+                    )}
 
-                  {linkedRoadmap.length > 0 && (
-                    <div className="flex flex-wrap gap-2 text-xs text-muted">
-                      {linkedRoadmap.map((card) => (
-                        <Pill key={card.id}>{card.title}</Pill>
-                      ))}
-                    </div>
-                  )}
+                    {linkedRoadmap.length > 0 && (
+                      <div className="flex flex-wrap gap-2 text-xs text-muted">
+                        {linkedRoadmap.map((card) => (
+                          <Pill key={card.id}>{card.title}</Pill>
+                        ))}
+                      </div>
+                    )}
 
-                  {entry.links.commitShas.length > 0 && (
-                    <div className="flex flex-wrap gap-2 text-xs text-muted">
-                      {entry.links.commitShas.map((sha) => (
-                        <Pill key={`${entry.id}-${sha}`} tone="accent">
-                          {sha.slice(0, 7)}
-                        </Pill>
-                      ))}
-                    </div>
-                  )}
+                    {entry.links.commitShas.length > 0 && (
+                      <div className="flex flex-wrap gap-2 text-xs text-muted">
+                        {entry.links.commitShas.map((sha) => (
+                          <Pill key={`${entry.id}-${sha}`} tone="accent">
+                            {sha.slice(0, 7)}
+                          </Pill>
+                        ))}
+                      </div>
+                    )}
 
-                  {repo?.id === entry.links.repoIds[0] && (
-                    <div className="text-xs text-muted">Repo linked: {repo.name}</div>
-                  )}
+                    {repo?.id === entry.links.repoIds[0] && (
+                      <div className="text-xs text-muted">Repo linked: {repo.name}</div>
+                    )}
 
-                  {(missingTasks > 0 || missingRoadmap > 0) && (
-                    <div className="text-xs text-amber-200">
-                      {missingTasks > 0 ? `${missingTasks} linked task(s) missing.` : ""}
-                      {missingTasks > 0 && missingRoadmap > 0 ? " " : ""}
-                      {missingRoadmap > 0 ? `${missingRoadmap} linked roadmap card(s) missing.` : ""}
-                    </div>
-                  )}
-                </div>
-              )}
+                    {(missingTasks > 0 || missingRoadmap > 0) && (
+                      <div className="text-xs text-amber-200">
+                        {missingTasks > 0 ? `${missingTasks} linked task(s) missing.` : ""}
+                        {missingTasks > 0 && missingRoadmap > 0 ? " " : ""}
+                        {missingRoadmap > 0 ? `${missingRoadmap} linked roadmap card(s) missing.` : ""}
+                      </div>
+                    )}
+                  </div>
+                )}
             </div>
           );
         })}
@@ -370,22 +371,18 @@ export default function ProjectJournalPanel({
         <div className="grid gap-3">
           <label className="grid gap-1">
             <span className="text-xs text-muted">Type</span>
-            <select
-              className="input"
+            <Select
+              className="w-full"
               value={draft.type}
-              onChange={(event) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  type: event.target.value as JournalDraft["type"]
-                }))
-              }
-            >
-              <option value="note">Note</option>
-              <option value="decision">Decision</option>
-              <option value="blocker">Blocker</option>
-              <option value="next">Next</option>
-              <option value="idea">Idea</option>
-            </select>
+              onChange={(val) => setDraft((prev) => ({ ...prev, type: val as JournalDraft["type"] }))}
+              options={[
+                { value: "note", label: "Note" },
+                { value: "decision", label: "Decision" },
+                { value: "blocker", label: "Blocker" },
+                { value: "next", label: "Next" },
+                { value: "idea", label: "Idea" }
+              ]}
+            />
           </label>
           <label className="grid gap-1">
             <span className="text-xs text-muted">Title</span>
@@ -417,63 +414,39 @@ export default function ProjectJournalPanel({
           </label>
           <label className="grid gap-1">
             <span className="text-xs text-muted">Link Tasks</span>
-            <select
+            <Select
               multiple
-              className="input"
+              className="w-full"
               value={draft.taskIds}
-              onChange={(event) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  taskIds: Array.from(event.target.selectedOptions).map((option) => option.value)
-                }))
-              }
-            >
-              {tasks.map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.text}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setDraft((prev) => ({ ...prev, taskIds: val }))}
+              options={tasks.map((task) => ({ value: task.id, label: task.text }))}
+              placeholder="Select tasks..."
+            />
           </label>
           <label className="grid gap-1">
             <span className="text-xs text-muted">Link Roadmap Cards</span>
-            <select
+            <Select
               multiple
-              className="input"
+              className="w-full"
               value={draft.roadmapCardIds}
-              onChange={(event) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  roadmapCardIds: Array.from(event.target.selectedOptions).map((option) => option.value)
-                }))
-              }
-            >
-              {roadmapCards.map((card) => (
-                <option key={card.id} value={card.id}>
-                  {card.title}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setDraft((prev) => ({ ...prev, roadmapCardIds: val }))}
+              options={roadmapCards.map((card) => ({ value: card.id, label: card.title }))}
+              placeholder="Select roadmap cards..."
+            />
           </label>
           <label className="grid gap-1">
             <span className="text-xs text-muted">Pick Recent Commits</span>
-            <select
+            <Select
               multiple
-              className="input"
+              className="w-full"
               value={draft.selectedCommitShas}
-              onChange={(event) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  selectedCommitShas: Array.from(event.target.selectedOptions).map((option) => option.value)
-                }))
-              }
-            >
-              {availableCommitOptions.map((commit) => (
-                <option key={commit.sha} value={commit.sha}>
-                  {commit.shortSha} - {commit.message}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setDraft((prev) => ({ ...prev, selectedCommitShas: val }))}
+              options={availableCommitOptions.map((commit) => ({
+                value: commit.sha,
+                label: `${commit.shortSha} - ${commit.message}`
+              }))}
+              placeholder="Select commits..."
+            />
           </label>
           <label className="grid gap-1">
             <span className="text-xs text-muted">Manual Commit SHAs</span>
