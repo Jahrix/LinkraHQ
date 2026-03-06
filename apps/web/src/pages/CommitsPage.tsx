@@ -33,28 +33,38 @@ export default function CommitsPage() {
   const [githubUser, setGithubUser] = useState<GithubUser | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [userLoading, setUserLoading] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   if (!state) return null;
 
   const loadGithubUser = async () => {
-    if (!state.github.loggedIn) return;
     setUserLoading(true);
     try {
       const result = await api.githubUser();
       setGithubUser(result.user);
+      if (!state.github.loggedIn) {
+        const next = cloneAppState(state);
+        next.github.loggedIn = true;
+        await save(next);
+      }
     } catch {
       setGithubUser(null);
+      if (state.github.loggedIn) {
+        const next = cloneAppState(state);
+        next.github.loggedIn = false;
+        await save(next);
+      }
     } finally {
       setUserLoading(false);
+      setIsCheckingAuth(false);
     }
   };
 
-  // On mount, detect auth callback params and load user if already connected
+  // On mount, always probe the server session — don't rely on Supabase state
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.includes("auth=success")) {
       push("GitHub connected successfully.", "success");
-      // Clean up hash
       window.history.replaceState(null, "", window.location.pathname + window.location.search + "#commits");
       setConnectError(null);
     } else if (hash.includes("auth=error")) {
@@ -62,7 +72,7 @@ export default function CommitsPage() {
       window.history.replaceState(null, "", window.location.pathname + window.location.search + "#commits");
     }
     loadGithubUser();
-  }, [state.github.loggedIn]);
+  }, []);
 
   const addRepo = async () => {
     if (!repoInput.trim()) return;
@@ -84,7 +94,7 @@ export default function CommitsPage() {
   };
 
   const loadCommits = async () => {
-    if (!state.github.loggedIn) return;
+    if (!githubUser) return;
     setLoading(true);
     setError(null);
     try {
@@ -111,6 +121,11 @@ export default function CommitsPage() {
       await api.logout();
       setGithubUser(null);
       setCommits({});
+      if (state.github.loggedIn) {
+        const next = cloneAppState(state);
+        next.github.loggedIn = false;
+        await save(next);
+      }
       push("GitHub disconnected.");
     } catch {
       push("Failed to disconnect GitHub.", "error");
@@ -118,10 +133,12 @@ export default function CommitsPage() {
   };
 
   useEffect(() => {
-    loadCommits();
-  }, [state.userSettings.selectedRepos, state.github.loggedIn]);
+    if (githubUser) loadCommits();
+  }, [state.userSettings.selectedRepos, githubUser]);
 
-  if (!state.github.loggedIn) {
+  if (isCheckingAuth) return null;
+
+  if (!githubUser) {
     return (
       <div className="panel space-y-5 max-w-lg">
         <div>

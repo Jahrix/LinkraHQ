@@ -494,9 +494,9 @@ app.get("/auth/github/callback", requireLocalControl, async (req, res) => {
     const user = await fetchGithubUser(token);
     req.session.githubToken = token;
     req.session.githubUser = user;
-    res.redirect(`${clientOrigin}/#/settings?auth=success`);
+    res.redirect(`${clientOrigin}/#/commits?auth=success`);
   } catch {
-    res.redirect(`${clientOrigin}/#/settings?auth=error`);
+    res.redirect(`${clientOrigin}/#/commits?auth=error`);
   }
 });
 
