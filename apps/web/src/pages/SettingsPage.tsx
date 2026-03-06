@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { insightRules } from "@linkra/shared";
+import { insightRules, type AppState } from "@linkra/shared";
 import { api } from "../lib/api";
+import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
 import { formatDate } from "../lib/date";
 import Select from "../components/Select";
 
 export default function SettingsPage() {
-  const { state, save, refresh } = useAppState();
+  const { state, save } = useAppState();
   const { push } = useToast();
   const [startupInfo, setStartupInfo] = useState<{ os: string; instructions: string; files: string[] } | null>(null);
   const [startupHealth, setStartupHealth] = useState<{
@@ -15,7 +16,6 @@ export default function SettingsPage() {
     lastScanAt: string | null;
     scanStatus: any;
     gitAvailable: boolean;
-    watchDirs: { dir: string; exists: boolean }[];
   } | null>(null);
   const [watchDir, setWatchDir] = useState("");
   const [excludePattern, setExcludePattern] = useState("");
@@ -29,6 +29,20 @@ export default function SettingsPage() {
 
   if (!state) return null;
 
+  const persistState = async (
+    mutate: (draft: AppState) => void,
+    failureMessage = "Failed to save settings."
+  ) => {
+    const next = cloneAppState(state);
+    mutate(next);
+    const saved = await save(next);
+    if (!saved) {
+      push(failureMessage, "error");
+      return null;
+    }
+    return next;
+  };
+
   const generateStartup = async () => {
     const result = await api.createStartup();
     setStartupInfo(result);
@@ -36,109 +50,109 @@ export default function SettingsPage() {
   };
 
   const toggleStartup = async (enabled: boolean) => {
-    const next = { ...state };
-    next.userSettings.startOnLogin = enabled;
-    await save(next);
+    const saved = await persistState((next) => {
+      next.userSettings.startOnLogin = enabled;
+    }, "Failed to update startup setting.");
+    if (!saved) return;
     if (enabled) {
       await generateStartup();
     }
   };
 
   const updateAppearance = async (key: "accent" | "reduceMotion", value: string | boolean) => {
-    const next = { ...state };
-    if (key === "accent" && typeof value === "string") {
-      next.userSettings.accent = value;
-    }
-    if (key === "reduceMotion" && typeof value === "boolean") {
-      next.userSettings.reduceMotion = value;
-    }
-    await save(next);
+    await persistState((next) => {
+      if (key === "accent" && typeof value === "string") {
+        next.userSettings.accent = value;
+      }
+      if (key === "reduceMotion" && typeof value === "boolean") {
+        next.userSettings.reduceMotion = value;
+      }
+    }, "Failed to update appearance.");
   };
 
   const toggleInsightRule = async (ruleId: string) => {
-    const next = { ...state };
-    const disabled = new Set(next.userSettings.disabledInsightRules ?? []);
-    if (disabled.has(ruleId)) {
-      disabled.delete(ruleId);
-    } else {
-      disabled.add(ruleId);
-    }
-    next.userSettings.disabledInsightRules = Array.from(disabled);
-    await save(next);
-    await api.runInsights();
+    const saved = await persistState((next) => {
+      const disabled = new Set(next.userSettings.disabledInsightRules ?? []);
+      if (disabled.has(ruleId)) {
+        disabled.delete(ruleId);
+      } else {
+        disabled.add(ruleId);
+      }
+      next.userSettings.disabledInsightRules = Array.from(disabled);
+    }, "Failed to update insight rules.");
+    if (!saved) return;
   };
 
   const toggleWatcher = async (enabled: boolean) => {
-    const next = { ...state };
-    next.userSettings.gitWatcherEnabled = enabled;
-    await save(next);
+    await persistState((next) => {
+      next.userSettings.gitWatcherEnabled = enabled;
+    }, "Failed to update watcher setting.");
   };
 
   const updateBackupSettings = async (key: "enableDailyBackup" | "backupRetentionDays", value: boolean | number) => {
-    const next = { ...state };
-    if (key === "enableDailyBackup" && typeof value === "boolean") {
-      next.userSettings.enableDailyBackup = value;
-    }
-    if (key === "backupRetentionDays" && typeof value === "number") {
-      next.userSettings.backupRetentionDays = value;
-    }
-    await save(next);
+    await persistState((next) => {
+      if (key === "enableDailyBackup" && typeof value === "boolean") {
+        next.userSettings.enableDailyBackup = value;
+      }
+      if (key === "backupRetentionDays" && typeof value === "number") {
+        next.userSettings.backupRetentionDays = value;
+      }
+    }, "Failed to update backup settings.");
   };
 
   const runBackup = async () => {
-    const result = await api.backupRun();
+    const result = await api.backupRun(state, state.userSettings.backupRetentionDays);
     push(`Backup saved to ${result.filepath}`);
   };
 
   const runScan = async () => {
-    await api.gitScan();
-    await refresh();
-    const status = await api.gitRepos();
-    setScanStatus({ lastScanAt: status.lastScanAt, errors: status.errors });
+    const result = await api.gitScan(state);
+    const saved = await save(result.state);
+    if (!saved) return;
+    setScanStatus({ lastScanAt: result.lastScanAt, errors: result.errors });
     push("Local Git scan complete.");
   };
 
   const addWatchDir = async () => {
     if (!watchDir.trim()) return;
-    const next = { ...state };
-    const nextDirs = Array.from(
-      new Set([...next.userSettings.repoWatchDirs, watchDir.trim()])
-    );
-    next.userSettings.repoWatchDirs = nextDirs;
+    const saved = await persistState((next) => {
+      next.userSettings.repoWatchDirs = Array.from(
+        new Set([...next.userSettings.repoWatchDirs, watchDir.trim()])
+      );
+    }, "Failed to add watch directory.");
+    if (!saved) return;
     setWatchDir("");
-    await save(next);
-    await runScan();
   };
 
   const removeWatchDir = async (dir: string) => {
-    const next = { ...state };
-    next.userSettings.repoWatchDirs = next.userSettings.repoWatchDirs.filter((item) => item !== dir);
-    await save(next);
+    await persistState((next) => {
+      next.userSettings.repoWatchDirs = next.userSettings.repoWatchDirs.filter((item) => item !== dir);
+    }, "Failed to remove watch directory.");
   };
 
   const updateScanInterval = async (minutes: number) => {
-    const next = { ...state };
-    next.userSettings.repoScanIntervalMinutes = minutes;
-    await save(next);
+    await persistState((next) => {
+      next.userSettings.repoScanIntervalMinutes = minutes;
+    }, "Failed to update scan interval.");
   };
 
   const addExcludePattern = async () => {
     if (!excludePattern.trim()) return;
-    const next = { ...state };
-    const nextPatterns = Array.from(
-      new Set([...next.userSettings.repoExcludePatterns, excludePattern.trim()])
-    );
-    next.userSettings.repoExcludePatterns = nextPatterns;
+    const saved = await persistState((next) => {
+      next.userSettings.repoExcludePatterns = Array.from(
+        new Set([...next.userSettings.repoExcludePatterns, excludePattern.trim()])
+      );
+    }, "Failed to add exclude pattern.");
+    if (!saved) return;
     setExcludePattern("");
-    await save(next);
   };
 
   const removeExcludePattern = async (pattern: string) => {
-    const next = { ...state };
-    next.userSettings.repoExcludePatterns = next.userSettings.repoExcludePatterns.filter(
-      (item) => item !== pattern
-    );
-    await save(next);
+    await persistState((next) => {
+      next.userSettings.repoExcludePatterns = next.userSettings.repoExcludePatterns.filter(
+        (item) => item !== pattern
+      );
+    }, "Failed to remove exclude pattern.");
   };
 
   const localRepos = state.localRepos ?? [];
@@ -355,9 +369,9 @@ export default function SettingsPage() {
             <div>Watcher: {startupHealth.scanStatus?.watcherActive ? "On" : "Off"}</div>
             <div>
               Watch dirs:
-              {startupHealth.watchDirs.map((dir) => (
-                <div key={dir.dir}>
-                  {dir.dir} — {dir.exists ? "OK" : "Missing"}
+              {state.userSettings.repoWatchDirs.map((dir) => (
+                <div key={dir}>
+                  {dir}
                 </div>
               ))}
             </div>

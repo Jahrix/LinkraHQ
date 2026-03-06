@@ -1,8 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { SCHEMA_VERSION } from "@linkra/shared";
-import { getState } from "./store.js";
+import { SCHEMA_VERSION, type AppState } from "@linkra/shared";
 
 const BACKUP_DIR = path.join(os.homedir(), ".linkra", "backups");
 
@@ -16,14 +15,14 @@ export function getBackupDir() {
   return BACKUP_DIR;
 }
 
-export function runBackupNow(retentionDays = 14) {
+export function runBackupNow(state: AppState, retentionDays = 14) {
   ensureDir(BACKUP_DIR);
   const filename = `linkra-backup-${new Date().toISOString().slice(0, 10)}.json`;
   const filepath = path.join(BACKUP_DIR, filename);
   const data = {
     schema_version: SCHEMA_VERSION,
     created_at: new Date().toISOString(),
-    data: getState()
+    data: state
   };
   fs.writeFileSync(filepath, JSON.stringify(data, null, 2));
   pruneBackups(retentionDays);
@@ -45,15 +44,5 @@ function pruneBackups(retentionDays: number) {
 }
 
 export function scheduleDailyBackups(retentionDays: number) {
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(2, 0, 0, 0);
-  if (next <= now) {
-    next.setDate(next.getDate() + 1);
-  }
-  const delay = next.getTime() - now.getTime();
-  setTimeout(() => {
-    runBackupNow(retentionDays);
-    setInterval(() => runBackupNow(retentionDays), 24 * 60 * 60 * 1000);
-  }, delay);
+  void retentionDays;
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
 import { formatTime } from "../lib/date";
 import QuickCapture from "../components/QuickCapture";
@@ -36,7 +37,7 @@ export default function ToolsPage() {
   const completeSession = async () => {
     setRunning(false);
     const now = new Date().toISOString();
-    const next = { ...state };
+    const next = cloneAppState(state);
     next.focusSessions = [
       {
         id: crypto.randomUUID(),
@@ -66,7 +67,7 @@ export default function ToolsPage() {
   const addSessionLog = async () => {
     if (!sessionText.trim()) return;
     const now = new Date().toISOString();
-    const next = { ...state };
+    const next = cloneAppState(state);
     next.sessionLogs = [
       {
         id: crypto.randomUUID(),

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  type AppState,
   computeGoalMetrics,
   todayKey,
   type Insight,
@@ -28,6 +29,8 @@ import ProjectCard from "../components/ProjectCard";
 import ProjectModal, { type ProjectDraft } from "../components/ProjectModal";
 import SignalActionPanel from "../components/SignalActionPanel";
 import { api } from "../lib/api";
+import { cloneAppState } from "../lib/appStateModel";
+import { resolveProjectSelection } from "../lib/dashboardSelection";
 import { useToast } from "../lib/toast";
 import { computeTodayPlan, isTaskBlocked } from "../lib/taskRules";
 import { formatDate } from "../lib/date";
@@ -52,10 +55,9 @@ type InsightGroup = {
 const projectColors = ["#5DD8FF", "#78E3A4", "#F9A8D4", "#F59E0B", "#60A5FA", "#A78BFA", "#22D3EE"];
 
 export default function DashboardPage({ projectId }: { projectId?: string | null }) {
-  const { state, save, refresh } = useAppState();
+  const { state, save } = useAppState();
   const { push } = useToast();
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("Tasks");
   const [showArchived, setShowArchived] = useState(false);
   const [openProjectMenu, setOpenProjectMenu] = useState<string | null>(null);
@@ -64,9 +66,6 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const [taskText, setTaskText] = useState("");
   const [taskDue, setTaskDue] = useState("");
   const [taskPriority, setTaskPriority] = useState<"low" | "med" | "high">("med");
-
-  const [remoteRepoInput, setRemoteRepoInput] = useState("");
-  const [localRepoInput, setLocalRepoInput] = useState("");
   const [commitFeed, setCommitFeed] = useState<any[]>([]);
   const [localCommitFeed, setLocalCommitFeed] = useState<any[]>([]);
 
@@ -86,9 +85,11 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const uniqueRepos = dedupedLocalRepos.items;
   const repoByPath = new Map(uniqueRepos.map((repo) => [repo.path, repo]));
   const repoById = new Map(uniqueRepos.map((repo) => [repo.id, repo]));
+  const disabledInsightRules = new Set(state.userSettings.disabledInsightRules ?? []);
 
   const now = Date.now();
   const activeInsights = dedupeById(state.insights ?? []).items.filter((item) => {
+    if (disabledInsightRules.has(item.ruleId)) return false;
     if (item.dismissedUntil && new Date(item.dismissedUntil).getTime() > now) return false;
     if (!showArchived && item.projectId) {
       const project = projects.find((candidate) => candidate.id === item.projectId);
@@ -98,13 +99,8 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   });
 
   const visibleProjects = showArchived ? projects : projects.filter((project) => !isArchivedProject(project));
-
-  // Force selection lock if projectId is passed via route hash
-  const forcedIndex = projectId ? visibleProjects.findIndex(p => p.id === projectId) : -1;
-  const activeIndex = forcedIndex >= 0 ? forcedIndex : selectedIndex;
-
-  const selectedProject =
-    visibleProjects.length > 0 && activeIndex < visibleProjects.length ? visibleProjects[activeIndex] : null;
+  const selection = resolveProjectSelection(visibleProjects, selectedProjectId, projectId);
+  const selectedProject = selection.selectedProject;
 
   // Narrow all view variables if projectId is provided (isolate to one project)
   const dashboardProjects = projectId && selectedProject ? [selectedProject] : visibleProjects;
@@ -214,28 +210,31 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       `${task.projectName} ${task.text}`.toLowerCase().includes(todayTaskQuery.toLowerCase())
   );
 
+  const persistState = async (
+    mutate: (draft: AppState) => void,
+    failureMessage = "Failed to save changes."
+  ) => {
+    const next = cloneAppState(state);
+    mutate(next);
+    const saved = await save(next);
+    if (!saved) {
+      push(failureMessage, "error");
+      return null;
+    }
+    return next;
+  };
+
   useEffect(() => {
-    if (!selectedId && visibleProjects[0]) {
-      setSelectedId(visibleProjects[0].id);
+    if (selection.selectedProjectId !== selectedProjectId) {
+      setSelectedProjectId(selection.selectedProjectId);
       return;
     }
-    if (selectedId && !showArchived) {
-      const selected = projects.find((project) => project.id === selectedId);
-      if (selected && isArchivedProject(selected) && visibleProjects[0]) {
-        setSelectedId(visibleProjects[0].id);
-      }
-    }
-  }, [selectedId, visibleProjects, projects, showArchived]);
+  }, [selectedProjectId, selection.selectedProjectId]);
 
   useEffect(() => {
     setCommitFeed([]);
     setLocalCommitFeed([]);
   }, [selectedProject?.id]);
-
-  useEffect(() => {
-    setRemoteRepoInput(selectedProject?.remoteRepo ?? selectedProject?.githubRepo ?? "");
-    setLocalRepoInput(selectedProject?.localRepoPath ?? "");
-  }, [selectedProject?.id, selectedProject?.remoteRepo, selectedProject?.githubRepo, selectedProject?.localRepoPath]);
 
   useEffect(() => {
     setTodayPlanDraft(state.todayPlanByDate?.[todayKey()]?.taskIds ?? []);
@@ -261,21 +260,21 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const openProjectSettings = (project: Project) => {
-    setSelectedId(project.id);
+    setSelectedProjectId(project.id);
     setActiveTab("Project Settings");
     setOpenProjectMenu(null);
   };
 
   const saveNewProject = async (draft: any) => {
-    const next = { ...state };
     const created = createProjectFromDraft(
       draft,
-      projectColors[next.projects.length % projectColors.length] ?? projectColors[0]
+      projectColors[state.projects.length % projectColors.length] ?? projectColors[0]
     );
-    next.projects.unshift(created);
-
-    await save(next);
-    setSelectedId(created.id);
+    const saved = await persistState((next) => {
+      next.projects.unshift(created);
+    }, "Failed to create project.");
+    if (!saved) return;
+    setSelectedProjectId(created.id);
     setActiveTab("Tasks");
     setProjectModalOpen(false);
     push("Project created.", "success");
@@ -283,32 +282,28 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const saveProjectSettings = async (draft: any) => {
     if (!selectedProject) return;
-
-    const next = { ...state };
-    const project = next.projects.find((item) => item.id === selectedProject.id);
-    if (!project) return;
-
-    const previousName = project.name;
-    applyProjectDraftToProject(project, draft);
-    next.roadmapCards = normalizeRoadmapProjectRefs(next.roadmapCards, project, [previousName]);
-
-    await save(next);
+    const saved = await persistState((next) => {
+      const project = next.projects.find((item) => item.id === selectedProject.id);
+      if (!project) return;
+      const previousName = project.name;
+      applyProjectDraftToProject(project, draft);
+      next.roadmapCards = normalizeRoadmapProjectRefs(next.roadmapCards, project, [previousName]);
+    }, "Failed to save project settings.");
+    if (!saved) return;
     setActiveTab("Tasks");
     push("Settings saved.", "success");
   };
 
   const setProjectArchived = async (projectId: string, archived: boolean) => {
-    const next = { ...state };
-    const project = next.projects.find((item) => item.id === projectId);
-    if (!project) return;
-
-    project.status = archived ? "Archived" : "In Progress";
-    project.archivedAt = archived ? new Date().toISOString() : null;
-    project.updatedAt = new Date().toISOString();
-
-    next.roadmapCards = normalizeRoadmapProjectRefs(next.roadmapCards, project);
-    await save(next);
-
+    const saved = await persistState((next) => {
+      const project = next.projects.find((item) => item.id === projectId);
+      if (!project) return;
+      project.status = archived ? "Archived" : "In Progress";
+      project.archivedAt = archived ? new Date().toISOString() : null;
+      project.updatedAt = new Date().toISOString();
+      next.roadmapCards = normalizeRoadmapProjectRefs(next.roadmapCards, project);
+    }, archived ? "Failed to archive project." : "Failed to restore project.");
+    if (!saved) return;
     push(archived ? "Project archived." : "Project restored.", "success");
     setOpenProjectMenu(null);
   };
@@ -316,31 +311,32 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const deleteProject = async (projectId: string) => {
     const confirmed = window.confirm("Delete this project permanently? This cannot be undone.");
     if (!confirmed) return;
-    const next = { ...state };
-    const deletedTaskIds = new Set(
-      next.projects.find((project) => project.id === projectId)?.tasks.map((task) => task.id) ?? []
-    );
-    next.projects = next.projects.filter((project) => project.id !== projectId);
-    next.journalEntries = next.journalEntries.map((entry) =>
-      entry.projectId === projectId ? { ...entry, projectId: null } : entry
-    );
-    next.insights = next.insights.map((insight) =>
-      insight.projectId === projectId ? { ...insight, projectId: null } : insight
-    );
-    next.roadmapCards = next.roadmapCards.map((card) =>
-      card.project === projectId ? { ...card, project: null } : card
-    );
-    next.todayPlanByDate = Object.fromEntries(
-      Object.entries(next.todayPlanByDate).map(([date, plan]) => [
-        date,
-        {
-          ...plan,
-          taskIds: plan.taskIds.filter((taskId) => !deletedTaskIds.has(taskId))
-        }
-      ])
-    );
-    await save(next);
-    if (selectedId === projectId) setSelectedId(null);
+    const saved = await persistState((next) => {
+      const deletedTaskIds = new Set(
+        next.projects.find((project) => project.id === projectId)?.tasks.map((task) => task.id) ?? []
+      );
+      next.projects = next.projects.filter((project) => project.id !== projectId);
+      next.journalEntries = next.journalEntries.map((entry) =>
+        entry.projectId === projectId ? { ...entry, projectId: null } : entry
+      );
+      next.insights = next.insights.map((insight) =>
+        insight.projectId === projectId ? { ...insight, projectId: null } : insight
+      );
+      next.roadmapCards = next.roadmapCards.map((card) =>
+        card.project === projectId ? { ...card, project: null } : card
+      );
+      next.todayPlanByDate = Object.fromEntries(
+        Object.entries(next.todayPlanByDate).map(([date, plan]) => [
+          date,
+          {
+            ...plan,
+            taskIds: plan.taskIds.filter((taskId) => !deletedTaskIds.has(taskId))
+          }
+        ])
+      );
+    }, "Failed to delete project.");
+    if (!saved) return;
+    if (selectedProjectId === projectId) setSelectedProjectId(null);
     setOpenProjectMenu(null);
     push("Project deleted.", "success");
   };
@@ -349,57 +345,59 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     if (!todayEntry) return;
     const title = window.prompt("New goal");
     if (!title) return;
-    const next = { ...state };
-    next.dailyGoalsByDate[todayKey()].goals.unshift({
-      id: crypto.randomUUID(),
-      title,
-      category: "Focus",
-      points: 1,
-      done: false,
-      createdAt: new Date().toISOString(),
-      completedAt: null
-    });
-    const metrics = computeGoalMetrics(next.dailyGoalsByDate[todayKey()].goals);
-    next.dailyGoalsByDate[todayKey()].score = metrics.score;
-    next.dailyGoalsByDate[todayKey()].completedPoints = metrics.completedPoints;
-    await save(next);
+    await persistState((next) => {
+      next.dailyGoalsByDate[todayKey()].goals.unshift({
+        id: crypto.randomUUID(),
+        title,
+        category: "Focus",
+        points: 1,
+        done: false,
+        createdAt: new Date().toISOString(),
+        completedAt: null
+      });
+      const metrics = computeGoalMetrics(next.dailyGoalsByDate[todayKey()].goals);
+      next.dailyGoalsByDate[todayKey()].score = metrics.score;
+      next.dailyGoalsByDate[todayKey()].completedPoints = metrics.completedPoints;
+    }, "Failed to add goal.");
   };
 
   const handleSaveTemplate = async () => {
     if (!todayEntry) return;
-    const next = { ...state };
-    next.userSettings.goalTemplate = todayEntry.goals.map((goal) => ({ ...goal }));
-    await save(next);
+    const saved = await persistState((next) => {
+      next.userSettings.goalTemplate = todayEntry.goals.map((goal) => ({ ...goal }));
+    }, "Failed to save goal template.");
+    if (!saved) return;
     push("Goal template saved.", "success");
   };
 
   const addTask = async () => {
     if (!selectedProject || !taskText.trim()) return;
-    const next = { ...state };
-    const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
-    if (!project) return;
-    project.tasks.unshift({
-      id: crypto.randomUUID(),
-      text: taskText.trim(),
-      done: false,
-      status: "todo",
-      dependsOnIds: [],
-      priority: taskPriority,
-      dueDate: taskDue || null,
-      milestone: null,
-      createdAt: new Date().toISOString(),
-      completedAt: null,
-      linkedCommit: null
-    });
+    const saved = await persistState((next) => {
+      const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
+      if (!project) return;
+      project.tasks.unshift({
+        id: crypto.randomUUID(),
+        text: taskText.trim(),
+        done: false,
+        status: "todo",
+        dependsOnIds: [],
+        priority: taskPriority,
+        dueDate: taskDue || null,
+        milestone: null,
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+        linkedCommit: null
+      });
+    }, "Failed to add task.");
+    if (!saved) return;
     setTaskText("");
     setTaskDue("");
     setTaskPriority("med");
-    await save(next);
   };
 
   const toggleTask = async (taskId: string, done: boolean) => {
     if (!selectedProject) return;
-    const next = { ...state };
+    const next = cloneAppState(state);
     const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
     if (!project) return;
     const task = project.tasks.find((item) => item.id === taskId);
@@ -419,12 +417,15 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
 
     if (!done) task.linkedCommit = null;
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to update task.", "error");
+    }
   };
 
   const updateTaskStatus = async (taskId: string, status: "todo" | "doing" | "done") => {
     if (!selectedProject) return;
-    const next = { ...state };
+    const next = cloneAppState(state);
     const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
     if (!project) return;
     const task = project.tasks.find((item) => item.id === taskId);
@@ -438,37 +439,47 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     task.status = status;
     task.done = status === "done";
     task.completedAt = status === "done" ? new Date().toISOString() : null;
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to update task status.", "error");
+    }
   };
 
   const updateTaskDependencies = async (taskId: string, deps: string[]) => {
     if (!selectedProject) return;
-    const next = { ...state };
+    const next = cloneAppState(state);
     const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
     if (!project) return;
     const task = project.tasks.find((item) => item.id === taskId);
     if (!task) return;
     task.dependsOnIds = deps;
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to update task dependencies.", "error");
+    }
   };
 
   const updateTaskPriority = async (taskId: string, priority: "low" | "med" | "high") => {
     if (!selectedProject) return;
-    const next = { ...state };
+    const next = cloneAppState(state);
     const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
     if (!project) return;
     const task = project.tasks.find((item) => item.id === taskId);
     if (!task) return;
     task.priority = priority;
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to update task priority.", "error");
+    }
   };
 
   const adjustHours = async (projectId: string, delta: number) => {
-    const next = { ...state };
-    const project = next.projects.find((candidate) => candidate.id === projectId);
-    if (!project) return;
-    project.weeklyHours = Math.max(0, Math.min(40, project.weeklyHours + delta));
-    await save(next);
+    const saved = await persistState((next) => {
+      const project = next.projects.find((candidate) => candidate.id === projectId);
+      if (!project) return;
+      project.weeklyHours = Math.max(0, Math.min(40, project.weeklyHours + delta));
+    }, "Failed to update weekly hours.");
+    if (!saved) return;
   };
 
   const loadCommits = async () => {
@@ -485,44 +496,10 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
   };
 
-  const setProjectRepo = async () => {
-    if (!selectedProject) return;
-    const next = { ...state };
-    const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
-    if (!project) return;
-    project.githubRepo = remoteRepoInput.trim() || null;
-    project.remoteRepo = remoteRepoInput.trim() || null;
-    await save(next);
-    push("GitHub repo updated.", "success");
-  };
-
-  const linkLocalRepo = async () => {
-    if (!selectedProject || !localRepoInput) return;
-    try {
-      await api.gitLink(selectedProject.id, localRepoInput);
-      await refresh();
-      push("Local repo linked.", "success");
-    } catch (err) {
-      push(err instanceof Error ? err.message : "Failed to link local repo.", "error");
-    }
-  };
-
-  const unlinkLocalRepo = async () => {
-    if (!selectedProject) return;
-    try {
-      await api.gitUnlink(selectedProject.id);
-      await refresh();
-      setLocalCommitFeed([]);
-      push("Local repo unlinked.", "success");
-    } catch (err) {
-      push(err instanceof Error ? err.message : "Failed to unlink local repo.", "error");
-    }
-  };
-
   const loadLocalCommits = async () => {
     if (!selectedProject?.localRepoPath) return;
     try {
-      const response = await api.gitLocalCommits(selectedProject.localRepoPath, 8);
+      const response = await api.gitLocalCommits(state, selectedProject.localRepoPath, 8);
       setLocalCommitFeed(response.commits ?? []);
     } catch (err) {
       push(err instanceof Error ? err.message : "Failed to load local commits.", "error");
@@ -536,11 +513,11 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const onDropRoadmap = async (event: React.DragEvent, lane: RoadmapLane) => {
     event.preventDefault();
     const id = event.dataTransfer.getData("text/plain");
-    const next = { ...state };
-    next.roadmapCards = next.roadmapCards.map((card) =>
-      card.id === id ? { ...card, lane, updatedAt: new Date().toISOString() } : card
-    );
-    await save(next);
+    await persistState((next) => {
+      next.roadmapCards = next.roadmapCards.map((card) =>
+        card.id === id ? { ...card, lane, updatedAt: new Date().toISOString() } : card
+      );
+    }, "Failed to update roadmap card.");
   };
 
   const generateAutoPlan = () => {
@@ -593,14 +570,15 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const persistTodayPlan = async (taskIds: string[], source: "auto" | "manual") => {
-    const next = { ...state };
-    next.todayPlanByDate[todayKey()] = {
-      taskIds,
-      generatedAt: new Date().toISOString(),
-      source,
-      notes: todayPlanNotes.trim() || null
-    };
-    await save(next);
+    const saved = await persistState((next) => {
+      next.todayPlanByDate[todayKey()] = {
+        taskIds,
+        generatedAt: new Date().toISOString(),
+        source,
+        notes: todayPlanNotes.trim() || null
+      };
+    }, "Failed to save today plan.");
+    if (!saved) return;
     push(source === "auto" ? "Today plan auto-generated." : "Today plan saved.", "success");
   };
 
@@ -638,17 +616,18 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       return;
     }
 
-    const next = { ...state };
-    next.focusSessions.unshift({
-      id: crypto.randomUUID(),
-      startedAt: new Date().toISOString(),
-      durationMinutes: 45,
-      completedAt: null,
-      planned: false,
-      projectId: entry.project.id,
-      reason: entry.task.text
-    });
-    await save(next);
+    const saved = await persistState((next) => {
+      next.focusSessions.unshift({
+        id: crypto.randomUUID(),
+        startedAt: new Date().toISOString(),
+        durationMinutes: 45,
+        completedAt: null,
+        planned: false,
+        projectId: entry.project.id,
+        reason: entry.task.text
+      });
+    }, "Failed to start focus session.");
+    if (!saved) return;
     push(`Focus started for ${entry.project.name}. Timer UI is still stubbed.`, "success");
   };
 
@@ -659,7 +638,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const applyInsightActionLocally = async (group: InsightGroup, action: SuggestedAction) => {
-    const next = { ...state };
+    const next = cloneAppState(state);
 
     if (action.type === "CREATE_TASK") {
       const targetProjectId = action.payload.projectId ?? group.projectId ?? selectedProject?.id ?? null;
@@ -683,8 +662,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
         completedAt: null,
         linkedCommit: null
       });
-      await save(next);
-      return true;
+      return save(next);
     }
 
     if (action.type === "SCHEDULE_FOCUS") {
@@ -697,8 +675,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
         projectId: action.payload.projectId ?? group.projectId ?? null,
         reason: String(action.payload.reason ?? group.title)
       });
-      await save(next);
-      return true;
+      return save(next);
     }
 
     if (action.type === "MOVE_ROADMAP_NOW" || action.type === "MOVE_ROADMAP_CARD") {
@@ -715,8 +692,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       }
       card.lane = lane as RoadmapLane;
       card.updatedAt = new Date().toISOString();
-      await save(next);
-      return true;
+      return save(next);
     }
 
     if (action.type === "CREATE_JOURNAL") {
@@ -738,8 +714,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
         createdAt: nowIso,
         updatedAt: nowIso
       });
-      await save(next);
-      return true;
+      return save(next);
     }
 
     if (action.type === "COPY_REPO_PATH") {
@@ -766,22 +741,18 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
           ? { ...insight, dismissedUntil: until, updatedAt: new Date().toISOString() }
           : insight
       );
-      await save(next);
-      return true;
+      return save(next);
     }
 
     return false;
   };
 
   const runInsightAction = async (group: InsightGroup, action: SuggestedAction) => {
-    if (action.type === "COPY_REPO_PATH" || action.type === "SNOOZE_1D" || action.type === "SNOOZE_1W") {
+    if (action.type === "COPY_REPO_PATH") {
       try {
         const applied = await applyInsightActionLocally(group, action);
         if (!applied) {
-          push(
-            action.type === "COPY_REPO_PATH" ? "No repo path available for this insight." : "Could not update this insight.",
-            "warning"
-          );
+          push("No repo path available for this insight.", "warning");
           return;
         }
         push(successMessageForInsightAction(action.type), "success");
@@ -792,16 +763,20 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
 
     try {
-      await api.insightAction(action);
-      await refresh();
-      push(successMessageForInsightAction(action.type), "success");
-    } catch {
-      const applied = await applyInsightActionLocally(group, action);
-      if (applied) {
-        push(`${successMessageForInsightAction(action.type)} API unavailable, applied locally.`, "warning");
+      if (action.type === "OPEN_REPO") {
+        await api.insightAction(state, action);
+        push(successMessageForInsightAction(action.type), "success");
         return;
       }
-      push(`Action unavailable in this build: ${action.label}.`, "warning");
+
+      const applied = await applyInsightActionLocally(group, action);
+      if (!applied) {
+        push(`Action unavailable in this build: ${action.label}.`, "warning");
+        return;
+      }
+      push(successMessageForInsightAction(action.type), "success");
+    } catch (err) {
+      push(err instanceof Error ? err.message : "Insight action failed.", "warning");
     }
   };
 
@@ -837,7 +812,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
               key={project.id}
               project={project}
               isSelected={selectedProject?.id === project.id}
-              onClick={() => { setSelectedId(project.id); setActiveTab("Tasks"); }}
+              onClick={() => { setSelectedProjectId(project.id); setActiveTab("Tasks"); }}
             />
           ))}
         </div>

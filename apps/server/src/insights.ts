@@ -2,9 +2,15 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
-import { insightRules, type Insight, type SuggestedAction } from "@linkra/shared";
+import { z } from "zod";
+import {
+  insightRules,
+  RoadmapLaneSchema,
+  SuggestedActionSchema,
+  type Insight,
+  type SuggestedAction
+} from "@linkra/shared";
 import type { AppState, LocalRepo, Project } from "@linkra/shared";
-import { saveState } from "./store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -69,6 +75,208 @@ function createInsight({
 
 function action(id: string, type: SuggestedAction["type"], label: string, payload: Record<string, any> = {}) {
   return { id, type, label, payload };
+}
+
+function normalizeRepoPath(repoPath: string) {
+  return path.resolve(repoPath);
+}
+
+function isUrlLike(value: string) {
+  try {
+    const parsed = new URL(value);
+    return Boolean(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function findProject(state: AppState, projectId?: string | null) {
+  if (!projectId) {
+    return null;
+  }
+  return state.projects.find((project) => project.id === projectId) ?? null;
+}
+
+function findInsight(state: AppState, insightId?: string | null) {
+  if (!insightId) {
+    return null;
+  }
+  return state.insights.find((insight) => insight.id === insightId) ?? null;
+}
+
+function findKnownRepo(state: AppState, repoPath: string) {
+  const normalizedPath = normalizeRepoPath(repoPath);
+  return (
+    state.localRepos.find((repo) => normalizeRepoPath(repo.path) === normalizedPath) ?? null
+  );
+}
+
+function validateKnownRepoPath(state: AppState, repoPath: unknown) {
+  if (typeof repoPath !== "string") {
+    return { ok: false as const, error: "repoPath must be a string" };
+  }
+
+  const trimmed = repoPath.trim();
+  if (!trimmed) {
+    return { ok: false as const, error: "repoPath is required" };
+  }
+  if (trimmed.includes("\u0000")) {
+    return { ok: false as const, error: "repoPath is invalid" };
+  }
+  if (isUrlLike(trimmed)) {
+    return { ok: false as const, error: "repoPath must be a local filesystem path" };
+  }
+
+  const normalizedPath = normalizeRepoPath(trimmed);
+  const repo = findKnownRepo(state, normalizedPath);
+  if (!repo) {
+    return { ok: false as const, error: "repoPath must match a known local repository" };
+  }
+
+  return { ok: true as const, repo, repoPath: normalizedPath };
+}
+
+export function validateInsightAction(state: AppState, actionInput: unknown) {
+  const parsed = SuggestedActionSchema.safeParse(actionInput);
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.message };
+  }
+
+  const action = parsed.data;
+  const payload = action.payload ?? {};
+
+  if (action.type === "CREATE_TASK") {
+    const schema = z.object({
+      projectId: z.string().min(1),
+      title: z.string().trim().min(1).max(200)
+    });
+    const result = schema.safeParse(payload);
+    if (!result.success) {
+      return { ok: false as const, error: result.error.message };
+    }
+    const project = findProject(state, result.data.projectId);
+    if (!project || project.status === "Archived") {
+      return { ok: false as const, error: "projectId must reference an active project" };
+    }
+    return { ok: true as const, action: { ...action, payload: result.data } };
+  }
+
+  if (action.type === "SCHEDULE_FOCUS") {
+    const schema = z.object({
+      projectId: z.string().min(1).nullable().optional(),
+      minutes: z.number().int().min(5).max(480).default(45),
+      reason: z.string().trim().min(1).max(200).nullable().optional()
+    });
+    const result = schema.safeParse(payload);
+    if (!result.success) {
+      return { ok: false as const, error: result.error.message };
+    }
+    if (result.data.projectId) {
+      const project = findProject(state, result.data.projectId);
+      if (!project || project.status === "Archived") {
+        return { ok: false as const, error: "projectId must reference an active project" };
+      }
+    }
+    return { ok: true as const, action: { ...action, payload: result.data } };
+  }
+
+  if (action.type === "MOVE_ROADMAP_NOW") {
+    const schema = z.object({
+      cardId: z.string().min(1)
+    });
+    const result = schema.safeParse(payload);
+    if (!result.success) {
+      return { ok: false as const, error: result.error.message };
+    }
+    const card = state.roadmapCards.find((item) => item.id === result.data.cardId);
+    if (!card) {
+      return { ok: false as const, error: "cardId must reference an existing roadmap card" };
+    }
+    return { ok: true as const, action: { ...action, payload: result.data } };
+  }
+
+  if (action.type === "MOVE_ROADMAP_CARD") {
+    const schema = z.object({
+      cardId: z.string().min(1),
+      lane: RoadmapLaneSchema
+    });
+    const result = schema.safeParse(payload);
+    if (!result.success) {
+      return { ok: false as const, error: result.error.message };
+    }
+    const card = state.roadmapCards.find((item) => item.id === result.data.cardId);
+    if (!card) {
+      return { ok: false as const, error: "cardId must reference an existing roadmap card" };
+    }
+    return { ok: true as const, action: { ...action, payload: result.data } };
+  }
+
+  if (action.type === "COPY_REPO_PATH" || action.type === "OPEN_REPO") {
+    const repo = validateKnownRepoPath(state, payload.repoPath);
+    if (!repo.ok) {
+      return repo;
+    }
+    return {
+      ok: true as const,
+      action: {
+        ...action,
+        payload: {
+          repoPath: repo.repoPath
+        }
+      }
+    };
+  }
+
+  if (action.type === "SNOOZE_1D" || action.type === "SNOOZE_1W" || action.type === "DISMISS") {
+    const schema = z.object({
+      insightId: z.string().min(1)
+    });
+    const result = schema.safeParse(payload);
+    if (!result.success) {
+      return { ok: false as const, error: result.error.message };
+    }
+    if (!findInsight(state, result.data.insightId)) {
+      return { ok: false as const, error: "insightId must reference an existing insight" };
+    }
+    return { ok: true as const, action: { ...action, payload: result.data } };
+  }
+
+  if (action.type === "CREATE_JOURNAL") {
+    const schema = z.object({
+      projectId: z.string().min(1).nullable().optional(),
+      entryType: z.enum(["note", "decision", "blocker", "next", "idea"]).default("note"),
+      title: z.string().trim().max(200).nullable().optional(),
+      body: z.string().trim().min(1).max(4000)
+    });
+    const result = schema.safeParse(payload);
+    if (!result.success) {
+      return { ok: false as const, error: result.error.message };
+    }
+    if (result.data.projectId) {
+      const project = findProject(state, result.data.projectId);
+      if (!project || project.status === "Archived") {
+        return { ok: false as const, error: "projectId must reference an active project" };
+      }
+    }
+    return { ok: true as const, action: { ...action, payload: result.data } };
+  }
+
+  if (action.type === "ARCHIVE_PROJECT") {
+    const schema = z.object({
+      projectId: z.string().min(1)
+    });
+    const result = schema.safeParse(payload);
+    if (!result.success) {
+      return { ok: false as const, error: result.error.message };
+    }
+    const project = findProject(state, result.data.projectId);
+    if (!project || project.status === "Archived") {
+      return { ok: false as const, error: "projectId must reference an active project" };
+    }
+    return { ok: true as const, action: { ...action, payload: result.data } };
+  }
+
+  return { ok: false as const, error: "action type is not allowed" };
 }
 
 export function computeInsights(state: AppState): Insight[] {
@@ -329,20 +537,26 @@ export async function updateInsights(state: AppState) {
     merged.set(insight.id, insight);
   }
   next.insights = Array.from(merged.values()).sort((a, b) => (a.ts < b.ts ? 1 : -1));
-  await saveState(next);
   return next;
 }
 
 export async function runInsightAction(state: AppState, action: SuggestedAction) {
+  const validated = validateInsightAction(state, action);
+  if (!validated.ok) {
+    throw new Error(validated.error);
+  }
+
+  const safeAction = validated.action;
   const next = { ...state };
   const now = nowIso();
 
-  if (action.type === "CREATE_TASK") {
-    const project = next.projects.find((p) => p.id === action.payload.projectId);
-    if (project && project.status !== "Archived" && action.payload.title) {
+  if (safeAction.type === "CREATE_TASK") {
+    const payload = safeAction.payload as { projectId: string; title: string };
+    const project = next.projects.find((p) => p.id === payload.projectId);
+    if (project) {
       project.tasks.unshift({
         id: crypto.randomUUID(),
-        text: action.payload.title,
+        text: payload.title,
         done: false,
         status: "todo",
         dependsOnIds: [],
@@ -357,21 +571,27 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
     }
   }
 
-  if (action.type === "SCHEDULE_FOCUS") {
-    const minutes = Number(action.payload.minutes ?? 45);
+  if (safeAction.type === "SCHEDULE_FOCUS") {
+    const payload = safeAction.payload as {
+      minutes: number;
+      projectId?: string | null;
+      reason?: string | null;
+    };
+    const minutes = Number(payload.minutes ?? 45);
     next.focusSessions.unshift({
       id: crypto.randomUUID(),
       startedAt: now,
       durationMinutes: minutes,
       completedAt: null,
       planned: true,
-      projectId: action.payload.projectId ?? null,
-      reason: action.payload.reason ?? "Insight"
+      projectId: payload.projectId ?? null,
+      reason: payload.reason ?? "Insight"
     });
   }
 
-  if (action.type === "MOVE_ROADMAP_NOW") {
-    const cardId = action.payload.cardId;
+  if (safeAction.type === "MOVE_ROADMAP_NOW") {
+    const payload = safeAction.payload as { cardId: string };
+    const cardId = payload.cardId;
     const card = next.roadmapCards.find((c) => c.id === cardId) ?? next.roadmapCards[0];
     if (card) {
       card.lane = "now";
@@ -379,9 +599,13 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
     }
   }
 
-  if (action.type === "MOVE_ROADMAP_CARD") {
-    const cardId = action.payload.cardId;
-    const lane = action.payload.lane ?? "now";
+  if (safeAction.type === "MOVE_ROADMAP_CARD") {
+    const payload = safeAction.payload as {
+      cardId: string;
+      lane: "now" | "next" | "later" | "shipped";
+    };
+    const cardId = payload.cardId;
+    const lane = payload.lane ?? "now";
     const card = next.roadmapCards.find((c) => c.id === cardId) ?? next.roadmapCards[0];
     if (card) {
       card.lane = lane;
@@ -389,14 +613,20 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
     }
   }
 
-  if (action.type === "CREATE_JOURNAL") {
+  if (safeAction.type === "CREATE_JOURNAL") {
+    const payload = safeAction.payload as {
+      projectId?: string | null;
+      entryType: "note" | "decision" | "blocker" | "next" | "idea";
+      title?: string | null;
+      body: string;
+    };
     next.journalEntries.unshift({
       id: crypto.randomUUID(),
-      projectId: action.payload.projectId ?? null,
+      projectId: payload.projectId ?? null,
       ts: now,
-      type: action.payload.entryType ?? "note",
-      title: action.payload.title ?? null,
-      body: action.payload.body ?? "",
+      type: payload.entryType ?? "note",
+      title: payload.title ?? null,
+      body: payload.body,
       links: {
         taskIds: [],
         roadmapCardIds: [],
@@ -409,8 +639,9 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
     });
   }
 
-  if (action.type === "OPEN_REPO") {
-    const repoPath = action.payload.repoPath;
+  if (safeAction.type === "OPEN_REPO") {
+    const payload = safeAction.payload as { repoPath: string };
+    const repoPath = payload.repoPath;
     if (repoPath) {
       const platform = process.platform;
       const command =
@@ -419,8 +650,9 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
     }
   }
 
-  if (action.type === "ARCHIVE_PROJECT") {
-    const project = next.projects.find((p) => p.id === action.payload.projectId);
+  if (safeAction.type === "ARCHIVE_PROJECT") {
+    const payload = safeAction.payload as { projectId: string };
+    const project = next.projects.find((p) => p.id === payload.projectId);
     if (project) {
       project.status = "Archived";
       project.archivedAt = now;
@@ -434,15 +666,16 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
   next.sessionLogs.unshift({
     id: crypto.randomUUID(),
     ts: now,
-    text: `Insight action: ${action.type}`,
-    project: action.payload.projectId ?? null,
+    text: `Insight action: ${safeAction.type}`,
+    project: "projectId" in safeAction.payload ? (safeAction.payload.projectId as string | null) ?? null : null,
     tags: ["insight"]
   });
 
-  if (action.type === "SNOOZE_1D" || action.type === "SNOOZE_1W") {
-    const insight = next.insights.find((item) => item.id === action.payload.insightId);
+  if (safeAction.type === "SNOOZE_1D" || safeAction.type === "SNOOZE_1W") {
+    const payload = safeAction.payload as { insightId: string };
+    const insight = next.insights.find((item) => item.id === payload.insightId);
     if (insight) {
-      const days = action.type === "SNOOZE_1W" ? 7 : 1;
+      const days = safeAction.type === "SNOOZE_1W" ? 7 : 1;
       const until = new Date();
       until.setDate(until.getDate() + days);
       insight.dismissedUntil = until.toISOString();
@@ -450,8 +683,9 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
     }
   }
 
-  if (action.type === "DISMISS") {
-    const insight = next.insights.find((item) => item.id === action.payload.insightId);
+  if (safeAction.type === "DISMISS") {
+    const payload = safeAction.payload as { insightId: string };
+    const insight = next.insights.find((item) => item.id === payload.insightId);
     if (insight) {
       insight.dismissedUntil = null;
       insight.updatedAt = now;
@@ -459,6 +693,5 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
     }
   }
 
-  await saveState(next);
   return next;
 }

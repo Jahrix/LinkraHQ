@@ -1,4 +1,4 @@
-import type { AppState, ExportBundle, LocalRepo, Insight, WeeklyReview } from "@linkra/shared";
+import type { AppState, LocalRepo, WeeklyReview, SuggestedAction } from "@linkra/shared";
 
 export const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -21,19 +21,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  getState: () => request<{ state: AppState }>("/api/state"),
-  saveState: (state: AppState) =>
-    request<{ state: AppState }>("/api/state", {
-      method: "POST",
-      body: JSON.stringify({ state })
-    }),
-  exportState: () => request<ExportBundle>("/api/export"),
-  importState: (mode: "replace" | "merge" | "merge_keep" | "merge_overwrite", data: ExportBundle) =>
-    request<{ state: AppState }>("/api/import", {
-      method: "POST",
-      body: JSON.stringify({ mode, data })
-    }),
-  wipeState: () => request<{ state: AppState }>("/api/wipe", { method: "POST" }),
   gitRepos: () =>
     request<{
       repos: LocalRepo[];
@@ -47,35 +34,33 @@ export const api = {
       running: boolean;
       watcherActive: boolean;
     }>("/api/git/repos"),
-  gitScan: () =>
+  gitScan: (state: AppState, repoPath?: string) =>
     request<{
       repos: LocalRepo[];
+      state: AppState;
+      scanState: "idle" | "running" | "error";
       lastScanAt: string | null;
       lastRunAt: string | null;
       lastDurationMs: number | null;
       reposScanned: number;
       reposChanged: number;
-      state: "idle" | "running" | "error";
       errors: string[];
       running: boolean;
       watcherActive: boolean;
     }>(
       "/api/git/scan",
-      { method: "POST" }
+      {
+        method: "POST",
+        body: JSON.stringify({ state, repoPath })
+      }
     ),
-  gitLink: (projectId: string, repoPath: string) =>
-    request<{ state: AppState }>("/api/git/link", {
-      method: "POST",
-      body: JSON.stringify({ projectId, repoPath })
-    }),
-  gitUnlink: (projectId: string) =>
-    request<{ state: AppState }>("/api/git/unlink", {
-      method: "POST",
-      body: JSON.stringify({ projectId })
-    }),
-  gitLocalCommits: (repoPath: string, limit: number) =>
+  gitLocalCommits: (state: AppState, repoPath: string, limit: number, since?: string) =>
     request<{ commits: any[] }>(
-      `/api/local-git/commits?repoPath=${encodeURIComponent(repoPath)}&limit=${limit}`
+      "/api/local-git/commits",
+      {
+        method: "POST",
+        body: JSON.stringify({ state, repoPath, limit, since })
+      }
     ),
   localGitHealth: () =>
     request<{
@@ -89,25 +74,49 @@ export const api = {
       reposChanged: number;
       watcherActive: boolean;
     }>("/api/local-git/health"),
-  runInsights: () => request<{ insights: Insight[] }>("/api/insights/run", { method: "POST" }),
-  insightAction: (action: any) =>
+  runInsights: (state: AppState) =>
+    request<{ state: AppState }>("/api/insights/run", {
+      method: "POST",
+      body: JSON.stringify({ state })
+    }),
+  insightAction: (state: AppState, action: SuggestedAction) =>
     request<{ state: AppState }>("/api/insights/action", {
       method: "POST",
-      body: JSON.stringify({ action })
+      body: JSON.stringify({ state, action })
     }),
-  weeklyGenerate: (weekStart: string) =>
+  weeklyGenerate: (state: AppState, weekStart: string) =>
     request<{ review: WeeklyReview }>("/api/weekly/generate", {
       method: "POST",
-      body: JSON.stringify({ weekStart })
+      body: JSON.stringify({ state, weekStart })
     }),
-  weeklyClose: (weekStart: string) =>
+  weeklyClose: (state: AppState, weekStart: string) =>
     request<{ review: WeeklyReview; state: AppState }>("/api/weekly/close", {
       method: "POST",
-      body: JSON.stringify({ weekStart })
+      body: JSON.stringify({ state, weekStart })
     }),
-  backupRun: () => request<{ filepath: string; dir: string }>("/api/backup/run", { method: "POST" }),
+  backupRun: (state: AppState, retentionDays?: number) =>
+    request<{ filepath: string; dir: string }>("/api/backup/run", {
+      method: "POST",
+      body: JSON.stringify({ state, retentionDays })
+    }),
   startupHealth: () =>
-    request<{ apiReachable: boolean; lastScanAt: string | null; scanStatus: any; gitAvailable: boolean; watchDirs: { dir: string; exists: boolean }[] }>(
+    request<{
+      apiReachable: boolean;
+      lastScanAt: string | null;
+      scanStatus: {
+        lastRunAt: string | null;
+        durationMs: number | null;
+        reposScanned: number;
+        reposChanged: number;
+        errors: string[];
+        watcherActive: boolean;
+        running: boolean;
+        queued: boolean;
+        state: "idle" | "running" | "error";
+      };
+      gitAvailable: boolean;
+      watchDirs: { dir: string; exists: boolean }[];
+    }>(
       "/api/startup/health"
     ),
   startupStatus: () => request<{ os: string; instructions: string; files: string[] }>("/api/startup/status"),

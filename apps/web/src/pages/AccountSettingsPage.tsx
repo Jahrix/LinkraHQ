@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { SCHEMA_VERSION, applyMigrations, type ExportBundle } from "@linkra/shared";
+import { SCHEMA_VERSION, applyMigrations, type AppState, type ExportBundle } from "@linkra/shared";
 import { api } from "../lib/api";
+import {
+    applyImportBundle,
+    cloneAppState,
+    createExportBundle,
+    createWipedAppState,
+    type ImportMode
+} from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
 import { computeImportDiff, type ImportDiffResult } from "../lib/importDiff";
@@ -41,6 +48,21 @@ export default function AccountSettingsPage() {
         supabase.auth.getUser().then(({ data }) => setUser(data.user));
     }, []);
 
+    const persistState = async (
+        mutate: (draft: AppState) => void,
+        failureMessage = "Failed to save changes."
+    ) => {
+        if (!state) return null;
+        const next = cloneAppState(state);
+        mutate(next);
+        const saved = await save(next);
+        if (!saved) {
+            push(failureMessage, "error");
+            return null;
+        }
+        return next;
+    };
+
     const linkGithub = async () => {
         setIsLinking(true);
         const { error } = await supabase.auth.linkIdentity({ provider: 'github' });
@@ -74,20 +96,21 @@ export default function AccountSettingsPage() {
     };
 
     const toggleFeature = async (featureId: string) => {
-        if (!state) return;
-        const next = { ...state };
-        const disabled = new Set(next.userSettings.disabledInsightRules ?? []);
-        if (disabled.has(featureId)) {
-            disabled.delete(featureId);
-        } else {
-            disabled.add(featureId);
-        }
-        next.userSettings.disabledInsightRules = Array.from(disabled);
-        await save(next);
+        const saved = await persistState((next) => {
+            const disabled = new Set(next.userSettings.disabledInsightRules ?? []);
+            if (disabled.has(featureId)) {
+                disabled.delete(featureId);
+            } else {
+                disabled.add(featureId);
+            }
+            next.userSettings.disabledInsightRules = Array.from(disabled);
+        }, "Failed to update dashboard elements.");
+        if (!saved) return;
     };
 
     const handleExport = async () => {
-        const bundle = await api.exportState();
+        if (!state) return;
+        const bundle = createExportBundle(state);
         const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -129,10 +152,15 @@ export default function AccountSettingsPage() {
         }
     };
 
-    const applyImport = async (mode: "replace" | "merge_keep" | "merge_overwrite") => {
+    const applyImport = async (mode: ImportMode) => {
         if (!preview) return;
-        const result = await api.importState(mode, preview.bundle);
-        await save(result.state);
+        if (!state) return;
+        const next = applyImportBundle(state, preview.bundle, mode);
+        const saved = await save(next);
+        if (!saved) {
+            push("Import failed.", "error");
+            return;
+        }
         setPreview(null);
         push(`Import ${mode} complete.`);
     };
@@ -140,8 +168,12 @@ export default function AccountSettingsPage() {
     const handleWipe = async () => {
         const confirm = window.confirm("This will wipe all local data. Continue?");
         if (!confirm) return;
-        const result = await api.wipeState();
-        await save(result.state);
+        if (!state) return;
+        const saved = await save(createWipedAppState(state));
+        if (!saved) {
+            push("Failed to wipe local data.", "error");
+            return;
+        }
         push("Local data wiped.");
     };
 

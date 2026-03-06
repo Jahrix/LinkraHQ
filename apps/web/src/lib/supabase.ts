@@ -4,10 +4,12 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Missing Supabase URL or Anon Key in environment variables.");
+    throw new Error(
+        "Missing Supabase configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before starting the web app."
+    );
 }
 
 export const supabase = createClient(
-    supabaseUrl || "https://wuwlcibqdroiycfajrnt.supabase.co",
-    supabaseAnonKey || "dummy-key-to-prevent-crash"
+    supabaseUrl,
+    supabaseAnonKey
 );

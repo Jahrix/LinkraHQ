@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { type RepoConfig } from "@linkra/shared";
 import { api, API_BASE } from "../lib/api";
+import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
 import { formatDate } from "../lib/date";
 import { useToast } from "../lib/toast";
@@ -28,7 +29,7 @@ export default function CommitsPage() {
 
   const addRepo = async () => {
     if (!repoInput.trim()) return;
-    const next = { ...state };
+    const next = cloneAppState(state);
     next.userSettings.selectedRepos = [
       { repo: repoInput.trim(), branch: branchInput.trim() || "main" },
       ...next.userSettings.selectedRepos
@@ -38,7 +39,7 @@ export default function CommitsPage() {
   };
 
   const removeRepo = async (repo: RepoConfig) => {
-    const next = { ...state };
+    const next = cloneAppState(state);
     next.userSettings.selectedRepos = next.userSettings.selectedRepos.filter(
       (item) => item.repo !== repo.repo || item.branch !== repo.branch
     );

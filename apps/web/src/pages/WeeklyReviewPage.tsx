@@ -3,6 +3,7 @@ import { generateWeeklyReview, isBetween, weekBounds, type WeeklyReview } from "
 import GlassPanel from "../components/GlassPanel";
 import Pill from "../components/Pill";
 import SectionHeader from "../components/SectionHeader";
+import { cloneAppState } from "../lib/appStateModel";
 import { dedupeById, dedupeByKey } from "../lib/collections";
 import { formatDate } from "../lib/date";
 import { useAppState } from "../lib/state";
@@ -170,7 +171,7 @@ export default function WeeklyReviewPage() {
       closedAt: nowIso
     };
 
-    const next = { ...state };
+    const next = cloneAppState(state);
     next.weeklyReviews = upsertByWeekStart(next.weeklyReviews, closedReview);
     next.weeklySnapshots = upsertByWeekStart(next.weeklySnapshots, {
       id: crypto.randomUUID(),
