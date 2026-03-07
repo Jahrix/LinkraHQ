@@ -1,0 +1,63 @@
+import { describe, expect, it, vi } from "vitest";
+import { buildCommitsRedirectUrl, GITHUB_AUTH_SCOPES, hasGithubIdentity, startGithubConnect } from "../src/lib/githubAuth";
+
+describe("github auth helpers", () => {
+  it("builds a redirect back to the commits route", () => {
+    const redirectTo = buildCommitsRedirectUrl({
+      origin: "https://notes.jahrix.xyz",
+      pathname: "/app",
+      search: "?tab=current"
+    });
+
+    expect(redirectTo).toBe("https://notes.jahrix.xyz/app?tab=current#commits");
+  });
+
+  it("uses Supabase identity linking for an existing app session", async () => {
+    const linkIdentity = vi.fn().mockResolvedValue({ data: { provider: "github", url: "https://supabase.test" }, error: null });
+    const signInWithOAuth = vi.fn();
+
+    await startGithubConnect(
+      { linkIdentity, signInWithOAuth },
+      "https://notes.jahrix.xyz/#commits",
+      true
+    );
+
+    expect(linkIdentity).toHaveBeenCalledWith({
+      provider: "github",
+      options: {
+        redirectTo: "https://notes.jahrix.xyz/#commits",
+        scopes: GITHUB_AUTH_SCOPES
+      }
+    });
+    expect(signInWithOAuth).not.toHaveBeenCalled();
+  });
+
+  it("falls back to Supabase oauth sign-in when there is no current app session", async () => {
+    const linkIdentity = vi.fn();
+    const signInWithOAuth = vi.fn().mockResolvedValue({ data: { provider: "github", url: "https://supabase.test" }, error: null });
+
+    await startGithubConnect(
+      { linkIdentity, signInWithOAuth },
+      "https://notes.jahrix.xyz/#commits",
+      false
+    );
+
+    expect(signInWithOAuth).toHaveBeenCalledWith({
+      provider: "github",
+      options: {
+        redirectTo: "https://notes.jahrix.xyz/#commits",
+        scopes: GITHUB_AUTH_SCOPES
+      }
+    });
+    expect(linkIdentity).not.toHaveBeenCalled();
+  });
+
+  it("detects github as a linked provider from Supabase user metadata", () => {
+    expect(
+      hasGithubIdentity({
+        app_metadata: { providers: ["email", "github"] },
+        identities: []
+      })
+    ).toBe(true);
+  });
+});

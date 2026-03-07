@@ -1,10 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { type RepoConfig } from "@linkra/shared";
-import { api, API_BASE } from "../lib/api";
 import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
 import { formatDate } from "../lib/date";
 import { useToast } from "../lib/toast";
+import { supabase } from "../lib/supabase";
+import {
+  buildCommitsRedirectUrl,
+  fetchGithubRepoCommits,
+  fetchGithubUserProfile,
+  getGithubIdentity,
+  getGithubIdentityProfile,
+  getGithubProviderToken,
+  hasGithubIdentity,
+  startGithubConnect
+} from "../lib/githubAuth";
 
 interface Commit {
   sha: string;
@@ -31,48 +41,91 @@ export default function CommitsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rateLimit, setRateLimit] = useState<{ remaining: number; reset: number } | null>(null);
   const [githubUser, setGithubUser] = useState<GithubUser | null>(null);
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [githubToken, setGithubToken] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [userLoading, setUserLoading] = useState(false);
+  const [authActionLoading, setAuthActionLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   if (!state) return null;
 
-  const loadGithubUser = async () => {
+  const clearLegacyGithubState = async () => {
+    if (!state.github.loggedIn && !state.github.user) {
+      return;
+    }
+
+    const next = cloneAppState(state);
+    next.github.loggedIn = false;
+    next.github.user = null;
+    await save(next);
+  };
+
+  const loadGithubConnection = async () => {
     setUserLoading(true);
     try {
-      const result = await api.githubUser();
-      setGithubUser(result.user);
-      if (!state.github.loggedIn) {
-        const next = cloneAppState(state);
-        next.github.loggedIn = true;
-        next.github.user = result.user;
-        await save(next);
+      const [{ data: { session } }, { data: { user } }] = await Promise.all([
+        supabase.auth.getSession(),
+        supabase.auth.getUser()
+      ]);
+
+      const linked = hasGithubIdentity(user);
+      const token = linked ? getGithubProviderToken(session) : null;
+      const identityProfile = getGithubIdentityProfile(user);
+
+      setGithubConnected(linked);
+      setGithubToken(token);
+
+      if (!linked) {
+        setGithubUser(null);
+        setCommits({});
+        setConnectError(null);
+        await clearLegacyGithubState();
+        return;
       }
-    } catch {
+
+      if (!token) {
+        setGithubUser(identityProfile);
+        setConnectError("GitHub is linked, but this session needs a fresh GitHub authorization to load commits.");
+        await clearLegacyGithubState();
+        return;
+      }
+
+      const profile = await fetchGithubUserProfile(token);
+      setGithubUser(profile);
+      setConnectError(null);
+      await clearLegacyGithubState();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load GitHub connection";
+      setGithubConnected(false);
+      setGithubToken(null);
       setGithubUser(null);
-      if (state.github.loggedIn) {
-        const next = cloneAppState(state);
-        next.github.loggedIn = false;
-        await save(next);
-      }
+      setCommits({});
+      setConnectError(message);
+      await clearLegacyGithubState();
     } finally {
       setUserLoading(false);
       setIsCheckingAuth(false);
     }
   };
 
-  // On mount, always probe the server session — don't rely on Supabase state
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.includes("auth=success")) {
-      push("GitHub connected successfully.", "success");
-      window.history.replaceState(null, "", window.location.pathname + window.location.search + "#commits");
-      setConnectError(null);
-    } else if (hash.includes("auth=error")) {
-      setConnectError("GitHub connection failed. Please try again.");
-      window.history.replaceState(null, "", window.location.pathname + window.location.search + "#commits");
-    }
-    loadGithubUser();
+    loadGithubConnection();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "TOKEN_REFRESHED") {
+        void loadGithubConnection();
+      }
+      if (event === "SIGNED_OUT") {
+        setGithubConnected(false);
+        setGithubToken(null);
+        setGithubUser(null);
+        setCommits({});
+        void clearLegacyGithubState();
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const addRepo = async () => {
@@ -95,13 +148,13 @@ export default function CommitsPage() {
   };
 
   const loadCommits = async () => {
-    if (!githubUser) return;
+    if (!githubUser || !githubToken) return;
     setLoading(true);
     setError(null);
     try {
       const results: Record<string, Commit[]> = {};
       for (const repo of state.userSettings.selectedRepos) {
-        const response = await api.githubCommits(repo.repo, repo.branch, 12);
+        const response = await fetchGithubRepoCommits(githubToken, repo.repo, repo.branch, 12);
         results[`${repo.repo}#${repo.branch}`] = response.commits as Commit[];
         if (response.rateLimit) {
           setRateLimit(response.rateLimit);
@@ -117,30 +170,65 @@ export default function CommitsPage() {
     }
   };
 
+  const handleConnect = async () => {
+    setAuthActionLoading(true);
+    setConnectError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const redirectTo = buildCommitsRedirectUrl(window.location);
+      const result = await startGithubConnect(supabase.auth, redirectTo, Boolean(session));
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+      push("Redirecting to GitHub...");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to connect GitHub.";
+      setConnectError(message);
+      push(message, "error");
+    } finally {
+      setAuthActionLoading(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     try {
-      await api.logout();
+      const { data: { user } } = await supabase.auth.getUser();
+      const identity = getGithubIdentity(user);
+      if (!identity) {
+        setGithubConnected(false);
+        setGithubToken(null);
+        setGithubUser(null);
+        setCommits({});
+        await clearLegacyGithubState();
+        return;
+      }
+
+      const { error: unlinkError } = await supabase.auth.unlinkIdentity(identity);
+      if (unlinkError) {
+        throw unlinkError;
+      }
+
+      setGithubConnected(false);
+      setGithubToken(null);
       setGithubUser(null);
       setCommits({});
-      if (state.github.loggedIn) {
-        const next = cloneAppState(state);
-        next.github.loggedIn = false;
-        next.github.user = null;
-        await save(next);
-      }
+      setConnectError(null);
+      await clearLegacyGithubState();
       push("GitHub disconnected.");
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to disconnect GitHub.";
+      setConnectError(message);
       push("Failed to disconnect GitHub.", "error");
     }
   };
 
   useEffect(() => {
-    if (githubUser) loadCommits();
-  }, [state.userSettings.selectedRepos, githubUser]);
+    if (githubUser && githubToken) loadCommits();
+  }, [state.userSettings.selectedRepos, githubUser, githubToken]);
 
   if (isCheckingAuth) return null;
 
-  if (!githubUser) {
+  if (!githubConnected) {
     return (
       <div className="panel space-y-5 max-w-lg">
         <div>
@@ -158,26 +246,28 @@ export default function CommitsPage() {
             </svg>
             <div className="flex-1">
               <div className="font-medium">{connectError}</div>
-              <a
+              <button
                 className="inline-block mt-3 button-primary"
-                href={`${API_BASE}/auth/github/start`}
+                onClick={handleConnect}
+                disabled={authActionLoading}
               >
-                Try Again
-              </a>
+                {authActionLoading ? "Connecting..." : "Try Again"}
+              </button>
             </div>
           </div>
         )}
 
         {!connectError && (
-          <a
+          <button
             className="button-primary inline-flex w-fit items-center gap-2"
-            href={`${API_BASE}/auth/github/start`}
+            onClick={handleConnect}
+            disabled={authActionLoading}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12" />
             </svg>
-            Connect GitHub
-          </a>
+            {authActionLoading ? "Connecting..." : "Connect GitHub"}
+          </button>
         )}
       </div>
     );
@@ -209,8 +299,13 @@ export default function CommitsPage() {
         </div>
 
         {connectError && (
-          <div className="rounded-xl border border-red-500/30 bg-red-900/20 p-3 text-sm text-red-300">
-            {connectError}
+          <div className="rounded-xl border border-red-500/30 bg-red-900/20 p-3 text-sm text-red-300 flex items-center justify-between gap-3">
+            <span>{connectError}</span>
+            {!githubToken && (
+              <button className="button-secondary text-xs" onClick={handleConnect} disabled={authActionLoading}>
+                {authActionLoading ? "Connecting..." : "Reconnect"}
+              </button>
+            )}
           </div>
         )}
 
@@ -244,6 +339,11 @@ export default function CommitsPage() {
           </div>
         )}
         {loading && <p className="text-sm text-muted">Loading commits...</p>}
+        {!githubToken && (
+          <p className="text-xs text-muted">
+            Reconnect GitHub to refresh the GitHub access token for commit loading.
+          </p>
+        )}
         {rateLimit && (
           <p className="text-xs text-muted">
             Rate limit: {rateLimit.remaining} remaining · resets at{" "}

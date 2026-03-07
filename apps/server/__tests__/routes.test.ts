@@ -153,6 +153,19 @@ describe("server stabilization routes", () => {
     expect(response.status).toBe(403);
   });
 
+  it("allows the github oauth callback to reach state validation even with a github referer", async () => {
+    const baseUrl = await startServer();
+
+    const response = await fetch(`${baseUrl}/auth/github/callback?code=test-code&state=test-state`, {
+      headers: {
+        Referer: "https://github.com/login/oauth/authorize"
+      }
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.text()).resolves.toContain("Invalid OAuth state");
+  });
+
   it("rejects unsafe OPEN_REPO payloads", async () => {
     const baseUrl = await startServer();
     const state = baseState();
