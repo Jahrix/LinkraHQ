@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chokidar, { type FSWatcher } from "chokidar";
 import type { AppState, LocalRepo, Project } from "@linkra/shared";
-import { getState } from "./store.js";
+import { getState, saveState } from "./store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -277,9 +277,11 @@ export function getGitHealth(state = getState()) {
   const watchDirs = normalizeWatchDirs(state.userSettings.repoWatchDirs);
   return {
     repos: repos.length,
+    localRepos: repos,
     dirty: repos.filter((repo) => repo.dirty).length,
     errors: repos.filter((repo) => repo.scanError).length,
     watchDirs: watchDirs.length,
+    watchDirPaths: watchDirs,
     missingWatchDirs: state.userSettings.repoWatchDirs.filter((dir) => !fs.existsSync(dir)),
     scan: getScanStatus()
   };
@@ -301,18 +303,25 @@ export async function runGitScanNow(state = getState(), repoPath?: string) {
     return buildScanResult(dedupeRepos(state.localRepos), state);
   }
 
-  activeScanPromise = executeGitScan(state, targetRepoPath, normalizedWatchDirs).finally(() => {
-    activeScanPromise = null;
-    const pending = consumePendingScanRequest();
-    if (pending) {
-      void runGitScanNow(state, pending.repoPath).catch((error) => {
-        const message = error instanceof Error ? error.message : "Queued git scan failed";
-        lastScanErrors = [message];
-        scanState = "error";
-        logGitScan("queued scan failed", { error: message });
-      });
-    }
-  });
+  activeScanPromise = executeGitScan(state, targetRepoPath, normalizedWatchDirs)
+    .then(async (result) => {
+      if (result.nextState) {
+        await saveState(result.nextState);
+      }
+      return result;
+    })
+    .finally(() => {
+      activeScanPromise = null;
+      const pending = consumePendingScanRequest();
+      if (pending) {
+        void runGitScanNow(getState(), pending.repoPath).catch((error) => {
+          const message = error instanceof Error ? error.message : "Queued git scan failed";
+          lastScanErrors = [message];
+          scanState = "error";
+          logGitScan("queued scan failed", { error: message });
+        });
+      }
+    });
 
   return activeScanPromise;
 }

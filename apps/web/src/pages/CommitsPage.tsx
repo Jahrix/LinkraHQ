@@ -153,22 +153,24 @@ export default function CommitsPage() {
     if (!githubUser || !githubToken) return;
     setLoading(true);
     setError(null);
-    try {
-      const results: Record<string, Commit[]> = {};
-      for (const repo of state.userSettings.selectedRepos) {
+    const results: Record<string, Commit[]> = {};
+    const errors: string[] = [];
+    for (const repo of state.userSettings.selectedRepos) {
+      try {
         const response = await fetchGithubRepoCommits(githubToken, repo.repo, repo.branch, 12);
         results[`${repo.repo}#${repo.branch}`] = response.commits as Commit[];
         if (response.rateLimit) {
           setRateLimit(response.rateLimit);
         }
+      } catch (err) {
+        results[`${repo.repo}#${repo.branch}`] = [];
+        const message = err instanceof Error ? err.message : "Failed to load commits";
+        errors.push(`${repo.repo} (${repo.branch}): ${message}`);
       }
-      setCommits(results);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load commits";
-      setError(message);
-    } finally {
-      setLoading(false);
     }
+    setCommits(results);
+    setError(errors.length > 0 ? errors.join(" ") : null);
+    setLoading(false);
   }, [githubUser, githubToken, state.userSettings.selectedRepos]);
 
   // Load commits + set up 60s auto-refresh when connected

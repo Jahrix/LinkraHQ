@@ -16,7 +16,7 @@ import {
   findMatchingCommit
 } from "./github.js";
 import { createStartupAssets, detectOS, startupInstructions, getStartupDir } from "./startup.js";
-import { getScanStatus, runGitScanNow, fetchLocalCommits } from "./gitScan.js";
+import { getGitHealth, getScanStatus, runGitScanNow, fetchLocalCommits } from "./gitScan.js";
 import { updateInsights, runInsightAction } from "./insights.js";
 import { runBackupNow, getBackupDir } from "./backup.js";
 
@@ -30,6 +30,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
 const DEFAULT_CLIENT_ORIGIN = "http://localhost:5173";
+const SESSION_COOKIE_NAME = "connect.sid";
 
 const execFileAsync = promisify(execFile);
 
@@ -268,6 +269,7 @@ app.use((_req, res, next) => {
 
 app.use(
   session({
+    name: SESSION_COOKIE_NAME,
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
@@ -303,7 +305,8 @@ app.get("/api/startup/status", requireLocalControl, (_req, res) => {
 });
 
 app.get("/api/startup/health", requireLocalControl, async (_req, res) => {
-  const scanStatus = getScanStatus();
+  const health = getGitHealth();
+  const scanStatus = health.scan;
   let gitAvailable = false;
   try {
     await execFileAsync("git", ["--version"]);
@@ -316,7 +319,14 @@ app.get("/api/startup/health", requireLocalControl, async (_req, res) => {
     lastScanAt: scanStatus.lastRunAt,
     scanStatus,
     gitAvailable,
-    watchDirs: []
+    repos: health.repos,
+    dirtyRepos: health.dirty,
+    watchDirs: [
+      ...health.watchDirPaths.map((dir) => ({ dir, exists: true })),
+      ...health.missingWatchDirs
+        .filter((dir) => !health.watchDirPaths.includes(dir))
+        .map((dir) => ({ dir, exists: false }))
+    ]
   });
 });
 
@@ -373,12 +383,14 @@ app.post("/api/startup/create", requireLocalControl, (_req, res) => {
 
 app.get("/api/git/repos", requireLocalControl, (_req, res) => {
   const status = getScanStatus();
-  res.json({ repos: [], scan: status, ...status, lastScanAt: status.lastRunAt });
+  const health = getGitHealth();
+  res.json({ repos: health.localRepos, scan: status, ...status, lastScanAt: status.lastRunAt });
 });
 
 app.get("/api/local-git/repos", requireLocalControl, (_req, res) => {
   const status = getScanStatus();
-  res.json({ repos: [], scan: status, ...status, lastScanAt: status.lastRunAt });
+  const health = getGitHealth();
+  res.json({ repos: health.localRepos, scan: status, ...status, lastScanAt: status.lastRunAt });
 });
 
 app.post("/api/git/scan", requireLocalControl, scanRateLimit, async (req, res) => {
@@ -454,17 +466,19 @@ app.post("/api/local-git/commits", requireLocalControl, async (req, res) => {
 });
 
 app.get("/api/local-git/health", requireLocalControl, (_req, res) => {
-  const scan = getScanStatus();
+  const health = getGitHealth();
+  const scan = health.scan;
   res.json({
-    repos: 0,
-    dirty: 0,
-    errors: scan.errors.length,
+    repos: health.repos,
+    dirty: health.dirty,
+    errors: health.errors,
     lastScanAt: scan.lastRunAt,
     scanState: scan.state,
     durationMs: scan.durationMs,
     reposScanned: scan.reposScanned,
     reposChanged: scan.reposChanged,
-    watcherActive: scan.watcherActive
+    watcherActive: scan.watcherActive,
+    missingWatchDirs: health.missingWatchDirs
   });
 });
 
@@ -535,8 +549,25 @@ app.get("/auth/github/callback", requireLocalLoopback, async (req, res) => {
       redirectUri
     });
     const user = await fetchGithubUser(token);
-    req.session.githubToken = token;
-    req.session.githubUser = user;
+    await new Promise<void>((resolve, reject) => {
+      req.session.regenerate((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        req.session.githubToken = token;
+        req.session.githubUser = user;
+        delete req.session.oauthState;
+        delete req.session.oauthOrigin;
+        req.session.save((saveError) => {
+          if (saveError) {
+            reject(saveError);
+            return;
+          }
+          resolve();
+        });
+      });
+    });
     res.redirect(`${clientOrigin}/#commits?auth=success`);
   } catch {
     res.redirect(`${clientOrigin}/#commits?auth=error`);
@@ -544,7 +575,11 @@ app.get("/auth/github/callback", requireLocalLoopback, async (req, res) => {
 });
 
 app.post("/auth/logout", requireLocalControl, (req, res) => {
-  req.session.destroy(() => {
+  req.session.destroy((error) => {
+    if (error) {
+      return res.status(500).json({ error: "Failed to destroy session" });
+    }
+    res.clearCookie(SESSION_COOKIE_NAME);
     res.json({ ok: true });
   });
 });
@@ -573,7 +608,12 @@ app.get("/api/github/commits", requireLocalControl, async (req, res) => {
     });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "GitHub fetch failed" });
+    const message = err instanceof Error ? err.message : "GitHub fetch failed";
+    const status =
+      message.includes("Invalid GitHub repo") || message.includes("Invalid GitHub branch")
+        ? 400
+        : 500;
+    res.status(status).json({ error: message });
   }
 });
 
@@ -600,7 +640,12 @@ app.post("/api/github/commits/match", requireLocalControl, async (req, res) => {
     const match = findMatchingCommit({ repo, text, commits: result.commits });
     res.json({ match, rateLimit: result.rateLimit });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "GitHub fetch failed" });
+    const message = err instanceof Error ? err.message : "GitHub fetch failed";
+    const status =
+      message.includes("Invalid GitHub repo") || message.includes("Invalid GitHub branch")
+        ? 400
+        : 500;
+    res.status(status).json({ error: message });
   }
 });
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";

@@ -107,9 +107,13 @@ export default function QuickCapture() {
       ];
     }
 
-    setText("");
-    await save(next);
-    push("Captured.");
+    const saved = await save(next);
+    if (saved) {
+      setText("");
+      push("Captured.");
+      return;
+    }
+    push("Failed to save capture.", "error");
   };
 
   return (

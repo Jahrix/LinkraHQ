@@ -44,19 +44,25 @@ export default function SettingsPage() {
   };
 
   const generateStartup = async () => {
-    const result = await api.createStartup();
-    setStartupInfo(result);
-    push("Startup files generated.");
+    try {
+      const result = await api.createStartup();
+      setStartupInfo(result);
+      push("Startup files generated.");
+      return true;
+    } catch (err) {
+      push(err instanceof Error ? err.message : "Failed to generate startup files.", "error");
+      return false;
+    }
   };
 
   const toggleStartup = async (enabled: boolean) => {
-    const saved = await persistState((next) => {
+    if (enabled) {
+      const generated = await generateStartup();
+      if (!generated) return;
+    }
+    await persistState((next) => {
       next.userSettings.startOnLogin = enabled;
     }, "Failed to update startup setting.");
-    if (!saved) return;
-    if (enabled) {
-      await generateStartup();
-    }
   };
 
 
@@ -91,16 +97,24 @@ export default function SettingsPage() {
   };
 
   const runBackup = async () => {
-    const result = await api.backupRun(state, state.userSettings.backupRetentionDays);
-    push(`Backup saved to ${result.filepath}`);
+    try {
+      const result = await api.backupRun(state, state.userSettings.backupRetentionDays);
+      push(`Backup saved to ${result.filepath}`);
+    } catch (err) {
+      push(err instanceof Error ? err.message : "Backup failed.", "error");
+    }
   };
 
   const runScan = async () => {
-    const result = await api.gitScan(state);
-    const saved = await save(result.state);
-    if (!saved) return;
-    setScanStatus({ lastScanAt: result.lastScanAt, errors: result.errors });
-    push("Local Git scan complete.");
+    try {
+      const result = await api.gitScan(state);
+      const saved = await save(result.state);
+      if (!saved) return;
+      setScanStatus({ lastScanAt: result.lastScanAt, errors: result.errors });
+      push("Local Git scan complete.");
+    } catch (err) {
+      push(err instanceof Error ? err.message : "Local Git scan failed.", "error");
+    }
   };
 
   const addWatchDir = async () => {

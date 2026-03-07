@@ -32,29 +32,42 @@ export default function Select({
     // Position the portal dropdown relative to the trigger button
     useLayoutEffect(() => {
         if (!isOpen || !containerRef.current) return;
-        const rect = containerRef.current.getBoundingClientRect();
-        setDropdownStyle({
-            position: "fixed",
-            top: rect.bottom + 8,
-            left: rect.left,
-            width: rect.width,
-            zIndex: 9999,
-        });
+
+        const updateDropdownStyle = () => {
+            if (!containerRef.current) return;
+            const rect = containerRef.current.getBoundingClientRect();
+            setDropdownStyle({
+                position: "fixed",
+                top: rect.bottom + 8,
+                left: rect.left,
+                width: rect.width,
+                zIndex: 9999,
+            });
+        };
+
+        updateDropdownStyle();
+        window.addEventListener("resize", updateDropdownStyle);
+        window.addEventListener("scroll", updateDropdownStyle, true);
+
+        return () => {
+            window.removeEventListener("resize", updateDropdownStyle);
+            window.removeEventListener("scroll", updateDropdownStyle, true);
+        };
     }, [isOpen]);
 
     // Close on outside click
     const portalRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         if (!isOpen) return;
-        function handlePointerDown(event: MouseEvent) {
+        function handlePointerDown(event: PointerEvent) {
             const target = event.target as Node;
             if (containerRef.current?.contains(target)) return;
             if (portalRef.current?.contains(target)) return;
             setIsOpen(false);
             setFocusedIndex(-1);
         }
-        document.addEventListener("mousedown", handlePointerDown);
-        return () => document.removeEventListener("mousedown", handlePointerDown);
+        document.addEventListener("pointerdown", handlePointerDown);
+        return () => document.removeEventListener("pointerdown", handlePointerDown);
     }, [isOpen]);
 
     // Scroll focused item into view

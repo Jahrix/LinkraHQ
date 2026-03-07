@@ -25,12 +25,23 @@ export function computeGoalMetrics(goals: Goal[]): {
 export function computeStreak(entries: DailyGoalsEntry[]): number {
   const sorted = [...entries].sort((a, b) => (a.date < b.date ? 1 : -1));
   let streak = 0;
+  let expectedDate: string | null = null;
   for (const entry of sorted) {
+    if (expectedDate && entry.date !== expectedDate) {
+      break;
+    }
     if (entry.completedPoints >= STREAK_THRESHOLD) {
       streak += 1;
+      expectedDate = shiftDate(entry.date, -1);
     } else {
       break;
     }
   }
   return streak;
+}
+
+function shiftDate(date: string, deltaDays: number) {
+  const current = new Date(`${date}T00:00:00`);
+  current.setDate(current.getDate() + deltaDays);
+  return todayKey(current);
 }

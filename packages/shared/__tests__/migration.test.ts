@@ -171,4 +171,68 @@ describe("migrations", () => {
       })
     ).toThrow();
   });
+
+  it("normalizes partial github state and numeric strings in legacy bundles", () => {
+    const migrated = applyMigrations({
+      schema_version: 2,
+      created_at: "2026-02-19T00:00:00.000Z",
+      data: {
+        metadata: { schema_version: 2, created_at: "2026-02-19T00:00:00.000Z" },
+        userSettings: {
+          theme: "dark",
+          accent: "#5DD8FF",
+          reduceMotion: false,
+          startOnLogin: false,
+          selectedRepos: [],
+          goalTemplate: [],
+          repoWatchDirs: [],
+          repoScanIntervalMinutes: "15",
+          repoExcludePatterns: [],
+          gitWatcherEnabled: true,
+          disabledInsightRules: [],
+          enableDailyBackup: true,
+          backupRetentionDays: "14",
+          schemaVersion: 2
+        },
+        projects: [
+          {
+            id: "p1",
+            name: "Project",
+            subtitle: "",
+            icon: "🧩",
+            color: "#fff",
+            status: "In Progress",
+            progress: "50",
+            weeklyHours: "3",
+            githubRepo: null,
+            remoteRepo: null,
+            localRepoPath: null,
+            healthScore: null,
+            tasks: []
+          }
+        ],
+        localRepos: [],
+        dailyGoalsByDate: {},
+        roadmapCards: [],
+        sessionLogs: [],
+        focusSessions: [],
+        quickCaptures: [],
+        journalEntries: [],
+        insights: [],
+        weeklyReviews: [],
+        weeklySnapshots: [],
+        todayPlanByDate: {},
+        github: {}
+      }
+    });
+
+    expect(migrated.data.projects[0].progress).toBe(50);
+    expect(migrated.data.projects[0].weeklyHours).toBe(3);
+    expect(migrated.data.github).toEqual({
+      loggedIn: false,
+      user: null,
+      lastSyncAt: null,
+      rateLimit: null
+    });
+  });
 });

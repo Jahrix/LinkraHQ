@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppStateSchema } from "../src/schema";
+import { computeStreak } from "../src/utils";
 import { generateWeeklyReview } from "../src/weekly";
 
 afterEach(() => {
@@ -216,5 +217,26 @@ describe("weekly review", () => {
 
     expect(review.stats.commitsCount).toBe(1);
     expect(review.perProject[0]?.commitsCount).toBe(1);
+  });
+
+  it("breaks streaks across missing calendar days", () => {
+    expect(
+      computeStreak([
+        {
+          date: "2026-02-19",
+          goals: [],
+          score: 6,
+          completedPoints: 6,
+          archivedAt: null
+        },
+        {
+          date: "2026-02-17",
+          goals: [],
+          score: 5,
+          completedPoints: 5,
+          archivedAt: null
+        }
+      ])
+    ).toBe(1);
   });
 });

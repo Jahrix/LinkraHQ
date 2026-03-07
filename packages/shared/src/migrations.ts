@@ -56,8 +56,8 @@ function fallbackId(prefix: string, index: number) {
 function toStringArray(value: unknown) {
   if (Array.isArray(value)) {
     return value
-      .filter((item): item is string => typeof item === "string")
-      .map((item) => item.trim())
+      .filter((item): item is string | number => typeof item === "string" || typeof item === "number")
+      .map((item) => String(item).trim())
       .filter(Boolean);
   }
   if (typeof value === "string") {
@@ -70,7 +70,16 @@ function toStringArray(value: unknown) {
 }
 
 function toFiniteNumber(value: unknown, fallback = 0) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
 }
 
 function toProjectStatus(status: unknown) {
@@ -373,6 +382,8 @@ function migrateStateToCurrent(state: any): AppState {
     },
     userSettings: {
       ...(state?.userSettings ?? {}),
+      repoScanIntervalMinutes: toFiniteNumber(state?.userSettings?.repoScanIntervalMinutes, 15),
+      backupRetentionDays: toFiniteNumber(state?.userSettings?.backupRetentionDays, 14),
       schemaVersion: SCHEMA_VERSION
     },
     projects,
@@ -380,7 +391,32 @@ function migrateStateToCurrent(state: any): AppState {
     journalEntries: migratedJournalEntries,
     weeklyReviews: migratedWeeklyReviews,
     weeklySnapshots: migratedWeeklySnapshots,
-    quickCaptures: migratedQuickCaptures
+    quickCaptures: migratedQuickCaptures,
+    github: {
+      loggedIn: Boolean(state?.github?.loggedIn),
+      user:
+        typeof state?.github?.user?.login === "string" && state.github.user.login
+          ? {
+              login: state.github.user.login,
+              avatarUrl:
+                typeof state.github.user.avatarUrl === "string" ? state.github.user.avatarUrl : null,
+              name: typeof state.github.user.name === "string" ? state.github.user.name : null
+            }
+          : null,
+      lastSyncAt:
+        typeof state?.github?.lastSyncAt === "string" && state.github.lastSyncAt
+          ? toIso(state.github.lastSyncAt, now)
+          : null,
+      rateLimit:
+        state?.github?.rateLimit &&
+        Number.isFinite(toFiniteNumber(state.github.rateLimit.remaining, Number.NaN)) &&
+        Number.isFinite(toFiniteNumber(state.github.rateLimit.reset, Number.NaN))
+          ? {
+              remaining: toFiniteNumber(state.github.rateLimit.remaining, 0),
+              reset: toFiniteNumber(state.github.rateLimit.reset, 0)
+            }
+          : null
+    }
   };
 
   return AppStateSchema.parse(migrated);

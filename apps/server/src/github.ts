@@ -6,6 +6,11 @@ interface GithubUser {
   avatar_url: string | null;
 }
 
+const GITHUB_TIMEOUT_MS = 10_000;
+const MAX_GITHUB_COMMITS = 100;
+const GITHUB_REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const GITHUB_BRANCH_PATTERN = /^(?![/.])(?!.*\.\.)(?!.*\/\/)(?!.*@\{)[A-Za-z0-9._/-]+$/;
+
 export function githubAuthUrl(clientId: string, redirectUri: string, state: string) {
   const params = new URLSearchParams({
     client_id: clientId,
@@ -33,6 +38,7 @@ export async function exchangeCodeForToken({
       Accept: "application/json",
       "Content-Type": "application/json"
     },
+    signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
     body: JSON.stringify({
       client_id: clientId,
       client_secret: clientSecret,
@@ -53,7 +59,8 @@ export async function fetchGithubUser(token: string) {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json"
-    }
+    },
+    signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
   });
   if (!response.ok) {
     throw new Error("Failed to fetch GitHub user");
@@ -77,15 +84,13 @@ export async function fetchGithubCommits({
   branch: string;
   limit: number;
 }) {
-  const response = await fetch(
-    `https://api.github.com/repos/${repo}/commits?sha=${branch}&per_page=${limit}`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json"
-      }
-    }
-  );
+  const response = await fetch(buildGithubCommitsUrl(repo, branch, limit), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json"
+    },
+    signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
+  });
 
   const remaining = Number(response.headers.get("x-ratelimit-remaining"));
   const reset = Number(response.headers.get("x-ratelimit-reset"));
@@ -102,7 +107,13 @@ export async function fetchGithubCommits({
     date: item.commit.author.date,
     url: item.html_url
   }));
-  return { commits, rateLimit: { remaining, reset } };
+  return {
+    commits,
+    rateLimit:
+      Number.isFinite(remaining) && Number.isFinite(reset)
+        ? { remaining, reset }
+        : null
+  };
 }
 
 const STOPWORDS = new Set([
@@ -193,4 +204,23 @@ export function findMatchingCommit({
     return { ...commit, score: Math.round(score * 100) };
   }
   return null;
+}
+
+function buildGithubCommitsUrl(repo: string, branch: string, limit: number) {
+  const normalizedRepo = repo.trim();
+  const normalizedBranch = branch.trim();
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), MAX_GITHUB_COMMITS);
+
+  if (!GITHUB_REPO_PATTERN.test(normalizedRepo)) {
+    throw new Error("Invalid GitHub repo. Use owner/repo.");
+  }
+
+  if (!normalizedBranch || !GITHUB_BRANCH_PATTERN.test(normalizedBranch)) {
+    throw new Error("Invalid GitHub branch name.");
+  }
+
+  const url = new URL(`https://api.github.com/repos/${normalizedRepo}/commits`);
+  url.searchParams.set("sha", normalizedBranch);
+  url.searchParams.set("per_page", String(safeLimit));
+  return url.toString();
 }

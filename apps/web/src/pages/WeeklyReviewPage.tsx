@@ -203,7 +203,11 @@ export default function WeeklyReviewPage() {
       }
     }
 
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to close week.", "error");
+      return;
+    }
     setReview(closedReview);
     push("Week closed and snapshot stored locally.", "success");
   };

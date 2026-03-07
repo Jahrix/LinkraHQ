@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppStateSchema, type AppState } from "@linkra/shared";
 import { supabase } from "./supabase";
 import { cloneAppState, createDefaultAppState } from "./appStateModel";
@@ -13,18 +13,40 @@ interface StateContextValue {
 
 const StateContext = createContext<StateContextValue | null>(null);
 
+function createSyncChannel() {
+  if (typeof BroadcastChannel === "undefined") {
+    return null;
+  }
+  return new BroadcastChannel("linkra-sync");
+}
+
+function broadcastUpdate() {
+  const channel = createSyncChannel();
+  if (!channel) {
+    return;
+  }
+  channel.postMessage("refresh");
+  channel.close();
+}
+
 export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const skipBroadcastRefreshRef = useRef(false);
+  const stateRef = useRef<AppState | null>(null);
 
-  const refresh = async () => {
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
+        stateRef.current = null;
         setState(null);
         return;
       }
@@ -45,23 +67,27 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (insertError) {
           throw insertError;
         }
+        stateRef.current = fresh;
         setState(fresh);
       } else if (dbError) {
         throw dbError;
       } else {
-        setState(AppStateSchema.parse(data.state));
+        const parsed = AppStateSchema.parse(data.state);
+        stateRef.current = parsed;
+        setState(parsed);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load state");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const save = async (next: AppState) => {
-    const previous = state ? cloneAppState(state) : null;
+  const save = useCallback(async (next: AppState) => {
+    const previous = stateRef.current ? cloneAppState(stateRef.current) : null;
     const candidate = cloneAppState(next);
     setError(null);
+    stateRef.current = candidate;
     setState(candidate);
 
     try {
@@ -83,11 +109,12 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       broadcastUpdate();
       return true;
     } catch (err) {
+      stateRef.current = previous;
       setState(previous);
       setError(err instanceof Error ? err.message : "Failed to save state");
       return false;
     }
-  };
+  }, []);
 
   useEffect(() => {
     refresh();
@@ -96,15 +123,19 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "INITIAL_SESSION") {
         refresh();
       } else if (event === "SIGNED_OUT") {
+        stateRef.current = null;
         setState(null);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
-    const channel = new BroadcastChannel("linkra-sync");
+    const channel = createSyncChannel();
+    if (!channel) {
+      return;
+    }
     channel.onmessage = (event) => {
       if (event.data === "refresh") {
         // Skip refresh triggered by our own save — state is already up to date
@@ -116,7 +147,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       }
     };
     return () => channel.close();
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     const now = new Date();
@@ -131,7 +162,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(
     () => ({ state, loading, error, refresh, save }),
-    [state, loading, error]
+    [state, loading, error, refresh, save]
   );
 
   return <StateContext.Provider value={value}>{children}</StateContext.Provider>;
@@ -141,10 +172,4 @@ export function useAppState() {
   const context = useContext(StateContext);
   if (!context) throw new Error("useAppState must be used within AppStateProvider");
   return context;
-}
-
-function broadcastUpdate() {
-  const channel = new BroadcastChannel("linkra-sync");
-  channel.postMessage("refresh");
-  channel.close();
 }

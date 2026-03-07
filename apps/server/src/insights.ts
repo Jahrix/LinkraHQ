@@ -303,6 +303,21 @@ export function computeInsights(state: AppState): Insight[] {
           const project = activeProjects.find((p) => p.localRepoPath === repo.path);
           const existing = findExisting(state, rule.id, project?.id, repo.id);
           if (isDismissed(existing)) continue;
+          const actions = [
+            action("schedule-focus", "SCHEDULE_FOCUS", "Schedule 45m focus", {
+              projectId: project?.id ?? null,
+              minutes: 45
+            }),
+            action("open-repo", "OPEN_REPO", "Open repo", { repoPath: repo.path })
+          ];
+          if (project?.id) {
+            actions.unshift(
+              action("create-task", "CREATE_TASK", "Add task: review repo", {
+                projectId: project.id,
+                title: `Review ${repo.name} and ship a commit`
+              })
+            );
+          }
           insights.push(
             createInsight({
               ruleId: rule.id,
@@ -312,17 +327,7 @@ export function computeInsights(state: AppState): Insight[] {
               metrics: { ageDays, days },
               projectId: project?.id,
               repoId: repo.id,
-              actions: [
-                action("create-task", "CREATE_TASK", "Add task: review repo", {
-                  projectId: project?.id,
-                  title: `Review ${repo.name} and ship a commit`
-                }),
-                action("schedule-focus", "SCHEDULE_FOCUS", "Schedule 45m focus", {
-                  projectId: project?.id,
-                  minutes: 45
-                }),
-                action("open-repo", "OPEN_REPO", "Open repo", { repoPath: repo.path })
-              ]
+              actions
             })
           );
         }
@@ -372,6 +377,15 @@ export function computeInsights(state: AppState): Insight[] {
           const project = activeProjects.find((p) => p.localRepoPath === repo.path);
           const existing = findExisting(state, rule.id, project?.id, repo.id);
           if (isDismissed(existing)) continue;
+          const actions = [action("copy-path", "COPY_REPO_PATH", "Copy repo path", { repoPath: repo.path })];
+          if (project?.id) {
+            actions.unshift(
+              action("create-task", "CREATE_TASK", "Add task: clean working tree", {
+                projectId: project.id,
+                title: `Clean working tree in ${repo.name}`
+              })
+            );
+          }
           insights.push(
             createInsight({
               ruleId: rule.id,
@@ -381,13 +395,7 @@ export function computeInsights(state: AppState): Insight[] {
               metrics: { ageDays, days, untracked: repo.untrackedCount },
               projectId: project?.id,
               repoId: repo.id,
-              actions: [
-                action("create-task", "CREATE_TASK", "Add task: clean working tree", {
-                  projectId: project?.id,
-                  title: `Clean working tree in ${repo.name}`
-                }),
-                action("copy-path", "COPY_REPO_PATH", "Copy repo path", { repoPath: repo.path })
-              ]
+              actions
             })
           );
         }
@@ -646,7 +654,7 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
       const platform = process.platform;
       const command =
         platform === "darwin" ? "open" : platform === "win32" ? "explorer" : "xdg-open";
-      await execFileAsync(command, [repoPath]).catch(() => null);
+      await execFileAsync(command, [repoPath]);
     }
   }
 
@@ -687,9 +695,8 @@ export async function runInsightAction(state: AppState, action: SuggestedAction)
     const payload = safeAction.payload as { insightId: string };
     const insight = next.insights.find((item) => item.id === payload.insightId);
     if (insight) {
-      insight.dismissedUntil = null;
+      insight.dismissedUntil = "9999-12-31T23:59:59.999Z";
       insight.updatedAt = now;
-      next.insights = next.insights.filter((item) => item.id !== insight.id);
     }
   }
 
