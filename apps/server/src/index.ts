@@ -228,7 +228,41 @@ function closeWeeklyReview(state: AppState, weekStart: string) {
   return { review, state: next };
 }
 
+// Simple in-memory rate limiter (no external dependency)
+function createRateLimiter(windowMs: number, max: number, message: string) {
+  const hits = new Map<string, { count: number; resetAt: number }>();
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const key = req.socket.remoteAddress ?? "unknown";
+    const now = Date.now();
+    const record = hits.get(key);
+    if (!record || record.resetAt <= now) {
+      hits.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+    record.count += 1;
+    if (record.count > max) {
+      res.setHeader("Retry-After", String(Math.ceil((record.resetAt - now) / 1000)));
+      return res.status(429).json({ error: message });
+    }
+    next();
+  };
+}
+
+const aiRateLimit = createRateLimiter(60_000, 5, "Too many plan requests. Please wait a minute.");
+const authRateLimit = createRateLimiter(60_000, 20, "Too many requests. Please wait a minute.");
+const scanRateLimit = createRateLimiter(30_000, 10, "Too many scan requests. Please slow down.");
+
 export const app = express();
+
+// Security headers
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.removeHeader("X-Powered-By");
+  next();
+});
 
 app.use(
   session({
@@ -345,7 +379,7 @@ app.get("/api/local-git/repos", requireLocalControl, (_req, res) => {
   res.json({ repos: [], scan: status, ...status, lastScanAt: status.lastRunAt });
 });
 
-app.post("/api/git/scan", requireLocalControl, async (req, res) => {
+app.post("/api/git/scan", requireLocalControl, scanRateLimit, async (req, res) => {
   const state = readRequestState(req, res);
   if (!state) {
     return;
@@ -361,7 +395,7 @@ app.post("/api/git/scan", requireLocalControl, async (req, res) => {
   }
 });
 
-app.post("/api/local-git/scan", requireLocalControl, async (req, res) => {
+app.post("/api/local-git/scan", requireLocalControl, scanRateLimit, async (req, res) => {
   const state = readRequestState(req, res);
   if (!state) {
     return;
@@ -464,7 +498,7 @@ app.post("/api/insights/action", requireLocalControl, async (req, res) => {
   }
 });
 
-app.get("/auth/github/start", requireLocalControl, (req, res) => {
+app.get("/auth/github/start", requireLocalControl, authRateLimit, (req, res) => {
   if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
     return res.status(400).send("GitHub OAuth is not configured.");
   }
@@ -569,7 +603,7 @@ app.post("/api/github/commits/match", requireLocalControl, async (req, res) => {
 });
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
-app.post("/api/ai/build-plan", requireLocalControl, async (req, res) => {
+app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res) => {
   const state = readRequestState(req, res);
   if (!state) return;
 
@@ -650,7 +684,7 @@ Generate my Build My Plan daily queue. Return JSON only: {"taskIds": [...], "rat
     const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
     const message = await client.messages.create({
-      model: "claude-opus-4-5",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 512,
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }]

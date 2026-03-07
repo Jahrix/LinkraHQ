@@ -50,7 +50,7 @@ export default function TodayMissionHero({
                     </div>
                 </div>
 
-                {topTask ? (
+                {topTask && (
                     <div className="flex-shrink-0 w-full md:w-auto">
                         <button
                             className="w-full md:w-auto hover-lift relative overflow-hidden rounded-xl bg-white text-black font-semibold text-lg px-8 py-5 flex items-center justify-center gap-3 transition shadow-[0_0_40px_rgba(255,255,255,0.15)] hover:shadow-[0_0_60px_rgba(255,255,255,0.3)]"
@@ -62,15 +62,6 @@ export default function TodayMissionHero({
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                             <span className="relative z-10">Start Focus</span>
-                        </button>
-                    </div>
-                ) : (
-                    <div className="flex-shrink-0 w-full md:w-auto">
-                        <button
-                            className="w-full md:w-auto button-secondary"
-                            onClick={() => document.getElementById("today-plan-queue")?.scrollIntoView({ behavior: "smooth" })}
-                        >
-                            Plan your day
                         </button>
                     </div>
                 )}

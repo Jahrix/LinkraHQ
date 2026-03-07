@@ -237,8 +237,24 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   }, [selectedProject?.id]);
 
   useEffect(() => {
-    setTodayPlanDraft(state.todayPlanByDate?.[todayKey()]?.taskIds ?? []);
-    setTodayPlanNotes(state.todayPlanByDate?.[todayKey()]?.notes ?? "");
+    const saved = state.todayPlanByDate?.[todayKey()];
+    setTodayPlanNotes(saved?.notes ?? "");
+    if (saved && saved.taskIds.length > 0) {
+      setTodayPlanDraft(saved.taskIds);
+    } else {
+      // No saved plan for today — auto-compute from unfinished tasks so Today's Mission is never blank
+      const taskList = projects.flatMap((project) =>
+        project.tasks.map((task) => ({
+          task,
+          projectId: project.id,
+          projectName: project.name,
+          weeklyHours: project.weeklyHours,
+          projectTaskList: project.tasks
+        }))
+      );
+      const autoPlan = computeTodayPlan(taskList, { maxTasks: 5 });
+      setTodayPlanDraft(autoPlan);
+    }
   }, [state.todayPlanByDate]);
 
   useEffect(() => {
@@ -263,6 +279,19 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     setSelectedProjectId(project.id);
     setActiveTab("Project Settings");
     setOpenProjectMenu(null);
+  };
+
+  const moveProject = async (idx: number, dir: -1 | 1) => {
+    const target = idx + dir;
+    if (target < 0 || target >= visibleProjects.length) return;
+    const fromId = visibleProjects[idx].id;
+    const toId = visibleProjects[target].id;
+    await persistState((next) => {
+      const fromIdx = next.projects.findIndex((p) => p.id === fromId);
+      const toIdx = next.projects.findIndex((p) => p.id === toId);
+      if (fromIdx < 0 || toIdx < 0) return;
+      [next.projects[fromIdx], next.projects[toIdx]] = [next.projects[toIdx], next.projects[fromIdx]];
+    }, "Failed to reorder projects.");
   };
 
   const saveNewProject = async (draft: any) => {
@@ -443,6 +472,22 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     if (!saved) {
       push("Failed to update task status.", "error");
     }
+  };
+
+  const deleteTask = async (taskId: string) => {
+    if (!selectedProject) return;
+    await persistState((next) => {
+      const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
+      if (!project) return;
+      project.tasks = project.tasks.filter((task) => task.id !== taskId);
+      next.todayPlanByDate = Object.fromEntries(
+        Object.entries(next.todayPlanByDate).map(([date, plan]) => [
+          date,
+          { ...plan, taskIds: plan.taskIds.filter((id) => id !== taskId) }
+        ])
+      );
+    }, "Failed to delete task.");
+    setTodayPlanDraft((prev) => prev.filter((id) => id !== taskId));
   };
 
   const updateTaskDependencies = async (taskId: string, deps: string[]) => {
@@ -814,13 +859,30 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
           }
         />
         <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {visibleProjects.map((project) => (
-            <ProjectCard
-              key={project.id}
-              project={project}
-              isSelected={selectedProject?.id === project.id}
-              onClick={() => { setSelectedProjectId(project.id); setActiveTab("Tasks"); }}
-            />
+          {visibleProjects.map((project, idx) => (
+            <div key={project.id} className="relative group/card">
+              <ProjectCard
+                project={project}
+                isSelected={selectedProject?.id === project.id}
+                onClick={() => { setSelectedProjectId(project.id); setActiveTab("Tasks"); }}
+              />
+              <div className="absolute bottom-2 left-2 flex gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
+                {idx > 0 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); moveProject(idx, -1); }}
+                    className="p-1 rounded bg-black/50 hover:bg-black/70 text-muted hover:text-white transition text-xs"
+                    title="Move left"
+                  >←</button>
+                )}
+                {idx < visibleProjects.length - 1 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); moveProject(idx, 1); }}
+                    className="p-1 rounded bg-black/50 hover:bg-black/70 text-muted hover:text-white transition text-xs"
+                    title="Move right"
+                  >→</button>
+                )}
+              </div>
+            </div>
           ))}
         </div>
       </GlassPanel>
@@ -866,6 +928,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
                   text={task.text}
                   done={task.done}
                   onToggle={(nextValue) => toggleTask(task.id, nextValue)}
+                  onDelete={() => deleteTask(task.id)}
                 />
               ))}
             </div>
