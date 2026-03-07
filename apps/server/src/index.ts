@@ -132,6 +132,13 @@ function requireLocalControl(req: express.Request, res: express.Response, next: 
   next();
 }
 
+function requireLocalLoopback(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!isLoopbackAddress(req.socket.remoteAddress)) {
+    return res.status(403).json({ error: "Local requests only" });
+  }
+  next();
+}
+
 function attachGithubState(base: AppState, req: express.Request) {
   const loggedIn = Boolean(req.session.githubToken);
   return {
@@ -476,7 +483,7 @@ app.get("/auth/github/start", requireLocalControl, (req, res) => {
   res.redirect(githubAuthUrl(GITHUB_CLIENT_ID, redirectUri, state));
 });
 
-app.get("/auth/github/callback", requireLocalControl, async (req, res) => {
+app.get("/auth/github/callback", requireLocalLoopback, async (req, res) => {
   const clientOrigin = getStoredOauthOrigin(req);
 
   try {
