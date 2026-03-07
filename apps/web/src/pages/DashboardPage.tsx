@@ -859,7 +859,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
           }
         />
         <div className={`mt-5 grid gap-4 ${
-          visibleProjects.length === 1 ? "grid-cols-1 max-w-md" :
+          visibleProjects.length === 1 ? "grid-cols-1 sm:grid-cols-2" :
           visibleProjects.length === 2 ? "grid-cols-1 sm:grid-cols-2" :
           visibleProjects.length === 3 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" :
           "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
@@ -870,6 +870,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
                 project={project}
                 isSelected={selectedProject?.id === project.id}
                 onClick={() => { setSelectedProjectId(project.id); setActiveTab("Tasks"); }}
+                size={visibleProjects.length <= 2 ? "lg" : visibleProjects.length <= 3 ? "md" : "sm"}
               />
               <div className="absolute bottom-2 left-2 flex gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
                 {idx > 0 && (
