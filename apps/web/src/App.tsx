@@ -18,6 +18,7 @@ import { computeStreak, todayKey } from "@linkra/shared";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 import AuthPage from "./pages/AuthPage";
+import { PomodoroProvider } from "./lib/pomodoroContext";
 
 function Shell() {
   const { state, loading, error, refresh } = useAppState();
@@ -109,6 +110,14 @@ function Shell() {
   const score = Object.values(state?.dailyGoalsByDate || {}).reduce((acc, entry) => acc + entry.score, 0);
   const streak = state ? computeStreak(Object.values(state.dailyGoalsByDate)) : 0;
 
+  const displayName =
+    session?.user?.user_metadata?.full_name ||
+    session?.user?.user_metadata?.name ||
+    session?.user?.user_metadata?.user_name ||
+    session?.user?.user_metadata?.preferred_username ||
+    session?.user?.email?.split("@")[0] ||
+    "there";
+
   if (!session) {
     return <AuthPage />;
   }
@@ -118,7 +127,7 @@ function Shell() {
       <Sidebar active={active} onChange={(item) => setActive(item)} />
       <main className="flex-1 px-3 lg:px-6 py-3 lg:py-6 pb-24 lg:pb-6 flex flex-col gap-4 lg:gap-6 overflow-x-hidden min-w-0">
         <div className="sticky-header">
-          <Header score={score} onOpenCommand={() => setCommandOpen(true)} />
+          <Header score={score} userName={displayName} onOpenCommand={() => setCommandOpen(true)} />
         </div>
         {loading && (
           <div className="panel flex items-center gap-3 text-sm text-muted">
@@ -161,9 +170,11 @@ export default function App() {
   return (
     <ToastProvider>
       <AppStateProvider>
-        <ErrorBoundary>
-          <Shell />
-        </ErrorBoundary>
+        <PomodoroProvider>
+          <ErrorBoundary>
+            <Shell />
+          </ErrorBoundary>
+        </PomodoroProvider>
       </AppStateProvider>
     </ToastProvider>
   );

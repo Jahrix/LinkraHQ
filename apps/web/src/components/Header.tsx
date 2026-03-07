@@ -1,17 +1,31 @@
 import React, { useEffect, useState } from "react";
-import { formatDay } from "../lib/date";
 import Pill from "./Pill";
 import GlassPanel from "./GlassPanel";
 
+function getGreeting(hour: number) {
+  if (hour >= 5 && hour < 12) return "Good Morning";
+  if (hour >= 12 && hour < 17) return "Good Afternoon";
+  if (hour >= 17 && hour < 21) return "Good Evening";
+  return "Good Night";
+}
+
 export default function Header({
   score,
+  userName,
   onOpenCommand
 }: {
   score: number;
+  userName: string;
   onOpenCommand: () => void;
 }) {
   const [pulse, setPulse] = useState<"up" | "down" | null>(null);
   const [prev, setPrev] = useState(score);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(tick);
+  }, []);
 
   useEffect(() => {
     if (score > prev) {
@@ -32,16 +46,34 @@ export default function Header({
       ? "text-red-400 drop-shadow-[0_0_12px_rgba(248,113,113,0.8)] scale-90"
       : "text-white scale-100";
 
+  const greeting = getGreeting(now.getHours());
+  const firstName = (userName || "").split(" ")[0] || userName;
+
+  const clockStr = now.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+
+  const dateStr = now.toLocaleDateString(undefined, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric"
+  });
+
   return (
     <GlassPanel as="header" variant="quiet" className="app-header-shell flex items-center justify-between gap-3 px-4 py-3 lg:px-6 lg:py-4">
       <div className="min-w-0 flex items-center gap-4">
         <div>
-          <h1 className="text-xl lg:text-2xl font-bold tracking-tight text-white mb-0.5">Linkra HQ</h1>
-          <div className="flex items-center gap-2 text-xs font-medium text-muted uppercase tracking-[0.1em]">
-            <svg className="w-3.5 h-3.5 text-accent-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            {formatDay(new Date())}
+          <h1 className="text-xl lg:text-2xl font-bold tracking-tight text-white mb-0.5">
+            {greeting},{" "}
+            <span className="text-accent-2">{firstName}</span>
+          </h1>
+          <div className="flex items-center gap-2.5 text-xs font-medium text-muted">
+            <span className="tabular-nums tracking-wide">{clockStr}</span>
+            <span className="w-px h-3 bg-white/15 inline-block" />
+            <span>{dateStr}</span>
           </div>
         </div>
       </div>
@@ -79,4 +111,3 @@ export default function Header({
     </GlassPanel>
   );
 }
-

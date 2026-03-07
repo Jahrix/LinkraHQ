@@ -167,12 +167,23 @@ export default function SettingsPage() {
           <p className="text-xs uppercase tracking-[0.3em] text-muted">Local Git</p>
           <h2 className="text-lg font-semibold">Repo Scanning</h2>
         </div>
-        <div className="text-sm text-muted">
-          <span className="mr-2">Repos found: {localRepos.length}</span>
-          <span className="mr-2">
-            Last scan: {lastScanAt ? formatDate(lastScanAt) : "Never"}
-          </span>
-          {scanErrors.length > 0 && <span className="text-amber-200">Errors: {scanErrors.length}</span>}
+        <div className="text-sm text-muted space-y-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span>{localRepos.length > 0 ? `${localRepos.length} repo${localRepos.length !== 1 ? "s" : ""} found` : "No repos found"}</span>
+            <span>·</span>
+            <span>Last scan: {lastScanAt ? formatDate(lastScanAt) : "Never"}</span>
+            {scanErrors.length > 0 && (
+              <>
+                <span>·</span>
+                <span className="text-amber-200">{scanErrors.length} error{scanErrors.length !== 1 ? "s" : ""}</span>
+              </>
+            )}
+          </div>
+          {localRepos.length === 0 && lastScanAt && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              No git repos were found in the scanned directories. Check your watch folder paths — they should contain folders with <code className="font-mono">.git</code> directories, or be parent folders of such projects.
+            </div>
+          )}
         </div>
         <div className="grid gap-2 md:grid-cols-[1fr_auto]">
           <input

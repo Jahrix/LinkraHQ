@@ -25,6 +25,7 @@ import EmojiPicker from "../components/EmojiPicker";
 import ProjectJournalPanel from "../components/ProjectJournalPanel";
 import TodayMissionHero from "../components/TodayMissionHero";
 import TodayPlanQueue from "../components/TodayPlanQueue";
+import PomodoroTimer from "../components/PomodoroTimer";
 import ProjectCard from "../components/ProjectCard";
 import ProjectModal, { type ProjectDraft } from "../components/ProjectModal";
 import SignalActionPanel from "../components/SignalActionPanel";
@@ -35,6 +36,7 @@ import { useToast } from "../lib/toast";
 import { computeTodayPlan, isTaskBlocked } from "../lib/taskRules";
 import { formatDate } from "../lib/date";
 import { dedupeById, dedupeLocalRepos } from "../lib/collections";
+import { usePomodoro } from "../lib/pomodoroContext";
 
 const tabs = ["Tasks", "Roadmap", "GitHub", "Journal", "Project Settings"];
 const uiStatuses = ["Not Started", "In Progress", "Review", "On Hold", "Done", "Archived"] as const;
@@ -57,6 +59,7 @@ const projectColors = ["#5DD8FF", "#78E3A4", "#F9A8D4", "#F59E0B", "#60A5FA", "#
 export default function DashboardPage({ projectId }: { projectId?: string | null }) {
   const { state, save } = useAppState();
   const { push } = useToast();
+  const { startPomodoro, status: pomodoroStatus } = usePomodoro();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("Tasks");
   const [showArchived, setShowArchived] = useState(false);
@@ -667,26 +670,17 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     setTodayTaskQuery("");
   };
 
-  const startFocus = async (taskId: string) => {
+  const startFocus = (taskId: string) => {
     const entry = allTaskLookup.get(taskId);
     if (!entry) {
       push("Task no longer exists.", "warning");
       return;
     }
-
-    const saved = await persistState((next) => {
-      next.focusSessions.unshift({
-        id: crypto.randomUUID(),
-        startedAt: new Date().toISOString(),
-        durationMinutes: 45,
-        completedAt: null,
-        planned: false,
-        projectId: entry.project.id,
-        reason: entry.task.text
-      });
-    }, "Failed to start focus session.");
-    if (!saved) return;
-    push(`Focus started for ${entry.project.name}. Timer UI is still stubbed.`, "success");
+    startPomodoro({
+      taskId: entry.task.id,
+      taskText: entry.task.text,
+      projectName: entry.project.name
+    });
   };
 
   const saveTodayPlan = async () => {
@@ -849,11 +843,15 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   return (
     <>
       <div className="mb-6">
-        <TodayMissionHero
-          topTask={topTask}
-          tasksRemaining={todayPlanDraft.length}
-          onStartFocus={startFocus}
-        />
+        {pomodoroStatus !== "idle" ? (
+          <PomodoroTimer />
+        ) : (
+          <TodayMissionHero
+            topTask={topTask}
+            tasksRemaining={todayPlanDraft.length}
+            onStartFocus={startFocus}
+          />
+        )}
       </div>
 
       <GlassPanel variant="hero" className="mb-6">
@@ -1004,10 +1002,31 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
             <SectionHeader title="Local Git" subtitle={selectedProjectRepo?.name} />
             <div className="mt-4 flex-1 flex flex-col pt-4 items-center justify-center text-center">
               <div className="text-4xl mb-3 text-subtle/50">⎇</div>
-              <div className="font-bold mb-1 text-base text-white/90">{selectedProject?.localRepoPath ? `${selectedProjectRepo?.todayCommitCount ?? 0} Commits Today` : "Not Linked"}</div>
-              <p className="text-xs text-muted mb-0">{selectedProject?.localRepoPath ? "Tree is clean" : "Update project settings to link repo."}</p>
-              {!selectedProject?.localRepoPath && (
-                <button className="text-[10px] uppercase font-bold tracking-widest text-accent mt-4 hover:text-accent-100" onClick={() => setActiveTab("Project Settings")}>Link Repo →</button>
+              {uniqueRepos.length === 0 ? (
+                <>
+                  <div className="font-bold mb-1 text-base text-white/90">No repos found</div>
+                  <p className="text-xs text-muted mb-0">Go to Settings → Local Git to scan your project directories.</p>
+                  <button
+                    className="text-[10px] uppercase font-bold tracking-widest text-accent mt-4 hover:text-accent-100"
+                    onClick={() => { window.location.hash = "settings"; }}
+                  >
+                    Open Settings →
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="font-bold mb-1 text-base text-white/90">
+                    {selectedProject?.localRepoPath ? `${selectedProjectRepo?.todayCommitCount ?? 0} Commits Today` : "Not Linked"}
+                  </div>
+                  <p className="text-xs text-muted mb-0">
+                    {selectedProject?.localRepoPath ? "Local repo connected." : "Link a repo in project settings."}
+                  </p>
+                  {!selectedProject?.localRepoPath && (
+                    <button className="text-[10px] uppercase font-bold tracking-widest text-accent mt-4 hover:text-accent-100" onClick={() => setActiveTab("Project Settings")}>
+                      Link Repo →
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </GlassPanel>

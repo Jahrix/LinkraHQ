@@ -186,10 +186,15 @@ export default function ProjectModal({
                   setDraft((prev) => ({ ...prev, localRepoPath: val || null }))
                 }
                 options={[
-                  { value: "", label: "None" },
+                  { value: "", label: repos.length === 0 ? "No repos detected — scan in Settings" : "None" },
                   ...repos.map((repo) => ({ value: repo.path, label: `${repo.name} — ${repo.path}` }))
                 ]}
               />
+              {repos.length === 0 && (
+                <p className="text-xs text-amber-300/70 mt-0.5">
+                  No git repos found. Go to Settings → Local Git to add watch directories and scan.
+                </p>
+              )}
             </label>
             <label className="grid gap-1 text-sm md:col-span-2">
               <span className="text-muted">GitHub Repo (owner/name)</span>

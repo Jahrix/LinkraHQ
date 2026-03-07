@@ -656,30 +656,56 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
     .map((i) => `${i.title}: ${i.reason}`)
     .slice(0, 5);
 
+  const localRepos = (state.localRepos ?? []).map((r) => ({
+    name: r.name,
+    dirty: r.dirty,
+    untrackedCount: r.untrackedCount,
+    todayCommitCount: r.todayCommitCount,
+    ahead: r.ahead,
+    behind: r.behind
+  }));
+
   const contextSummary = {
     date: today,
-    projects: activeProjects.map((p) => ({ name: p.name, weeklyHours: p.weeklyHours, status: p.status })),
+    projects: activeProjects.map((p) => ({
+      name: p.name,
+      status: p.status,
+      weeklyHours: p.weeklyHours,
+      tasksTotal: p.tasks.length,
+      tasksDone: p.tasks.filter((t) => t.done).length
+    })),
     tasks: allTasks.slice(0, 30),
     roadmapNowItems: roadmapNow,
-    activeSignals: activeInsights
+    activeSignals: activeInsights,
+    localRepos: localRepos.slice(0, 10)
   };
 
-  const systemPrompt = `You are a sharp, decisive AI assistant helping a developer plan their day.
-You will receive their project context and return a focused daily plan.
+  const systemPrompt = `You are an elite personal command center for a developer. Your job: generate the best possible daily work plan.
 
 Rules:
-- Return exactly a JSON object with two keys: "taskIds" (array of task ID strings, max 6) and "rationale" (1-2 sentence explanation)
-- Prioritize: overdue tasks, high-priority tasks, tasks in roadmap "Now" column, tasks from projects with stale signals
-- Prefer tasks from projects with higher weeklyHours (more investment)
-- Only include tasks from the provided list
-- Keep the plan tight — 4 to 6 tasks that feel genuinely doable today
-- Do not include done tasks or invent tasks
-- Return only valid JSON, no markdown`;
+- Return exactly a JSON object: { "taskIds": string[], "rationale": string }
+- taskIds: 4-6 task IDs from the provided list only. Max 6.
+- rationale: 1-2 tight sentences. Confident tone. No hedging. Example: "These moves will ship visible progress on your highest-priority work today."
+- Do not include done tasks. Do not invent tasks.
+- Return only valid JSON, no markdown fences.
 
-  const userMessage = `Here is my current work context for ${today}:
+Priority order (highest to lowest):
+1. Overdue tasks (isOverdue: true) — these must ship
+2. High-priority tasks in active "In Progress" projects
+3. Tasks aligned to roadmap "Now" items
+4. Tasks from projects with active signals or warnings
+5. Tasks from projects with the most weekly hours invested
+6. Unblocked tasks that visibly advance a project (over cleanup or filler)
+
+Avoid:
+- Generic maintenance unless it unblocks real work
+- Tasks from On Hold or Done projects
+- Stuffing the plan with low-value items just to fill slots`;
+
+  const userMessage = `Today is ${today}. Here is my work context:
 ${JSON.stringify(contextSummary, null, 2)}
 
-Generate my Build My Plan daily queue. Return JSON only: {"taskIds": [...], "rationale": "..."}`;
+Build my plan. Return JSON only: {"taskIds": [...], "rationale": "..."}`;
 
   try {
     const Anthropic = (await import("@anthropic-ai/sdk")).default;

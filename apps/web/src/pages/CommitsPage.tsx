@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { type RepoConfig } from "@linkra/shared";
 import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
@@ -31,6 +31,8 @@ interface GithubUser {
   name: string | null;
 }
 
+const REFRESH_INTERVAL = 60_000;
+
 export default function CommitsPage() {
   const { state, save } = useAppState();
   const { push } = useToast();
@@ -47,14 +49,12 @@ export default function CommitsPage() {
   const [userLoading, setUserLoading] = useState(false);
   const [authActionLoading, setAuthActionLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   if (!state) return null;
 
   const clearLegacyGithubState = async () => {
-    if (!state.github.loggedIn && !state.github.user) {
-      return;
-    }
-
+    if (!state.github.loggedIn && !state.github.user) return;
     const next = cloneAppState(state);
     next.github.loggedIn = false;
     next.github.user = null;
@@ -86,7 +86,7 @@ export default function CommitsPage() {
 
       if (!token) {
         setGithubUser(identityProfile);
-        setConnectError("GitHub is linked, but this session needs a fresh GitHub authorization to load commits.");
+        setConnectError(null); // State C is shown via !githubToken branch, no banner needed
         await clearLegacyGithubState();
         return;
       }
@@ -147,7 +147,7 @@ export default function CommitsPage() {
     await save(next);
   };
 
-  const loadCommits = async () => {
+  const loadCommits = useCallback(async () => {
     if (!githubUser || !githubToken) return;
     setLoading(true);
     setError(null);
@@ -164,11 +164,24 @@ export default function CommitsPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load commits";
       setError(message);
-      push(message, "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [githubUser, githubToken, state.userSettings.selectedRepos]);
+
+  // Load commits + set up 60s auto-refresh when connected
+  useEffect(() => {
+    if (!githubUser || !githubToken) return;
+    loadCommits();
+
+    autoRefreshRef.current = setInterval(() => {
+      loadCommits();
+    }, REFRESH_INTERVAL);
+
+    return () => {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    };
+  }, [loadCommits]);
 
   const handleConnect = async () => {
     setAuthActionLoading(true);
@@ -204,9 +217,7 @@ export default function CommitsPage() {
       }
 
       const { error: unlinkError } = await supabase.auth.unlinkIdentity(identity);
-      if (unlinkError) {
-        throw unlinkError;
-      }
+      if (unlinkError) throw unlinkError;
 
       setGithubConnected(false);
       setGithubToken(null);
@@ -222,12 +233,9 @@ export default function CommitsPage() {
     }
   };
 
-  useEffect(() => {
-    if (githubUser && githubToken) loadCommits();
-  }, [state.userSettings.selectedRepos, githubUser, githubToken]);
-
   if (isCheckingAuth) return null;
 
+  // State A — not connected
   if (!githubConnected) {
     return (
       <div className="panel space-y-5 max-w-lg">
@@ -236,7 +244,7 @@ export default function CommitsPage() {
           <h2 className="text-lg font-semibold">Connect GitHub</h2>
         </div>
         <p className="text-sm text-muted">
-          Connect your GitHub account to view commit activity across repositories.
+          Connect your GitHub account to track commit activity across public and private repositories.
         </p>
 
         {connectError && (
@@ -246,11 +254,7 @@ export default function CommitsPage() {
             </svg>
             <div className="flex-1">
               <div className="font-medium">{connectError}</div>
-              <button
-                className="inline-block mt-3 button-primary"
-                onClick={handleConnect}
-                disabled={authActionLoading}
-              >
+              <button className="inline-block mt-3 button-primary" onClick={handleConnect} disabled={authActionLoading}>
                 {authActionLoading ? "Connecting..." : "Try Again"}
               </button>
             </div>
@@ -273,6 +277,55 @@ export default function CommitsPage() {
     );
   }
 
+  // State C — linked but session token expired/missing
+  if (!githubToken) {
+    return (
+      <div className="panel space-y-5 max-w-lg">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">GitHub</p>
+          <h2 className="text-lg font-semibold">Reconnect GitHub</h2>
+        </div>
+
+        {githubUser && (
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+            <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium bg-yellow-500/10 text-yellow-300 border border-yellow-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400"></span>
+              @{githubUser.login}
+            </span>
+            <span className="text-xs text-muted">Session expired</span>
+          </div>
+        )}
+
+        <p className="text-sm text-muted">
+          Your GitHub session has expired. Reconnect to load commits from your repositories.
+        </p>
+
+        {connectError && (
+          <div className="rounded-xl border border-red-500/30 bg-red-900/20 p-3 text-sm text-red-300">
+            {connectError}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3">
+          <button
+            className="button-primary inline-flex items-center gap-2"
+            onClick={handleConnect}
+            disabled={authActionLoading}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12" />
+            </svg>
+            {authActionLoading ? "Reconnecting..." : "Reconnect GitHub"}
+          </button>
+          <button className="button-secondary text-xs text-red-400 border-red-500/20 hover:bg-red-500/10" onClick={handleDisconnect}>
+            Unlink GitHub
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // State B — fully connected
   return (
     <div className="space-y-6">
       <div className="panel space-y-3">
@@ -298,17 +351,6 @@ export default function CommitsPage() {
           </div>
         </div>
 
-        {connectError && (
-          <div className="rounded-xl border border-red-500/30 bg-red-900/20 p-3 text-sm text-red-300 flex items-center justify-between gap-3">
-            <span>{connectError}</span>
-            {!githubToken && (
-              <button className="button-secondary text-xs" onClick={handleConnect} disabled={authActionLoading}>
-                {authActionLoading ? "Connecting..." : "Reconnect"}
-              </button>
-            )}
-          </div>
-        )}
-
         <div className="grid gap-2 md:grid-cols-[1.4fr_0.8fr_auto_auto]">
           <input
             className="input"
@@ -327,9 +369,10 @@ export default function CommitsPage() {
             Add Repo
           </button>
           <button className="button-secondary" onClick={loadCommits} disabled={loading}>
-            Refresh
+            {loading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
+
         {error && (
           <div className="rounded-xl border border-red-500/30 bg-red-900/20 p-3 text-sm text-red-300 flex items-center justify-between gap-3">
             <span>{error}</span>
@@ -338,12 +381,7 @@ export default function CommitsPage() {
             </button>
           </div>
         )}
-        {loading && <p className="text-sm text-muted">Loading commits...</p>}
-        {!githubToken && (
-          <p className="text-xs text-muted">
-            Reconnect GitHub to refresh the GitHub access token for commit loading.
-          </p>
-        )}
+
         {rateLimit && (
           <p className="text-xs text-muted">
             Rate limit: {rateLimit.remaining} remaining · resets at{" "}
