@@ -630,8 +630,14 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const buildMyPlanWithAI = async () => {
     try {
       return await api.buildMyPlan(state);
-    } catch {
-      push("AI plan failed, using local heuristic fallback", "warning");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "AI plan generation failed";
+      // If the error is a configuration issue, surface it clearly
+      if (message.includes("not configured") || message.includes("ANTHROPIC_API_KEY")) {
+        throw new Error(message);
+      }
+      // For transient errors, fall back to local heuristic
+      push("AI unavailable, using local heuristic", "warning");
       const localPlan = generateAutoPlan();
       return {
         taskIds: localPlan,

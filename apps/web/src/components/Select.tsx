@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 
 export interface SelectOption {
     value: string;
@@ -26,18 +27,35 @@ export default function Select({
     const [focusedIndex, setFocusedIndex] = useState(-1);
     const containerRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLUListElement>(null);
+    const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
 
-    // Close on outside click/focus-out
+    // Position the portal dropdown relative to the trigger button
+    useLayoutEffect(() => {
+        if (!isOpen || !containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        setDropdownStyle({
+            position: "fixed",
+            top: rect.bottom + 8,
+            left: rect.left,
+            width: rect.width,
+            zIndex: 9999,
+        });
+    }, [isOpen]);
+
+    // Close on outside click
+    const portalRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
+        if (!isOpen) return;
         function handlePointerDown(event: MouseEvent) {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-                setFocusedIndex(-1);
-            }
+            const target = event.target as Node;
+            if (containerRef.current?.contains(target)) return;
+            if (portalRef.current?.contains(target)) return;
+            setIsOpen(false);
+            setFocusedIndex(-1);
         }
         document.addEventListener("mousedown", handlePointerDown);
         return () => document.removeEventListener("mousedown", handlePointerDown);
-    }, []);
+    }, [isOpen]);
 
     // Scroll focused item into view
     useEffect(() => {
@@ -110,6 +128,58 @@ export default function Select({
         }
     };
 
+    const dropdown = isOpen && createPortal(
+        <div
+            ref={portalRef}
+            style={dropdownStyle}
+            className="max-h-60 overflow-y-auto no-scrollbar shadow-2xl origin-top animate-in fade-in slide-in-from-top-1 duration-150 rounded-xl border border-stroke/50 bg-[rgba(15,20,28,0.97)] backdrop-blur-xl"
+        >
+            <ul
+                ref={listRef}
+                role="listbox"
+                className="p-1 m-0 list-none"
+                aria-multiselectable={multiple}
+            >
+                {options.length === 0 && (
+                    <li className="px-3 py-2 text-sm text-muted text-center italic">No options</li>
+                )}
+                {options.map((option, idx) => {
+                    const isActive = multiple && Array.isArray(value)
+                        ? value.includes(option.value)
+                        : option.value === String(value);
+                    const isFocused = idx === focusedIndex;
+
+                    return (
+                        <li
+                            key={option.value}
+                            role="option"
+                            aria-selected={isActive}
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelect(option.value);
+                            }}
+                            onMouseEnter={() => setFocusedIndex(idx)}
+                            className={`
+                    px-3 py-2 cursor-pointer rounded-lg text-sm transition-colors flex items-center justify-between gap-2
+                    ${isActive ? "bg-accent/20 text-accent font-medium" : "text-strong"}
+                    ${isFocused && !isActive ? "bg-white/8" : ""}
+                    ${!isFocused && !isActive ? "hover:bg-white/5" : ""}
+                  `}
+                        >
+                            <span className="truncate">{option.label}</span>
+                            {isActive && (
+                                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                            )}
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>,
+        document.body
+    );
+
     return (
         <div className={`relative ${className}`} ref={containerRef}>
             <button
@@ -133,54 +203,7 @@ export default function Select({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
             </button>
-
-            {isOpen && (
-                <div className="absolute z-[300] mt-2 w-full glass-panel glass-standard border border-stroke/50 bg-[rgba(15,20,28,0.97)] max-h-60 overflow-y-auto no-scrollbar shadow-2xl origin-top animate-in fade-in slide-in-from-top-1 duration-150 rounded-xl">
-                    <ul
-                        ref={listRef}
-                        role="listbox"
-                        className="p-1 m-0 list-none"
-                        aria-multiselectable={multiple}
-                    >
-                        {options.length === 0 && (
-                            <li className="px-3 py-2 text-sm text-muted text-center italic">No options</li>
-                        )}
-                        {options.map((option, idx) => {
-                            const isActive = multiple && Array.isArray(value)
-                                ? value.includes(option.value)
-                                : option.value === String(value);
-                            const isFocused = idx === focusedIndex;
-
-                            return (
-                                <li
-                                    key={option.value}
-                                    role="option"
-                                    aria-selected={isActive}
-                                    onMouseDown={(e) => {
-                                        // use mousedown to fire before blur so click doesn't lose focus
-                                        e.preventDefault();
-                                        handleSelect(option.value);
-                                    }}
-                                    onMouseEnter={() => setFocusedIndex(idx)}
-                                    className={`
-                    px-3 py-2 cursor-pointer rounded-lg text-sm transition-colors flex items-center justify-between gap-2
-                    ${isActive ? "bg-accent/20 text-accent font-medium" : "text-strong"}
-                    ${isFocused && !isActive ? "bg-white/8" : ""}
-                    ${!isFocused && !isActive ? "hover:bg-white/5" : ""}
-                  `}
-                                >
-                                    <span className="truncate">{option.label}</span>
-                                    {isActive && (
-                                        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    )}
-                                </li>
-                            );
-                        })}
-                    </ul>
-                </div>
-            )}
+            {dropdown}
         </div>
     );
 }

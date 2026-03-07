@@ -20,7 +20,9 @@ import { getScanStatus, runGitScanNow, fetchLocalCommits } from "./gitScan.js";
 import { updateInsights, runInsightAction } from "./insights.js";
 import { runBackupNow, getBackupDir } from "./backup.js";
 
-dotenv.config();
+const __filename_local = fileURLToPath(import.meta.url);
+const __dirname_local = path.dirname(__filename_local);
+dotenv.config({ path: path.resolve(__dirname_local, "../.env") });
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4170);

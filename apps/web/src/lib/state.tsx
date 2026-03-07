@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppStateSchema, type AppState } from "@linkra/shared";
 import { supabase } from "./supabase";
 import { cloneAppState, createDefaultAppState } from "./appStateModel";
@@ -17,6 +17,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const skipBroadcastRefreshRef = useRef(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -77,6 +78,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         );
 
       if (dbError) throw dbError;
+      // Skip the self-triggered refresh from this broadcast
+      skipBroadcastRefreshRef.current = true;
       broadcastUpdate();
       return true;
     } catch (err) {
@@ -103,7 +106,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const channel = new BroadcastChannel("linkra-sync");
     channel.onmessage = (event) => {
-      if (event.data === "refresh") refresh();
+      if (event.data === "refresh") {
+        // Skip refresh triggered by our own save — state is already up to date
+        if (skipBroadcastRefreshRef.current) {
+          skipBroadcastRefreshRef.current = false;
+          return;
+        }
+        refresh();
+      }
     };
     return () => channel.close();
   }, []);
