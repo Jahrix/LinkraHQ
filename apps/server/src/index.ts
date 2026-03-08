@@ -7,7 +7,13 @@ import fs from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { AppStateSchema, generateWeeklyReview, type AppState } from "@linkra/shared";
+import {
+  AppStateSchema,
+  createBuildPlanPrompt,
+  generateWeeklyReview,
+  parseBuildPlanResponse,
+  type AppState
+} from "@linkra/shared";
 import {
   fetchGithubCommits,
   findMatchingCommit
@@ -622,103 +628,13 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
     });
   }
 
-  // Gather relevant context from state
-  const now = new Date().toISOString();
-  const today = now.slice(0, 10);
+  const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(state);
 
-  const activeProjects = state.projects.filter((p) => p.status !== "Archived");
-
-  type TaskContext = {
-    id: string;
-    text: string;
-    project: string;
-    priority: string;
-    dueDate: string | null;
-    isOverdue: boolean;
-    status: string;
-  };
-
-  const allTasks: TaskContext[] = activeProjects.flatMap((project) =>
-    project.tasks
-      .filter((t) => !t.done)
-      .map((t) => ({
-        id: t.id,
-        text: t.text,
-        project: project.name,
-        priority: t.priority,
-        dueDate: t.dueDate ?? null,
-        isOverdue: t.dueDate ? t.dueDate < today : false,
-        status: t.status
-      }))
-  );
-
-  if (allTasks.length === 0) {
+  if (tasks.length === 0) {
     return res.status(400).json({
       error: "No open tasks available to build a plan from."
     });
   }
-
-  const roadmapNow = state.roadmapCards
-    .filter((c) => c.lane === "now")
-    .map((c) => c.title)
-    .slice(0, 5);
-
-  const activeInsights = state.insights
-    .filter((i) => !i.dismissedUntil || i.dismissedUntil < now)
-    .filter((i) => i.severity !== "info")
-    .map((i) => `${i.title}: ${i.reason}`)
-    .slice(0, 5);
-
-  const localRepos = (state.localRepos ?? []).map((r) => ({
-    name: r.name,
-    dirty: r.dirty,
-    untrackedCount: r.untrackedCount,
-    todayCommitCount: r.todayCommitCount,
-    ahead: r.ahead,
-    behind: r.behind
-  }));
-
-  const contextSummary = {
-    date: today,
-    projects: activeProjects.map((p) => ({
-      name: p.name,
-      status: p.status,
-      weeklyHours: p.weeklyHours,
-      tasksTotal: p.tasks.length,
-      tasksDone: p.tasks.filter((t) => t.done).length
-    })),
-    tasks: allTasks.slice(0, 30),
-    roadmapNowItems: roadmapNow,
-    activeSignals: activeInsights,
-    localRepos: localRepos.slice(0, 10)
-  };
-
-  const systemPrompt = `You are an elite personal command center for a developer. Your job: generate the best possible daily work plan.
-
-Rules:
-- Return exactly a JSON object: { "taskIds": string[], "rationale": string }
-- taskIds: 4-6 task IDs from the provided list only. Max 6.
-- rationale: 1-2 tight sentences. Confident tone. No hedging. Example: "These moves will ship visible progress on your highest-priority work today."
-- Do not include done tasks. Do not invent tasks.
-- Return only valid JSON, no markdown fences.
-
-Priority order (highest to lowest):
-1. Overdue tasks (isOverdue: true) — these must ship
-2. High-priority tasks in active "In Progress" projects
-3. Tasks aligned to roadmap "Now" items
-4. Tasks from projects with active signals or warnings
-5. Tasks from projects with the most weekly hours invested
-6. Unblocked tasks that visibly advance a project (over cleanup or filler)
-
-Avoid:
-- Generic maintenance unless it unblocks real work
-- Tasks from On Hold or Done projects
-- Stuffing the plan with low-value items just to fill slots`;
-
-  const userMessage = `Today is ${today}. Here is my work context:
-${JSON.stringify(contextSummary, null, 2)}
-
-Build my plan. Return JSON only: {"taskIds": [...], "rationale": "..."}`;
 
   try {
     const Anthropic = (await import("@anthropic-ai/sdk")).default;
@@ -753,24 +669,8 @@ Build my plan. Return JSON only: {"taskIds": [...], "rationale": "..."}`;
       .filter((block) => block.type === "text")
       .map((block) => (block as any).text)
       .join("");
-
-    // Strip markdown fences if present
-    const cleaned = rawText.replace(/```(?:json)?\s*/gi, "").replace(/```\s*/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-
-    if (!Array.isArray(parsed.taskIds) || typeof parsed.rationale !== "string") {
-      throw new Error("Unexpected response shape from Claude");
-    }
-
-    // Validate that all returned IDs exist in our task list
-    const validIds = new Set(allTasks.map((t) => t.id));
-    const filteredIds = (parsed.taskIds as string[]).filter((id) => validIds.has(id)).slice(0, 6);
-
-    if (filteredIds.length === 0) {
-      throw new Error("Plan generation returned no valid tasks");
-    }
-
-    res.json({ taskIds: filteredIds, rationale: parsed.rationale });
+    const plan = parseBuildPlanResponse(rawText, tasks.map((task) => task.id));
+    res.json(plan);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to generate plan";
     res.status(500).json({ error: message });
