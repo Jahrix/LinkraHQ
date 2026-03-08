@@ -36,6 +36,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const skipBroadcastRefreshRef = useRef(false);
   const stateRef = useRef<AppState | null>(null);
 
+  // Serial save queue: prevents concurrent saves from clobbering each other.
+  // If a save is in-flight and a new one arrives, we coalesce to the latest
+  // state and flush it once the current save settles.
+  const isSavingRef = useRef(false);
+  const pendingSaveRef = useRef<AppState | null>(null);
+  // Forward ref so the finally-block flush can call save without a stale closure.
+  const saveRef = useRef<(next: AppState) => Promise<boolean>>(async (_) => false);
+
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
@@ -85,13 +93,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const save = useCallback(async (next: AppState) => {
-    const previous = stateRef.current ? cloneAppState(stateRef.current) : null;
+  const save = useCallback(async (next: AppState): Promise<boolean> => {
     const candidate = normalizeRuntimeAppState(cloneAppState(next));
     setError(null);
+
+    // Optimistic update: reflect the new state in the UI immediately.
     stateRef.current = candidate;
     setState(candidate);
 
+    // If another save is already in-flight, coalesce this into the pending slot.
+    // The in-flight save's finally block will flush the latest pending state when done.
+    if (isSavingRef.current) {
+      pendingSaveRef.current = candidate;
+      return true;
+    }
+
+    isSavingRef.current = true;
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -106,17 +123,32 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         );
 
       if (dbError) throw dbError;
-      // Skip the self-triggered refresh from this broadcast
       skipBroadcastRefreshRef.current = true;
       broadcastUpdate();
       return true;
     } catch (err) {
-      stateRef.current = previous;
-      setState(previous);
       setError(err instanceof Error ? err.message : "Failed to save state");
+      // On failure: if no newer pending save is queued, refresh from the server to
+      // restore authoritative state. If a pending save is queued, let it run — it
+      // may succeed and resolve the inconsistency without a full refresh.
+      if (!pendingSaveRef.current) {
+        void refresh();
+      }
       return false;
+    } finally {
+      isSavingRef.current = false;
+      const pending = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      if (pending) {
+        // Use saveRef to avoid capturing a stale closure of save itself.
+        void saveRef.current(pending);
+      }
     }
-  }, []);
+  }, [refresh]);
+
+  // Keep the forward ref current on every render so the finally-block flush always
+  // calls the latest version of save.
+  saveRef.current = save;
 
   useEffect(() => {
     refresh();

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { type RoadmapCard, type RoadmapLane } from "@linkra/shared";
 import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
+import { useToast } from "../lib/toast";
 import Select from "../components/Select";
 
 const lanes: { key: RoadmapLane; label: string }[] = [
@@ -13,6 +14,7 @@ const lanes: { key: RoadmapLane; label: string }[] = [
 
 export default function RoadmapPage() {
   const { state, save } = useAppState();
+  const { push } = useToast();
   const [query, setQuery] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -57,7 +59,10 @@ export default function RoadmapPage() {
     setDescription("");
     setTags("");
     setProjectId("");
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to add card.", "error");
+    }
   };
 
   const onDragStart = (event: React.DragEvent, id: string) => {
@@ -77,7 +82,10 @@ export default function RoadmapPage() {
         }
         : card
     );
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to move card.", "error");
+    }
   };
 
   const copyLink = async (cardId: string) => {

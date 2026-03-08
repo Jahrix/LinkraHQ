@@ -203,8 +203,12 @@ export default function ProjectJournalPanel({
       push("Journal entry added.", "success");
     }
 
-    await save(next);
-    closeModal();
+    const saved = await save(next);
+    if (saved) {
+      closeModal();
+    } else {
+      push("Failed to save journal entry.", "error");
+    }
   };
 
   const removeEntry = async (entryId: string) => {
@@ -214,8 +218,12 @@ export default function ProjectJournalPanel({
     const next = cloneAppState(state);
     next.journalEntries = [...(state.journalEntries ?? [])];
     next.journalEntries = next.journalEntries.filter((entry) => entry.id !== entryId);
-    await save(next);
-    push("Journal entry deleted.", "success");
+    const saved = await save(next);
+    if (saved) {
+      push("Journal entry deleted.", "success");
+    } else {
+      push("Failed to delete journal entry.", "error");
+    }
   };
 
   return (

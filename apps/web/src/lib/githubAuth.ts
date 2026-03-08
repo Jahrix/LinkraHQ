@@ -16,6 +16,22 @@ export interface GithubCommit {
 }
 
 export const GITHUB_AUTH_SCOPES = "repo read:user";
+const AUTH_REDIRECT_PARAM = "auth_redirect";
+const AUTH_RETURN_TO_PARAM = "auth_return_to";
+const AUTH_RESPONSE_PARAMS = [
+  "access_token",
+  "refresh_token",
+  "expires_at",
+  "expires_in",
+  "token_type",
+  "provider_token",
+  "provider_refresh_token",
+  "code",
+  "error",
+  "error_code",
+  "error_description"
+];
+const AUTH_REDIRECT_TARGETS = new Set(["commits", "account"]);
 
 type GithubOAuthOptions = {
   provider: "github";
@@ -40,15 +56,20 @@ export function buildCommitsRedirectUrl(locationLike: {
   pathname: string;
   search: string;
 }) {
-  return `${locationLike.origin}${locationLike.pathname}${locationLike.search}#commits`;
+  return buildAuthRedirectUrl(locationLike, "commits");
 }
 
-export function hasGithubIdentity(user: Pick<User, "app_metadata" | "identities"> | null | undefined) {
+export function buildAccountRedirectUrl(locationLike: {
+  origin: string;
+  pathname: string;
+  search: string;
+}) {
+  return buildAuthRedirectUrl(locationLike, "account");
+}
+
+export function hasGithubIdentity(user: Pick<User, "identities"> | null | undefined) {
   if (!user) {
     return false;
-  }
-  if (user.app_metadata?.providers?.includes("github")) {
-    return true;
   }
   return user.identities?.some((identity) => identity.provider === "github") ?? false;
 }
@@ -58,7 +79,7 @@ export function getGithubIdentity(user: Pick<User, "identities"> | null | undefi
 }
 
 export function getGithubIdentityProfile(
-  user: Pick<User, "app_metadata" | "identities"> | null | undefined
+  user: Pick<User, "identities"> | null | undefined
 ): GithubUserProfile | null {
   const identity = getGithubIdentity(user);
   const identityData = identity?.identity_data ?? {};
@@ -97,6 +118,16 @@ export async function startGithubConnect(
   return auth.signInWithOAuth(options);
 }
 
+export async function startGithubReconnect(auth: GithubAuthClient, redirectTo: string) {
+  return auth.signInWithOAuth({
+    provider: "github",
+    options: {
+      redirectTo,
+      scopes: GITHUB_AUTH_SCOPES
+    }
+  });
+}
+
 export function formatGithubConnectError(error: unknown) {
   const message = error instanceof Error ? error.message : "Failed to connect GitHub.";
 
@@ -113,6 +144,37 @@ export function formatGithubConnectError(error: unknown) {
 
 export function getGithubProviderToken(session: Pick<Session, "provider_token"> | null | undefined) {
   return session?.provider_token ?? null;
+}
+
+export function finalizeAuthRedirectUrl(locationLike: {
+  pathname: string;
+  search: string;
+  hash: string;
+}) {
+  const searchParams = new URLSearchParams(locationLike.search);
+  const { routeFromHash, hashParams } = parseHashFragment(locationLike.hash);
+  const hasAuthResponse =
+    AUTH_RESPONSE_PARAMS.some((param) => searchParams.has(param) || hashParams.has(param));
+
+  if (!hasAuthResponse && !searchParams.has(AUTH_REDIRECT_PARAM)) {
+    return null;
+  }
+
+  const redirectTarget = normalizeAuthRedirectTarget(searchParams.get(AUTH_REDIRECT_PARAM));
+  const returnTo = normalizeReturnTo(searchParams.get(AUTH_RETURN_TO_PARAM));
+  const route = redirectTarget ?? routeFromHash;
+
+  searchParams.delete(AUTH_REDIRECT_PARAM);
+  searchParams.delete(AUTH_RETURN_TO_PARAM);
+  for (const param of AUTH_RESPONSE_PARAMS) {
+    searchParams.delete(param);
+  }
+
+  const baseUrl = returnTo ? new URL(`https://linkra.local${returnTo}`) : null;
+  const nextPathname = baseUrl?.pathname ?? locationLike.pathname;
+  const nextSearch = baseUrl?.search ? baseUrl.search.slice(1) : searchParams.toString();
+  const nextHash = route ? `#${route}` : "";
+  return `${nextPathname}${nextSearch ? `?${nextSearch}` : ""}${nextHash}`;
 }
 
 export async function fetchGithubUserProfile(token: string): Promise<GithubUserProfile> {
@@ -259,6 +321,55 @@ function parseRateLimit(response: Response) {
   }
 
   return { remaining, reset };
+}
+
+function buildAuthRedirectUrl(
+  locationLike: { origin: string; pathname: string; search: string },
+  target: "commits" | "account"
+) {
+  const url = new URL(`${locationLike.origin}${locationLike.pathname}${locationLike.search}`);
+  url.searchParams.set(AUTH_REDIRECT_PARAM, target);
+  url.searchParams.set(AUTH_RETURN_TO_PARAM, `${locationLike.pathname}${locationLike.search}`);
+  url.hash = target;
+  return url.toString();
+}
+
+function parseHashFragment(hash: string) {
+  const trimmed = hash.replace(/^#/, "");
+  if (!trimmed) {
+    return { routeFromHash: null, hashParams: new URLSearchParams() };
+  }
+
+  if (looksLikeAuthPayload(trimmed)) {
+    return { routeFromHash: null, hashParams: new URLSearchParams(trimmed) };
+  }
+
+  const [routeCandidate, hashQuery = ""] = trimmed.split("?");
+  return {
+    routeFromHash: normalizeAuthRedirectTarget(routeCandidate),
+    hashParams: new URLSearchParams(hashQuery)
+  };
+}
+
+function looksLikeAuthPayload(value: string) {
+  const params = new URLSearchParams(value);
+  return AUTH_RESPONSE_PARAMS.some((param) => params.has(param));
+}
+
+function normalizeAuthRedirectTarget(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.toLowerCase();
+  return AUTH_REDIRECT_TARGETS.has(normalized) ? normalized : null;
+}
+
+function normalizeReturnTo(value: string | null | undefined) {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("#")) {
+    return null;
+  }
+  return value;
 }
 
 function formatGithubApiError(prefix: string, status: number) {

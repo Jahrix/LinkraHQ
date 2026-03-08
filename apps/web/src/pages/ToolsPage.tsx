@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
+import { useToast } from "../lib/toast";
 import { formatTime } from "../lib/date";
 import QuickCapture from "../components/QuickCapture";
 
@@ -8,6 +9,7 @@ const DEFAULT_MINUTES = 25;
 
 export default function ToolsPage() {
   const { state, save } = useAppState();
+  const { push } = useToast();
   const [sessionText, setSessionText] = useState("");
   const [minutes, setMinutes] = useState(DEFAULT_MINUTES);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
@@ -60,8 +62,11 @@ export default function ToolsPage() {
       },
       ...next.sessionLogs
     ];
-    await save(next);
+    const saved = await save(next);
     setSecondsLeft(minutes * 60);
+    if (!saved) {
+      push("Session recorded but failed to save. Data may be lost on refresh.", "error");
+    }
   };
 
   const addSessionLog = async () => {
@@ -79,7 +84,10 @@ export default function ToolsPage() {
       ...next.sessionLogs
     ];
     setSessionText("");
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to save session log.", "error");
+    }
   };
 
   const minutesDisplay = Math.floor(secondsLeft / 60);

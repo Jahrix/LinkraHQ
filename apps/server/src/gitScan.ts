@@ -306,7 +306,15 @@ export async function runGitScanNow(state = getState(), repoPath?: string) {
   activeScanPromise = executeGitScan(state, targetRepoPath, normalizedWatchDirs)
     .then(async (result) => {
       if (result.nextState) {
-        await saveState(result.nextState);
+        // Merge only the scan outputs (localRepos + project health scores) into the
+        // CURRENT store state, not the snapshot captured at scan start. This prevents
+        // a long-running scan from overwriting settings changes made during the scan.
+        const current = getState();
+        await saveState({
+          ...current,
+          localRepos: result.nextState.localRepos,
+          projects: result.nextState.projects
+        });
       }
       return result;
     })

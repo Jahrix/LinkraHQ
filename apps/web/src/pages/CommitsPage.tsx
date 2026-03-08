@@ -7,6 +7,7 @@ import { useToast } from "../lib/toast";
 import { supabase } from "../lib/supabase";
 import {
   buildCommitsRedirectUrl,
+  finalizeAuthRedirectUrl,
   formatGithubConnectError,
   fetchGithubRepoCommits,
   fetchGithubUserProfile,
@@ -14,7 +15,8 @@ import {
   getGithubIdentityProfile,
   getGithubProviderToken,
   hasGithubIdentity,
-  startGithubConnect
+  startGithubConnect,
+  startGithubReconnect
 } from "../lib/githubAuth";
 
 interface Commit {
@@ -53,6 +55,8 @@ export default function CommitsPage() {
   const [unlinkLoading, setUnlinkLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Prevents concurrent loadGithubConnection calls from interleaving state updates.
+  const isLoadingGithubRef = useRef(false);
 
   if (!state) return null;
 
@@ -61,10 +65,16 @@ export default function CommitsPage() {
     const next = cloneAppState(state);
     next.github.loggedIn = false;
     next.github.user = null;
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      console.error("Failed to clear legacy GitHub state from Supabase.");
+    }
   };
 
   const loadGithubConnection = async () => {
+    // Guard against concurrent calls (e.g. rapid auth events firing back-to-back).
+    if (isLoadingGithubRef.current) return;
+    isLoadingGithubRef.current = true;
     setUserLoading(true);
     try {
       const [{ data: { session } }, { data: { user } }] = await Promise.all([
@@ -109,10 +119,16 @@ export default function CommitsPage() {
     } finally {
       setUserLoading(false);
       setIsCheckingAuth(false);
+      isLoadingGithubRef.current = false;
     }
   };
 
   useEffect(() => {
+    const cleanedUrl = finalizeAuthRedirectUrl(window.location);
+    if (cleanedUrl) {
+      window.history.replaceState(null, "", cleanedUrl);
+    }
+
     loadGithubConnection();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -139,7 +155,10 @@ export default function CommitsPage() {
       ...next.userSettings.selectedRepos
     ];
     setRepoInput("");
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to add repository.", "error");
+    }
   };
 
   const removeRepo = async (repo: RepoConfig) => {
@@ -147,7 +166,10 @@ export default function CommitsPage() {
     next.userSettings.selectedRepos = next.userSettings.selectedRepos.filter(
       (item) => item.repo !== repo.repo || item.branch !== repo.branch
     );
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to remove repository.", "error");
+    }
   };
 
   const loadCommits = useCallback(async () => {
@@ -201,6 +223,31 @@ export default function CommitsPage() {
         hasAppSession: Boolean(session),
         hasLinkedGithubIdentity: hasGithubIdentity(user)
       });
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+      push("Redirecting to GitHub...");
+    } catch (err) {
+      const message = formatGithubConnectError(err);
+      setConnectError(message);
+      push(message, "error");
+    } finally {
+      setAuthActionLoading(false);
+    }
+  };
+
+  const handleReconnect = async () => {
+    setAuthActionLoading(true);
+    setConnectError(null);
+    try {
+      // Refresh session/user state first to avoid stale token issues.
+      // This matches the pattern used in handleConnect.
+      await Promise.all([
+        supabase.auth.getSession(),
+        supabase.auth.getUser()
+      ]);
+      const redirectTo = buildCommitsRedirectUrl(window.location);
+      const result = await startGithubReconnect(supabase.auth, redirectTo);
       if (result.error) {
         throw new Error(result.error.message);
       }
@@ -338,7 +385,7 @@ export default function CommitsPage() {
         <div className="flex items-center gap-3">
           <button
             className="button-primary inline-flex items-center gap-2"
-            onClick={handleConnect}
+            onClick={handleReconnect}
             disabled={authActionLoading || unlinkLoading}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">

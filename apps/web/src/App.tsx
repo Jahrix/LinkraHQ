@@ -19,6 +19,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 import AuthPage from "./pages/AuthPage";
 import { PomodoroProvider } from "./lib/pomodoroContext";
+import { finalizeAuthRedirectUrl } from "./lib/githubAuth";
 
 function Shell() {
   const { state, loading, error, refresh } = useAppState();
@@ -42,6 +43,11 @@ function Shell() {
   }, []);
 
   useEffect(() => {
+    const cleanedUrl = finalizeAuthRedirectUrl(window.location);
+    if (cleanedUrl) {
+      window.history.replaceState(null, "", cleanedUrl);
+    }
+
     const handleHashChange = () => {
       const raw = window.location.hash.replace("#", "");
       const hash = raw.split("?")[0]; // strip hash query params before route matching
@@ -77,12 +83,6 @@ function Shell() {
   }, []);
 
   useEffect(() => {
-    if (
-      window.location.hash.includes("access_token=") ||
-      window.location.hash.includes("error_description=")
-    ) {
-      return;
-    }
     const hash = active.toLowerCase().replace(" ", "-");
     const newHash = projectId && active === "Dashboard" ? `project/${projectId}` : hash;
     window.history.replaceState(null, "", `#${newHash}`);

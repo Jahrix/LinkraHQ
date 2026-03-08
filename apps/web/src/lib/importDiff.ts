@@ -6,7 +6,10 @@ export type ImportEntityDiff = {
   changed: number;
   removed: number;
   unchanged: number;
-  conflicts: number;
+  /** Items that exist in both local and import with different content.
+   *  In a merge_keep operation these would be overwritten by the import
+   *  unless local is kept. Renamed from `conflicts` to reflect actual semantics. */
+  overwrites: number;
   duplicates: {
     current: number;
     incoming: number;
@@ -26,10 +29,32 @@ export type ImportDiffResult = {
     additions: number;
     changes: number;
     removals: number;
-    conflicts: number;
+    overwrites: number;
   };
   warnings: string[];
 };
+
+/** Structural deep equality — avoids JSON.stringify which is order-dependent
+ *  and has poor performance characteristics on large nested objects. */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return a === b;
+  if (typeof a !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((item, idx) => deepEqual(item, (b as unknown[])[idx]));
+  }
+  const aObj = a as Record<string, unknown>;
+  const bObj = b as Record<string, unknown>;
+  const aKeys = Object.keys(aObj);
+  const bKeys = Object.keys(bObj);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every(
+    (key) => Object.prototype.hasOwnProperty.call(bObj, key) && deepEqual(aObj[key], bObj[key])
+  );
+}
 
 function diffArray<T extends { id: string }>(base: T[], next: T[], label: string, warnings: string[]): ImportEntityDiff {
   const dedupedBase = dedupeById(base);
@@ -48,7 +73,7 @@ function diffArray<T extends { id: string }>(base: T[], next: T[], label: string
       continue;
     }
 
-    if (JSON.stringify(baseMap.get(id)) === JSON.stringify(item)) {
+    if (deepEqual(baseMap.get(id), item)) {
       unchanged += 1;
     } else {
       changed += 1;
@@ -71,7 +96,7 @@ function diffArray<T extends { id: string }>(base: T[], next: T[], label: string
     changed,
     removed,
     unchanged,
-    conflicts: changed,
+    overwrites: changed,
     duplicates: {
       current: dedupedBase.duplicates.length,
       incoming: dedupedNext.duplicates.length
@@ -111,7 +136,7 @@ export function computeImportDiff(current: AppState, incoming: AppState): Import
       additions: all.reduce((sum, item) => sum + item.added, 0),
       changes: all.reduce((sum, item) => sum + item.changed, 0),
       removals: all.reduce((sum, item) => sum + item.removed, 0),
-      conflicts: all.reduce((sum, item) => sum + item.conflicts, 0)
+      overwrites: all.reduce((sum, item) => sum + item.overwrites, 0)
     },
     warnings: Array.from(new Set(warnings))
   };

@@ -19,7 +19,8 @@ import {
   findMatchingCommit
 } from "./github.js";
 import { createStartupAssets, detectOS, startupInstructions, getStartupDir } from "./startup.js";
-import { getGitHealth, getScanStatus, runGitScanNow, fetchLocalCommits } from "./gitScan.js";
+import { getGitHealth, getScanStatus, runGitScanNow, fetchLocalCommits, startGitScanScheduler, startGitWatcher } from "./gitScan.js";
+import { loadStore } from "./store.js";
 import { updateInsights, runInsightAction } from "./insights.js";
 import { runBackupNow, getBackupDir } from "./backup.js";
 
@@ -656,7 +657,9 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
         const modelError = error instanceof Error ? error : new Error("Model request failed");
         lastModelError = modelError;
         if (!modelError.message.includes("not_found_error")) {
-          throw modelError;
+          // Non-404 error (rate limit, auth failure, etc.) — stop trying models
+          // and surface the error, matching Cloudflare function behavior.
+          break;
         }
       }
     }
@@ -686,6 +689,13 @@ if (fs.existsSync(webDist)) {
 }
 
 export async function start() {
+  // Load persisted store from disk before starting background services.
+  // Without this, getState() returns default (empty) settings and the
+  // scheduler/watcher would have no watch dirs to act on.
+  await loadStore();
+  startGitScanScheduler();
+  startGitWatcher();
+
   return new Promise<void>((resolve) => {
     app.listen(PORT, HOST, () => {
       console.log(`Linkra server running on http://${HOST}:${PORT}`);

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import { SCHEMA_VERSION, applyMigrations, type AppState, type ExportBundle } from "@linkra/shared";
 import { api } from "../lib/api";
 import {
@@ -11,8 +12,22 @@ import {
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
 import { computeImportDiff, type ImportDiffResult } from "../lib/importDiff";
-import { formatGithubConnectError, hasGithubIdentity, startGithubConnect } from "../lib/githubAuth";
+import {
+    buildAccountRedirectUrl,
+    formatGithubConnectError,
+    hasGithubIdentity,
+    startGithubConnect
+} from "../lib/githubAuth";
 import { supabase } from "../lib/supabase";
+
+type TabId = "Profile" | "Integrations" | "LockIn" | "Data";
+
+const TABS: Array<{ id: TabId; label: string }> = [
+    { id: "Profile", label: "My Profile" },
+    { id: "LockIn", label: "Lock-in Dashboard Elements" },
+    { id: "Integrations", label: "Integrations" },
+    { id: "Data", label: "Data Export" },
+];
 
 interface ImportPreview {
     bundle: ExportBundle;
@@ -37,17 +52,42 @@ export default function AccountSettingsPage() {
     const { state, save, refresh } = useAppState();
     const { push } = useToast();
 
-    const [activeTab, setActiveTab] = useState<"Profile" | "Integrations" | "LockIn" | "Data">("Profile");
-    const [user, setUser] = useState<any>(null);
+    const [activeTab, setActiveTab] = useState<TabId>("Profile");
+    const [user, setUser] = useState<User | null>(null);
     const [isLinking, setIsLinking] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
+
+    // Controlled form field state — mirrors user metadata and resets on cancel.
+    const [firstName, setFirstName] = useState("");
+    const [lastName, setLastName] = useState("");
+    const [role, setRole] = useState("");
 
     const [preview, setPreview] = useState<ImportPreview | null>(null);
     const [importError, setImportError] = useState<string | null>(null);
 
     useEffect(() => {
-        supabase.auth.getUser().then(({ data }) => setUser(data.user));
+        supabase.auth.getUser().then(({ data }) => {
+            const u = data.user;
+            setUser(u);
+            if (u) {
+                const names = (u.user_metadata?.full_name || "").split(" ");
+                setFirstName(names[0] || "");
+                setLastName(names.slice(1).join(" ") || "");
+                setRole(u.user_metadata?.role || "");
+            }
+        });
     }, []);
+
+    // When user cancels editing, reset form fields to current user metadata.
+    const handleCancelEdit = () => {
+        if (user) {
+            const names = (user.user_metadata?.full_name || "").split(" ");
+            setFirstName(names[0] || "");
+            setLastName(names.slice(1).join(" ") || "");
+            setRole(user.user_metadata?.role || "");
+        }
+        setIsEditing(false);
+    };
 
     const persistState = async (
         mutate: (draft: AppState) => void,
@@ -67,14 +107,14 @@ export default function AccountSettingsPage() {
     const linkGithub = async () => {
         setIsLinking(true);
         try {
-            const [{ data: { session } }, { data: { user } }] = await Promise.all([
+            const [{ data: { session } }, { data: { user: u } }] = await Promise.all([
                 supabase.auth.getSession(),
                 supabase.auth.getUser()
             ]);
-            const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search}#account`;
+            const redirectTo = buildAccountRedirectUrl(window.location);
             const result = await startGithubConnect(supabase.auth, redirectTo, {
                 hasAppSession: Boolean(session),
-                hasLinkedGithubIdentity: hasGithubIdentity(user)
+                hasLinkedGithubIdentity: hasGithubIdentity(u)
             });
 
             if (result.error) {
@@ -91,12 +131,9 @@ export default function AccountSettingsPage() {
 
     const handleUpdateProfile = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        const formData = new FormData(e.currentTarget);
-        const firstName = formData.get("firstName") as string;
-        const lastName = formData.get("lastName") as string;
         const name = `${firstName} ${lastName}`.trim();
 
-        const { error } = await supabase.auth.updateUser({ data: { full_name: name, role: formData.get("role") } });
+        const { error } = await supabase.auth.updateUser({ data: { full_name: name, role } });
         if (error) {
             push("Failed to update profile.");
         } else {
@@ -196,23 +233,15 @@ export default function AccountSettingsPage() {
     };
 
     const metadata = user?.user_metadata || {};
-    const names = (metadata.full_name || "").split(" ");
-    const defaultFirstName = names[0] || "";
-    const defaultLastName = names.slice(1).join(" ") || "";
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-8 h-full">
             {/* Settings Navigation Sidebar */}
             <div className="flex flex-col gap-2 border-r border-stroke pr-6 min-h-[60vh]">
-                {[
-                    { id: "Profile", label: "My Profile" },
-                    { id: "LockIn", label: "Lock-in Dashboard Elements" },
-                    { id: "Integrations", label: "Integrations" },
-                    { id: "Data", label: "Data Export" },
-                ].map(tab => (
+                {TABS.map(tab => (
                     <button
                         key={tab.id}
-                        onClick={() => setActiveTab(tab.id as any)}
+                        onClick={() => setActiveTab(tab.id)}
                         className={`text-left px-4 py-2.5 rounded-xl text-sm font-medium transition ${activeTab === tab.id ? "bg-accent/10 text-accent" : "text-muted hover:bg-subtle hover:text-strong"}`}
                     >
                         {tab.label}
@@ -236,14 +265,17 @@ export default function AccountSettingsPage() {
                         <div className="panel flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <div className="w-16 h-16 rounded-full bg-accent/20 border border-accent flex items-center justify-center text-accent text-2xl font-bold">
-                                    {defaultFirstName[0] || "U"}
+                                    {firstName[0] || "U"}
                                 </div>
                                 <div>
                                     <h3 className="text-lg font-semibold text-strong">{metadata.full_name || "User"}</h3>
                                     <p className="text-sm text-muted">{metadata.role || "LinkraHQ User"}</p>
                                 </div>
                             </div>
-                            <button onClick={() => setIsEditing(!isEditing)} className="button-secondary">
+                            <button
+                                onClick={isEditing ? handleCancelEdit : () => setIsEditing(true)}
+                                className="button-secondary"
+                            >
                                 {isEditing ? "Cancel" : "Edit ✏️"}
                             </button>
                         </div>
@@ -252,26 +284,55 @@ export default function AccountSettingsPage() {
                         <div className="panel space-y-4">
                             <div className="flex justify-between items-center mb-4 border-b border-stroke pb-3 text-strong">
                                 <h3 className="font-semibold text-lg">Personal information</h3>
-                                <button onClick={() => setIsEditing(!isEditing)} className="button-secondary text-sm py-1.5 h-8 rounded-full px-4">
+                                <button
+                                    onClick={isEditing ? handleCancelEdit : () => setIsEditing(true)}
+                                    className="button-secondary text-sm py-1.5 h-8 rounded-full px-4"
+                                >
                                     {isEditing ? "Cancel" : "Edit ✏️"}
                                 </button>
                             </div>
                             <form onSubmit={handleUpdateProfile} className="grid grid-cols-2 gap-y-6 gap-x-8">
                                 <div className="space-y-1.5">
                                     <label className="text-xs text-muted font-medium">First Name</label>
-                                    <input disabled={!isEditing} name="firstName" className="input bg-transparent border-0 px-0 outline-none focus:ring-0 text-strong h-auto py-0 font-medium" defaultValue={defaultFirstName} placeholder="Your name" />
+                                    <input
+                                        disabled={!isEditing}
+                                        name="firstName"
+                                        className="input bg-transparent border-0 px-0 outline-none focus:ring-0 text-strong h-auto py-0 font-medium"
+                                        value={firstName}
+                                        onChange={(e) => setFirstName(e.target.value)}
+                                        placeholder="Your name"
+                                    />
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-xs text-muted font-medium">Last Name</label>
-                                    <input disabled={!isEditing} name="lastName" className="input bg-transparent border-0 px-0 outline-none focus:ring-0 text-strong h-auto py-0 font-medium" defaultValue={defaultLastName} placeholder="Your last name" />
+                                    <input
+                                        disabled={!isEditing}
+                                        name="lastName"
+                                        className="input bg-transparent border-0 px-0 outline-none focus:ring-0 text-strong h-auto py-0 font-medium"
+                                        value={lastName}
+                                        onChange={(e) => setLastName(e.target.value)}
+                                        placeholder="Your last name"
+                                    />
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-xs text-muted font-medium">Email address</label>
-                                    <input disabled className="input bg-transparent border-0 px-0 outline-none focus:ring-0 text-strong h-auto py-0 font-medium opacity-80" value={user?.email || ""} />
+                                    <input
+                                        disabled
+                                        className="input bg-transparent border-0 px-0 outline-none focus:ring-0 text-strong h-auto py-0 font-medium opacity-80"
+                                        value={user?.email || ""}
+                                        readOnly
+                                    />
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-xs text-muted font-medium">Role / Sub-title</label>
-                                    <input disabled={!isEditing} name="role" className="input bg-transparent border-0 px-0 outline-none focus:ring-0 text-strong h-auto py-0 font-medium" defaultValue={metadata.role || "LinkraHQ User"} />
+                                    <input
+                                        disabled={!isEditing}
+                                        name="role"
+                                        className="input bg-transparent border-0 px-0 outline-none focus:ring-0 text-strong h-auto py-0 font-medium"
+                                        value={role}
+                                        onChange={(e) => setRole(e.target.value)}
+                                        placeholder="LinkraHQ User"
+                                    />
                                 </div>
                                 {isEditing && <button type="submit" className="col-span-2 button-primary w-fit">Save Profile</button>}
                             </form>
@@ -386,7 +447,7 @@ export default function AccountSettingsPage() {
                                     </div>
                                     <div className="rounded-lg bg-black/20 p-4 font-mono text-xs">
                                         <div>Summary Δ: +{preview.diff.summary.additions} / ~{preview.diff.summary.changes} / -{preview.diff.summary.removals}</div>
-                                        <div className="text-amber-300">Conflicts on merge: {preview.diff.summary.conflicts}</div>
+                                        <div className="text-amber-300">Items changed by import: {preview.diff.summary.overwrites}</div>
                                     </div>
                                     <div className="filter-row mt-4">
                                         <button className="button-primary" onClick={() => applyImport("replace")}>

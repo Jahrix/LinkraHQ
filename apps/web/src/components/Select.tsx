@@ -6,14 +6,25 @@ export interface SelectOption {
     label: string;
 }
 
-interface SelectProps {
-    value: string | string[];
-    onChange: (value: any) => void;
+interface SelectBaseProps {
     options: SelectOption[];
     className?: string;
     placeholder?: string;
-    multiple?: boolean;
 }
+
+interface SelectSingleProps extends SelectBaseProps {
+    value: string;
+    onChange: (value: string) => void;
+    multiple?: false;
+}
+
+interface SelectMultipleProps extends SelectBaseProps {
+    value: string[];
+    onChange: (value: string[]) => void;
+    multiple: true;
+}
+
+type SelectProps = SelectSingleProps | SelectMultipleProps;
 
 export default function Select({
     value,
@@ -117,13 +128,12 @@ export default function Select({
 
     const handleSelect = useCallback((optionValue: string) => {
         if (multiple && Array.isArray(value)) {
-            if (value.includes(optionValue)) {
-                onChange(value.filter((v) => v !== optionValue));
-            } else {
-                onChange([...value, optionValue]);
-            }
+            const next = value.includes(optionValue)
+                ? value.filter((v) => v !== optionValue)
+                : [...value, optionValue];
+            (onChange as (v: string[]) => void)(next);
         } else {
-            onChange(optionValue);
+            (onChange as (v: string) => void)(optionValue);
             closeSelect();
         }
     }, [closeSelect, multiple, value, onChange]);

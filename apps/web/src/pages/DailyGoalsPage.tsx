@@ -46,7 +46,10 @@ export default function DailyGoalsPage() {
     const metrics = computeGoalMetrics(entry.goals);
     entry.completedPoints = metrics.completedPoints;
     entry.score = metrics.score;
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to update goal.", "error");
+    }
   };
 
   const addGoal = async () => {
@@ -68,7 +71,10 @@ export default function DailyGoalsPage() {
     entry.completedPoints = metrics.completedPoints;
     entry.score = metrics.score;
     setTitle("");
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to add goal.", "error");
+    }
   };
 
   const addTemplateGoal = async () => {
@@ -88,14 +94,21 @@ export default function DailyGoalsPage() {
       ...next.userSettings.goalTemplate
     ];
     setTemplateTitle("");
-    await save(next);
-    push("Template updated.");
+    const saved = await save(next);
+    if (saved) {
+      push("Template updated.");
+    } else {
+      push("Failed to update template.", "error");
+    }
   };
 
   const removeTemplateGoal = async (id: string) => {
     const next = cloneAppState(state);
     next.userSettings.goalTemplate = next.userSettings.goalTemplate.filter((goal) => goal.id !== id);
-    await save(next);
+    const saved = await save(next);
+    if (!saved) {
+      push("Failed to remove template.", "error");
+    }
   };
 
   return (
