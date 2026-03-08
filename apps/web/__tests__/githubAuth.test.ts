@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildCommitsRedirectUrl, GITHUB_AUTH_SCOPES, hasGithubIdentity, startGithubConnect } from "../src/lib/githubAuth";
+import {
+  buildCommitsRedirectUrl,
+  formatGithubConnectError,
+  GITHUB_AUTH_SCOPES,
+  hasGithubIdentity,
+  startGithubConnect
+} from "../src/lib/githubAuth";
 
 describe("github auth helpers", () => {
   it("builds a redirect back to the commits route", () => {
@@ -19,7 +25,10 @@ describe("github auth helpers", () => {
     await startGithubConnect(
       { linkIdentity, signInWithOAuth },
       "https://notes.jahrix.xyz/#commits",
-      true
+      {
+        hasAppSession: true,
+        hasLinkedGithubIdentity: false
+      }
     );
 
     expect(linkIdentity).toHaveBeenCalledWith({
@@ -39,7 +48,10 @@ describe("github auth helpers", () => {
     await startGithubConnect(
       { linkIdentity, signInWithOAuth },
       "https://notes.jahrix.xyz/#commits",
-      false
+      {
+        hasAppSession: false,
+        hasLinkedGithubIdentity: false
+      }
     );
 
     expect(signInWithOAuth).toHaveBeenCalledWith({
@@ -59,5 +71,32 @@ describe("github auth helpers", () => {
         identities: []
       })
     ).toBe(true);
+  });
+
+  it("uses oauth reauthentication when github is already linked", async () => {
+    const linkIdentity = vi.fn();
+    const signInWithOAuth = vi.fn().mockResolvedValue({ data: { provider: "github", url: "https://supabase.test" }, error: null });
+
+    await startGithubConnect(
+      { linkIdentity, signInWithOAuth },
+      "https://notes.jahrix.xyz/#commits",
+      {
+        hasAppSession: true,
+        hasLinkedGithubIdentity: true
+      }
+    );
+
+    expect(signInWithOAuth).toHaveBeenCalledWith({
+      provider: "github",
+      options: {
+        redirectTo: "https://notes.jahrix.xyz/#commits",
+        scopes: GITHUB_AUTH_SCOPES
+      }
+    });
+    expect(linkIdentity).not.toHaveBeenCalled();
+  });
+
+  it("normalizes identity-already-exists into a reconnect message", () => {
+    expect(formatGithubConnectError(new Error("identity_already_exists"))).toContain("already linked");
   });
 });

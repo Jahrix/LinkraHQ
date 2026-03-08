@@ -30,6 +30,11 @@ type GithubAuthClient = {
   signInWithOAuth: (options: GithubOAuthOptions) => Promise<{ error: { message: string } | null }>;
 };
 
+type GithubConnectContext = {
+  hasAppSession: boolean;
+  hasLinkedGithubIdentity: boolean;
+};
+
 export function buildCommitsRedirectUrl(locationLike: {
   origin: string;
   pathname: string;
@@ -75,7 +80,7 @@ export function getGithubIdentityProfile(
 export async function startGithubConnect(
   auth: GithubAuthClient,
   redirectTo: string,
-  hasExistingSession: boolean
+  context: GithubConnectContext
 ) {
   const options = {
     provider: "github" as const,
@@ -85,11 +90,25 @@ export async function startGithubConnect(
     }
   };
 
-  if (hasExistingSession) {
+  if (context.hasAppSession && !context.hasLinkedGithubIdentity) {
     return auth.linkIdentity(options);
   }
 
   return auth.signInWithOAuth(options);
+}
+
+export function formatGithubConnectError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Failed to connect GitHub.";
+
+  if (message.includes("identity_already_exists")) {
+    return "GitHub is already linked to this account. Use Reconnect to refresh access.";
+  }
+
+  if (message.includes("manual linking")) {
+    return "GitHub linking is disabled in Supabase. Enable manual identity linking in Auth settings.";
+  }
+
+  return message;
 }
 
 export function getGithubProviderToken(session: Pick<Session, "provider_token"> | null | undefined) {

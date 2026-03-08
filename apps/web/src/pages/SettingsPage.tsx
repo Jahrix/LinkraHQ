@@ -106,12 +106,21 @@ export default function SettingsPage() {
   };
 
   const runScan = async () => {
+    if (state.userSettings.repoWatchDirs.length === 0) {
+      push("Add a watch directory before scanning for git repos.", "warning");
+      return;
+    }
+
     try {
       const result = await api.gitScan(state);
       const saved = await save(result.state);
       if (!saved) return;
       setScanStatus({ lastScanAt: result.lastScanAt, errors: result.errors });
-      push("Local Git scan complete.");
+      if (result.repos.length === 0) {
+        push("No git repos found. Check folder path and scan again.", "warning");
+        return;
+      }
+      push(`Local Git scan complete. ${result.repos.length} repo${result.repos.length === 1 ? "" : "s"} found.`);
     } catch (err) {
       push(err instanceof Error ? err.message : "Local Git scan failed.", "error");
     }
@@ -222,6 +231,38 @@ export default function SettingsPage() {
               </button>
             </div>
           ))}
+        </div>
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-medium text-strong">Detected repos</div>
+            <span className="text-xs text-muted">{localRepos.length} visible in app state</span>
+          </div>
+          {localRepos.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-muted">
+              No git repos found. Check folder path, then scan again. This folder does not contain detectable git repos.
+            </div>
+          ) : (
+            <div className="table">
+              {localRepos.map((repo) => (
+                <div key={repo.id} className="table-row items-start">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-strong truncate">{repo.name}</div>
+                    <div className="text-xs text-muted truncate">{repo.path}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="chip">{repo.todayCommitCount} today</span>
+                    {repo.scanError ? (
+                      <span className="text-xs text-amber-200">Scan issue</span>
+                    ) : repo.dirty ? (
+                      <span className="text-xs text-amber-200">Dirty</span>
+                    ) : (
+                      <span className="text-xs text-emerald-300">Ready</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="grid gap-2 md:grid-cols-2">
           <label className="toggle">

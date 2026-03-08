@@ -7,6 +7,7 @@ import { useToast } from "../lib/toast";
 import { supabase } from "../lib/supabase";
 import {
   buildCommitsRedirectUrl,
+  formatGithubConnectError,
   fetchGithubRepoCommits,
   fetchGithubUserProfile,
   getGithubIdentity,
@@ -191,15 +192,21 @@ export default function CommitsPage() {
     setAuthActionLoading(true);
     setConnectError(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const [{ data: { session } }, { data: { user } }] = await Promise.all([
+        supabase.auth.getSession(),
+        supabase.auth.getUser()
+      ]);
       const redirectTo = buildCommitsRedirectUrl(window.location);
-      const result = await startGithubConnect(supabase.auth, redirectTo, Boolean(session));
+      const result = await startGithubConnect(supabase.auth, redirectTo, {
+        hasAppSession: Boolean(session),
+        hasLinkedGithubIdentity: hasGithubIdentity(user)
+      });
       if (result.error) {
         throw new Error(result.error.message);
       }
       push("Redirecting to GitHub...");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to connect GitHub.";
+      const message = formatGithubConnectError(err);
       setConnectError(message);
       push(message, "error");
     } finally {

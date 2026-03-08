@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, useId, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 
 export interface SelectOption {
@@ -23,11 +23,28 @@ export default function Select({
     placeholder = "Select...",
     multiple = false
 }: SelectProps) {
+    const listboxId = useId();
     const [isOpen, setIsOpen] = useState(false);
     const [focusedIndex, setFocusedIndex] = useState(-1);
     const containerRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLUListElement>(null);
     const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+
+    const selectedIndex = options.findIndex((option) =>
+        multiple && Array.isArray(value)
+            ? value.includes(option.value)
+            : option.value === String(value)
+    );
+
+    const openSelect = useCallback(() => {
+        setIsOpen(true);
+        setFocusedIndex(selectedIndex >= 0 ? selectedIndex : 0);
+    }, [selectedIndex]);
+
+    const closeSelect = useCallback(() => {
+        setIsOpen(false);
+        setFocusedIndex(-1);
+    }, []);
 
     // Position the portal dropdown relative to the trigger button
     useLayoutEffect(() => {
@@ -36,11 +53,21 @@ export default function Select({
         const updateDropdownStyle = () => {
             if (!containerRef.current) return;
             const rect = containerRef.current.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            const width = Math.min(rect.width, viewportWidth - 16);
+            const spaceBelow = viewportHeight - rect.bottom - 12;
+            const spaceAbove = rect.top - 12;
+            const openAbove = spaceBelow < 240 && spaceAbove > spaceBelow;
+            const maxHeight = Math.max(160, Math.min(320, openAbove ? spaceAbove : spaceBelow));
+            const left = Math.min(Math.max(8, rect.left), viewportWidth - width - 8);
             setDropdownStyle({
                 position: "fixed",
-                top: rect.bottom + 8,
-                left: rect.left,
-                width: rect.width,
+                top: openAbove ? undefined : rect.bottom + 8,
+                bottom: openAbove ? viewportHeight - rect.top + 8 : undefined,
+                left,
+                width,
+                maxHeight,
                 zIndex: 9999,
             });
         };
@@ -63,12 +90,11 @@ export default function Select({
             const target = event.target as Node;
             if (containerRef.current?.contains(target)) return;
             if (portalRef.current?.contains(target)) return;
-            setIsOpen(false);
-            setFocusedIndex(-1);
+            closeSelect();
         }
         document.addEventListener("pointerdown", handlePointerDown);
         return () => document.removeEventListener("pointerdown", handlePointerDown);
-    }, [isOpen]);
+    }, [closeSelect, isOpen]);
 
     // Scroll focused item into view
     useEffect(() => {
@@ -98,17 +124,15 @@ export default function Select({
             }
         } else {
             onChange(optionValue);
-            setIsOpen(false);
-            setFocusedIndex(-1);
+            closeSelect();
         }
-    }, [multiple, value, onChange]);
+    }, [closeSelect, multiple, value, onChange]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (!isOpen) {
             if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
                 e.preventDefault();
-                setIsOpen(true);
-                setFocusedIndex(0);
+                openSelect();
             }
             return;
         }
@@ -116,8 +140,7 @@ export default function Select({
         switch (e.key) {
             case "Escape":
                 e.preventDefault();
-                setIsOpen(false);
-                setFocusedIndex(-1);
+                closeSelect();
                 break;
             case "ArrowDown":
                 e.preventDefault();
@@ -127,6 +150,14 @@ export default function Select({
                 e.preventDefault();
                 setFocusedIndex((prev) => Math.max(prev - 1, 0));
                 break;
+            case "Home":
+                e.preventDefault();
+                setFocusedIndex(0);
+                break;
+            case "End":
+                e.preventDefault();
+                setFocusedIndex(Math.max(options.length - 1, 0));
+                break;
             case "Enter":
             case " ":
                 e.preventDefault();
@@ -135,8 +166,7 @@ export default function Select({
                 }
                 break;
             case "Tab":
-                setIsOpen(false);
-                setFocusedIndex(-1);
+                closeSelect();
                 break;
         }
     };
@@ -145,10 +175,11 @@ export default function Select({
         <div
             ref={portalRef}
             style={dropdownStyle}
-            className="max-h-60 overflow-y-auto no-scrollbar shadow-2xl origin-top animate-in fade-in slide-in-from-top-1 duration-150 rounded-xl border border-stroke/50 bg-[rgba(15,20,28,0.97)] backdrop-blur-xl"
+            className="overflow-y-auto no-scrollbar shadow-2xl origin-top animate-in fade-in slide-in-from-top-1 duration-150 rounded-xl border border-stroke/50 bg-[rgba(15,20,28,0.97)] backdrop-blur-xl"
         >
             <ul
                 ref={listRef}
+                id={listboxId}
                 role="listbox"
                 className="p-1 m-0 list-none"
                 aria-multiselectable={multiple}
@@ -165,6 +196,7 @@ export default function Select({
                     return (
                         <li
                             key={option.value}
+                            id={`${listboxId}-${idx}`}
                             role="option"
                             aria-selected={isActive}
                             onMouseDown={(e) => {
@@ -197,14 +229,13 @@ export default function Select({
         <div className={`relative ${className}`} ref={containerRef}>
             <button
                 type="button"
-                onClick={() => {
-                    setIsOpen((prev) => !prev);
-                    if (!isOpen) setFocusedIndex(0);
-                }}
+                onClick={() => (isOpen ? closeSelect() : openSelect())}
                 onKeyDown={handleKeyDown}
                 className="input w-full flex items-center justify-between text-left cursor-pointer"
                 aria-haspopup="listbox"
                 aria-expanded={isOpen}
+                aria-controls={isOpen ? listboxId : undefined}
+                aria-activedescendant={isOpen && focusedIndex >= 0 ? `${listboxId}-${focusedIndex}` : undefined}
             >
                 <span className="truncate">{getDisplayValue()}</span>
                 <svg

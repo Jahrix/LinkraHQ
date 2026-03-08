@@ -6,13 +6,19 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...(options.headers ?? {})
     },
     ...options
   });
 
   if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as { error?: string };
+      throw new Error(payload.error || `Request failed: ${response.status}`);
+    }
+
     const message = await response.text();
     throw new Error(message || `Request failed: ${response.status}`);
   }
@@ -33,7 +39,7 @@ export const api = {
       errors: string[];
       running: boolean;
       watcherActive: boolean;
-    }>("/api/git/repos"),
+    }>("/api/local-git/repos"),
   gitScan: (state: AppState, repoPath?: string) =>
     request<{
       repos: LocalRepo[];
@@ -48,7 +54,7 @@ export const api = {
       running: boolean;
       watcherActive: boolean;
     }>(
-      "/api/git/scan",
+      "/api/local-git/scan",
       {
         method: "POST",
         body: JSON.stringify({ state, repoPath })

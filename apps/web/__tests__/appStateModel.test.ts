@@ -5,7 +5,8 @@ import {
   cloneAppState,
   createDefaultAppState,
   createExportBundle,
-  createWipedAppState
+  createWipedAppState,
+  normalizeRuntimeAppState
 } from "../src/lib/appStateModel";
 
 const createState = (): AppState => {
@@ -119,5 +120,27 @@ describe("app state model", () => {
     expect(wiped.localRepos).toEqual([]);
     expect(wiped.github).toEqual(state.github);
     expect(wiped.metadata.schema_version).toBe(SCHEMA_VERSION);
+  });
+
+  it("creates today's daily goals entry during runtime normalization", () => {
+    const state = createState();
+    state.dailyGoalsByDate = {};
+    state.userSettings.goalTemplate = [
+      {
+        id: "template-1",
+        title: "Ship a fix",
+        category: "Build",
+        points: 3,
+        done: true,
+        createdAt: "2026-03-05T00:00:00.000Z",
+        completedAt: "2026-03-05T01:00:00.000Z"
+      }
+    ];
+
+    const normalized = normalizeRuntimeAppState(state, new Date("2026-03-08T09:00:00.000Z"));
+
+    expect(normalized.dailyGoalsByDate["2026-03-08"]).toBeDefined();
+    expect(normalized.dailyGoalsByDate["2026-03-08"].goals[0]?.done).toBe(false);
+    expect(normalized.userSettings.theme).toBe("dark");
   });
 });

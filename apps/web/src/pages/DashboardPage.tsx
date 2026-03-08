@@ -181,6 +181,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const selectedProjectBudgetShare =
     selectedProject && totalHours ? Math.round((selectedProject.weeklyHours / totalHours) * 100) : 0;
   const visibleInsightCount = groupedInsights.length;
+  const repoPreview = uniqueRepos.slice(0, 4);
 
   const allTaskLookup = new Map(
     projects.flatMap((project) =>
@@ -568,55 +569,6 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }, "Failed to update roadmap card.");
   };
 
-  const generateAutoPlan = () => {
-    const taskList = visibleProjects.flatMap((project) =>
-      dedupeById(project.tasks).items.map((task) => ({
-        task,
-        projectId: project.id,
-        projectName: project.name,
-        weeklyHours: project.weeklyHours,
-        projectTaskList: project.tasks
-      }))
-    );
-    const roadmapNowProjectIds = new Set<string>();
-    const roadmapNowTaskIds = new Set<string>();
-    const insightProjectIds = new Set<string>();
-
-    state.roadmapCards
-      .filter((card) => card.lane === "now")
-      .forEach((card) => {
-        const mapped = resolveRoadmapProject(card.project, projects);
-        if (mapped && (showArchived || !isArchivedProject(mapped))) {
-          roadmapNowProjectIds.add(mapped.id);
-        }
-        const normalizedTitle = card.title.trim().toLowerCase();
-        if (!normalizedTitle) return;
-        for (const project of visibleProjects) {
-          const match = dedupeById(project.tasks).items.find((task) => task.text.trim().toLowerCase() === normalizedTitle);
-          if (match) {
-            roadmapNowTaskIds.add(match.id);
-          }
-        }
-      });
-
-    activeInsights
-      .filter((insight) => insight.projectId)
-      .forEach((insight) => {
-        const project = projects.find((item) => item.id === insight.projectId);
-        if (project && (showArchived || !isArchivedProject(project))) {
-          insightProjectIds.add(project.id);
-        }
-      });
-
-    return computeTodayPlan(taskList, {
-      boostProjectIds: Array.from(new Set([...roadmapNowProjectIds, ...insightProjectIds])),
-      roadmapNowProjectIds: Array.from(roadmapNowProjectIds),
-      roadmapNowTaskIds: Array.from(roadmapNowTaskIds),
-      insightProjectIds: Array.from(insightProjectIds),
-      maxTasks: 5
-    });
-  };
-
   const persistTodayPlan = async (taskIds: string[], source: "auto" | "manual") => {
     const saved = await persistState((next) => {
       next.todayPlanByDate[todayKey()] = {
@@ -635,17 +587,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       return await api.buildMyPlan(state);
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI plan generation failed";
-      // If the error is a configuration issue, surface it clearly
-      if (message.includes("not configured") || message.includes("ANTHROPIC_API_KEY")) {
-        throw new Error(message);
-      }
-      // For transient errors, fall back to local heuristic
-      push("AI unavailable, using local heuristic", "warning");
-      const localPlan = generateAutoPlan();
-      return {
-        taskIds: localPlan,
-        rationale: "Fell back to local heuristics: prioritized overdue, roadmap, and high-signal tasks."
-      };
+      throw new Error(message);
     }
   };
 
@@ -1000,33 +942,61 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
           <GlassPanel variant="standard" className="flex flex-col h-[200px]">
             <SectionHeader title="Local Git" subtitle={selectedProjectRepo?.name} />
-            <div className="mt-4 flex-1 flex flex-col pt-4 items-center justify-center text-center">
-              <div className="text-4xl mb-3 text-subtle/50">⎇</div>
+            <div className="mt-4 flex-1 flex flex-col justify-center">
               {uniqueRepos.length === 0 ? (
-                <>
-                  <div className="font-bold mb-1 text-base text-white/90">No repos found</div>
-                  <p className="text-xs text-muted mb-0">Go to Settings → Local Git to scan your project directories.</p>
+                <div className="flex flex-col items-center justify-center pt-4 text-center">
+                  <div className="text-4xl mb-3 text-subtle/50">⎇</div>
+                  <div className="font-bold mb-1 text-base text-white/90">No git repos found</div>
+                  <p className="text-xs text-muted mb-0">Check folder path, then scan again from Settings.</p>
                   <button
                     className="text-[10px] uppercase font-bold tracking-widest text-accent mt-4 hover:text-accent-100"
                     onClick={() => { window.location.hash = "settings"; }}
                   >
                     Open Settings →
                   </button>
-                </>
-              ) : (
-                <>
-                  <div className="font-bold mb-1 text-base text-white/90">
-                    {selectedProject?.localRepoPath ? `${selectedProjectRepo?.todayCommitCount ?? 0} Commits Today` : "Not Linked"}
+                </div>
+              ) : selectedProject?.localRepoPath && selectedProjectRepo ? (
+                <div className="grid gap-3">
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-white/95">{selectedProjectRepo.name}</div>
+                        <div className="text-xs text-muted truncate">{selectedProjectRepo.path}</div>
+                      </div>
+                      <span className="chip">{selectedProjectRepo.todayCommitCount} today</span>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted mb-0">
-                    {selectedProject?.localRepoPath ? "Local repo connected." : "Link a repo in project settings."}
-                  </p>
-                  {!selectedProject?.localRepoPath && (
-                    <button className="text-[10px] uppercase font-bold tracking-widest text-accent mt-4 hover:text-accent-100" onClick={() => setActiveTab("Project Settings")}>
+                  <div className="text-xs text-muted">
+                    {selectedProjectRepo.dirty
+                      ? "Working tree has local changes."
+                      : "Local repo connected and clean."}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-white/95">{uniqueRepos.length} repos detected</div>
+                    <button
+                      className="text-[10px] uppercase font-bold tracking-widest text-accent hover:text-accent-100"
+                      onClick={() => setActiveTab("Project Settings")}
+                    >
                       Link Repo →
                     </button>
-                  )}
-                </>
+                  </div>
+                  <div className="grid gap-2">
+                    {repoPreview.map((repo) => (
+                      <div key={repo.id} className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-white/90 truncate">{repo.name}</div>
+                            <div className="text-xs text-muted truncate">{repo.path}</div>
+                          </div>
+                          <span className="chip shrink-0">{repo.todayCommitCount} today</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           </GlassPanel>

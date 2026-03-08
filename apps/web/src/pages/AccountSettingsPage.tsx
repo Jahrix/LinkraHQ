@@ -11,6 +11,7 @@ import {
 import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
 import { computeImportDiff, type ImportDiffResult } from "../lib/importDiff";
+import { formatGithubConnectError, hasGithubIdentity, startGithubConnect } from "../lib/githubAuth";
 import { supabase } from "../lib/supabase";
 
 interface ImportPreview {
@@ -65,10 +66,27 @@ export default function AccountSettingsPage() {
 
     const linkGithub = async () => {
         setIsLinking(true);
-        const { error } = await supabase.auth.linkIdentity({ provider: 'github' });
-        if (error) push("Failed to link Github: " + error.message);
-        else push("Redirecting to GitHub...");
-        setIsLinking(false);
+        try {
+            const [{ data: { session } }, { data: { user } }] = await Promise.all([
+                supabase.auth.getSession(),
+                supabase.auth.getUser()
+            ]);
+            const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search}#account`;
+            const result = await startGithubConnect(supabase.auth, redirectTo, {
+                hasAppSession: Boolean(session),
+                hasLinkedGithubIdentity: hasGithubIdentity(user)
+            });
+
+            if (result.error) {
+                throw new Error(result.error.message);
+            }
+
+            push("Redirecting to GitHub...");
+        } catch (error) {
+            push(formatGithubConnectError(error), "error");
+        } finally {
+            setIsLinking(false);
+        }
     };
 
     const handleUpdateProfile = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -304,7 +322,7 @@ export default function AccountSettingsPage() {
                                         <p className="text-xs text-muted">Sign in and sync repos or commit streams</p>
                                     </div>
                                 </div>
-                                {user?.app_metadata?.providers?.includes('github') ? (
+                                {hasGithubIdentity(user) ? (
                                     <span className="text-sm text-green-500 font-medium px-3 py-1 rounded-full bg-green-500/10">Connected</span>
                                 ) : (
                                     <button onClick={linkGithub} disabled={isLinking} className="button-secondary">

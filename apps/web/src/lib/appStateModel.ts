@@ -2,7 +2,9 @@ import {
   AppStateSchema,
   SCHEMA_VERSION,
   applyMigrations,
+  computeGoalMetrics,
   createDefaultAppState as createSharedDefaultAppState,
+  todayKey,
   type AppState,
   type ExportBundle
 } from "@linkra/shared";
@@ -56,6 +58,44 @@ export const createWipedAppState = (current?: AppState): AppState => {
     ...fresh,
     github: cloneAppState(current).github
   };
+};
+
+export const normalizeRuntimeAppState = (state: AppState, now = new Date()): AppState => {
+  const next = cloneAppState(state);
+  const nowIso = now.toISOString();
+  const today = todayKey(now);
+
+  next.userSettings.theme = "dark";
+
+  if (!next.dailyGoalsByDate[today]) {
+    const goals = next.userSettings.goalTemplate.map((goal) => ({
+      ...goal,
+      id: crypto.randomUUID(),
+      done: false,
+      createdAt: nowIso,
+      completedAt: null
+    }));
+    const metrics = computeGoalMetrics(goals);
+    next.dailyGoalsByDate[today] = {
+      date: today,
+      goals,
+      score: metrics.score,
+      completedPoints: metrics.completedPoints,
+      archivedAt: null
+    };
+  }
+
+  for (const [date, entry] of Object.entries(next.dailyGoalsByDate)) {
+    if (date !== today && !entry.archivedAt) {
+      entry.archivedAt = nowIso;
+    }
+  }
+
+  const todayMetrics = computeGoalMetrics(next.dailyGoalsByDate[today].goals);
+  next.dailyGoalsByDate[today].score = todayMetrics.score;
+  next.dailyGoalsByDate[today].completedPoints = todayMetrics.completedPoints;
+
+  return next;
 };
 
 export const mergeAppStates = (

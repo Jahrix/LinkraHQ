@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppStateSchema, type AppState } from "@linkra/shared";
 import { supabase } from "./supabase";
-import { cloneAppState, createDefaultAppState } from "./appStateModel";
+import { cloneAppState, createDefaultAppState, normalizeRuntimeAppState } from "./appStateModel";
 
 interface StateContextValue {
   state: AppState | null;
@@ -67,14 +67,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (insertError) {
           throw insertError;
         }
-        stateRef.current = fresh;
-        setState(fresh);
+        const normalized = normalizeRuntimeAppState(fresh);
+        stateRef.current = normalized;
+        setState(normalized);
       } else if (dbError) {
         throw dbError;
       } else {
         const parsed = AppStateSchema.parse(data.state);
-        stateRef.current = parsed;
-        setState(parsed);
+        const normalized = normalizeRuntimeAppState(parsed);
+        stateRef.current = normalized;
+        setState(normalized);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load state");
@@ -85,7 +87,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const save = useCallback(async (next: AppState) => {
     const previous = stateRef.current ? cloneAppState(stateRef.current) : null;
-    const candidate = cloneAppState(next);
+    const candidate = normalizeRuntimeAppState(cloneAppState(next));
     setError(null);
     stateRef.current = candidate;
     setState(candidate);

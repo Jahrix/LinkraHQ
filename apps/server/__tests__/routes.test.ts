@@ -153,7 +153,7 @@ describe("server stabilization routes", () => {
     expect(response.status).toBe(403);
   });
 
-  it("allows the github oauth callback to reach state validation even with a github referer", async () => {
+  it("blocks the legacy github oauth callback with a recovery message", async () => {
     const baseUrl = await startServer();
 
     const response = await fetch(`${baseUrl}/auth/github/callback?code=test-code&state=test-state`, {
@@ -162,8 +162,24 @@ describe("server stabilization routes", () => {
       }
     });
 
-    expect(response.status).toBe(400);
-    await expect(response.text()).resolves.toContain("Invalid OAuth state");
+    expect(response.status).toBe(410);
+    await expect(response.text()).resolves.toContain("disabled");
+  });
+
+  it("answers loopback preflight requests for local control routes", async () => {
+    const baseUrl = await startServer();
+
+    const response = await fetch(`${baseUrl}/api/local-git/scan`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5173",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "Content-Type"
+      }
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
   });
 
   it("rejects unsafe OPEN_REPO payloads", async () => {

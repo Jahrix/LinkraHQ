@@ -192,7 +192,7 @@ export default function ProjectModal({
               />
               {repos.length === 0 && (
                 <p className="text-xs text-amber-300/70 mt-0.5">
-                  No git repos found. Go to Settings → Local Git to add watch directories and scan.
+                  No git repos found. Check folder path in Settings → Local Git, then scan again.
                 </p>
               )}
             </label>

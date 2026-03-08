@@ -1,6 +1,5 @@
 import React from "react";
 import { Auth } from "@supabase/auth-ui-react";
-import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { supabase } from "../lib/supabase";
 import GlassPanel from "../components/GlassPanel";
 
@@ -17,7 +16,6 @@ export default function AuthPage() {
                     <Auth
                         supabaseClient={supabase}
                         appearance={{
-                            theme: ThemeSupa,
                             variables: {
                                 default: {
                                     colors: {

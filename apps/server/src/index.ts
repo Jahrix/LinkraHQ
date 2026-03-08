@@ -9,10 +9,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { AppStateSchema, generateWeeklyReview, type AppState } from "@linkra/shared";
 import {
-  githubAuthUrl,
-  exchangeCodeForToken,
   fetchGithubCommits,
-  fetchGithubUser,
   findMatchingCommit
 } from "./github.js";
 import { createStartupAssets, detectOS, startupInstructions, getStartupDir } from "./startup.js";
@@ -27,8 +24,6 @@ dotenv.config({ path: path.resolve(__dirname_local, "../.env") });
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4170);
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
 const DEFAULT_CLIENT_ORIGIN = "http://localhost:5173";
 const SESSION_COOKIE_NAME = "connect.sid";
 
@@ -78,9 +73,6 @@ function buildAllowedClientOrigins() {
 }
 
 const allowedClientOrigins = buildAllowedClientOrigins();
-const fallbackClientOrigin = allowedClientOrigins.values().next().value ?? DEFAULT_CLIENT_ORIGIN;
-const LOCAL_SERVER_ORIGIN =
-  normalizeOrigin(process.env.LOCAL_SERVER_ORIGIN || "") ?? `http://${HOST}:${PORT}`;
 
 function isLoopbackAddress(address?: string | null) {
   if (!address) {
@@ -109,10 +101,6 @@ function getRequestOrigin(req: express.Request) {
   } catch {
     return null;
   }
-}
-
-function getStoredOauthOrigin(req: express.Request) {
-  return normalizeOrigin(req.session.oauthOrigin ?? "") ?? fallbackClientOrigin;
 }
 
 function requestHasUntrustedOrigin(req: express.Request) {
@@ -254,6 +242,12 @@ function createRateLimiter(windowMs: number, max: number, message: string) {
 const aiRateLimit = createRateLimiter(60_000, 5, "Too many plan requests. Please wait a minute.");
 const authRateLimit = createRateLimiter(60_000, 20, "Too many requests. Please wait a minute.");
 const scanRateLimit = createRateLimiter(30_000, 10, "Too many scan requests. Please slow down.");
+const DEFAULT_ANTHROPIC_MODELS = [
+  process.env.ANTHROPIC_MODEL,
+  "claude-haiku-4-5-20251001",
+  "claude-sonnet-4-5-20250929",
+  "claude-sonnet-4-20250514"
+].filter(Boolean) as string[];
 
 export const app = express();
 
@@ -264,6 +258,26 @@ app.use((_req, res, next) => {
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.removeHeader("X-Powered-By");
+  next();
+});
+
+app.use((req, res, next) => {
+  const origin = getRequestOrigin(req);
+  if (origin && allowedClientOrigins.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  }
+
+  if (req.method === "OPTIONS") {
+    if (origin && allowedClientOrigins.has(origin) && isLoopbackAddress(req.socket.remoteAddress)) {
+      return res.status(204).end();
+    }
+    return res.status(403).end();
+  }
+
   next();
 });
 
@@ -514,64 +528,12 @@ app.post("/api/insights/action", requireLocalControl, async (req, res) => {
   }
 });
 
-app.get("/auth/github/start", requireLocalControl, authRateLimit, (req, res) => {
-  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
-    return res.status(400).send("GitHub OAuth is not configured.");
-  }
-
-  const state = crypto.randomBytes(16).toString("hex");
-  req.session.oauthState = state;
-
-  const origin = getRequestOrigin(req);
-  if (origin && allowedClientOrigins.has(origin)) {
-    req.session.oauthOrigin = origin;
-  } else {
-    delete req.session.oauthOrigin;
-  }
-
-  const redirectUri = `${LOCAL_SERVER_ORIGIN}/auth/github/callback`;
-  res.redirect(githubAuthUrl(GITHUB_CLIENT_ID, redirectUri, state));
+app.get("/auth/github/start", requireLocalControl, authRateLimit, (_req, res) => {
+  res.status(410).send("GitHub connect moved to Supabase. Open Commits and use Connect GitHub.");
 });
 
-app.get("/auth/github/callback", requireLocalLoopback, async (req, res) => {
-  const clientOrigin = getStoredOauthOrigin(req);
-
-  try {
-    const { code, state } = req.query as { code?: string; state?: string };
-    if (!code || !state || state !== req.session.oauthState) {
-      return res.status(400).send("Invalid OAuth state.");
-    }
-    const redirectUri = `${LOCAL_SERVER_ORIGIN}/auth/github/callback`;
-    const token = await exchangeCodeForToken({
-      clientId: GITHUB_CLIENT_ID,
-      clientSecret: GITHUB_CLIENT_SECRET,
-      code,
-      redirectUri
-    });
-    const user = await fetchGithubUser(token);
-    await new Promise<void>((resolve, reject) => {
-      req.session.regenerate((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        req.session.githubToken = token;
-        req.session.githubUser = user;
-        delete req.session.oauthState;
-        delete req.session.oauthOrigin;
-        req.session.save((saveError) => {
-          if (saveError) {
-            reject(saveError);
-            return;
-          }
-          resolve();
-        });
-      });
-    });
-    res.redirect(`${clientOrigin}/#commits?auth=success`);
-  } catch {
-    res.redirect(`${clientOrigin}/#commits?auth=error`);
-  }
+app.get("/auth/github/callback", requireLocalLoopback, (_req, res) => {
+  res.status(410).send("Legacy GitHub OAuth callback is disabled. Reconnect GitHub from Commits.");
 });
 
 app.post("/auth/logout", requireLocalControl, (req, res) => {
@@ -690,6 +652,12 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
       }))
   );
 
+  if (allTasks.length === 0) {
+    return res.status(400).json({
+      error: "No open tasks available to build a plan from."
+    });
+  }
+
   const roadmapNow = state.roadmapCards
     .filter((c) => c.lane === "now")
     .map((c) => c.title)
@@ -756,12 +724,30 @@ Build my plan. Return JSON only: {"taskIds": [...], "rationale": "..."}`;
     const Anthropic = (await import("@anthropic-ai/sdk")).default;
     const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
-    const message = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 512,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userMessage }]
-    });
+    let message: Awaited<ReturnType<typeof client.messages.create>> | null = null;
+    let lastModelError: Error | null = null;
+
+    for (const model of DEFAULT_ANTHROPIC_MODELS) {
+      try {
+        message = await client.messages.create({
+          model,
+          max_tokens: 512,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userMessage }]
+        });
+        break;
+      } catch (error) {
+        const modelError = error instanceof Error ? error : new Error("Model request failed");
+        lastModelError = modelError;
+        if (!modelError.message.includes("not_found_error")) {
+          throw modelError;
+        }
+      }
+    }
+
+    if (!message) {
+      throw lastModelError ?? new Error("No Anthropic model is available for Build My Plan.");
+    }
 
     const rawText = message.content
       .filter((block) => block.type === "text")
@@ -779,6 +765,10 @@ Build my plan. Return JSON only: {"taskIds": [...], "rationale": "..."}`;
     // Validate that all returned IDs exist in our task list
     const validIds = new Set(allTasks.map((t) => t.id));
     const filteredIds = (parsed.taskIds as string[]).filter((id) => validIds.has(id)).slice(0, 6);
+
+    if (filteredIds.length === 0) {
+      throw new Error("Plan generation returned no valid tasks");
+    }
 
     res.json({ taskIds: filteredIds, rationale: parsed.rationale });
   } catch (err) {
