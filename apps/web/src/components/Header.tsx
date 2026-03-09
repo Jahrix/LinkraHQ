@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Pill from "./Pill";
 import GlassPanel from "./GlassPanel";
+import { playGreetingSoundOnce } from "../lib/sounds";
 
 function getGreeting(hour: number) {
   if (hour >= 5 && hour < 12) return "Good Morning";
@@ -63,6 +64,13 @@ export default function Header({
     month: "long",
     day: "numeric"
   });
+
+  useEffect(() => {
+    if (hideGreeting) {
+      return;
+    }
+    playGreetingSoundOnce(now);
+  }, [hideGreeting, greeting]);
 
   return (
     <GlassPanel

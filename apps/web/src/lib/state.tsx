@@ -35,6 +35,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const skipBroadcastRefreshRef = useRef(false);
   const stateRef = useRef<AppState | null>(null);
+  const authUserIdRef = useRef<string | null>(null);
 
   // Serial save queue: prevents concurrent saves from clobbering each other.
   // If a save is in-flight and a new one arrives, we coalesce to the latest
@@ -54,10 +55,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
+        authUserIdRef.current = null;
         stateRef.current = null;
         setState(null);
         return;
       }
+
+      authUserIdRef.current = user.id;
 
       const { data, error: dbError } = await supabase
         .from("user_state")
@@ -153,13 +157,35 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refresh();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "INITIAL_SESSION") {
-        refresh();
-      } else if (event === "SIGNED_OUT") {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        authUserIdRef.current = null;
         stateRef.current = null;
         setState(null);
+        return;
       }
+
+      if (event === "USER_UPDATED") {
+        authUserIdRef.current = session?.user?.id ?? null;
+        void refresh();
+        return;
+      }
+
+      if (event !== "SIGNED_IN") {
+        return;
+      }
+
+      const nextUserId = session?.user?.id ?? null;
+      const previousUserId = authUserIdRef.current;
+      authUserIdRef.current = nextUserId;
+
+      // Supabase can emit SIGNED_IN again when a tab regains focus.
+      // Only refresh when the authenticated user actually changed.
+      if (!nextUserId || nextUserId === previousUserId) {
+        return;
+      }
+
+      void refresh();
     });
 
     return () => subscription.unsubscribe();

@@ -8,7 +8,11 @@ export default function TodayPlanQueue({
     onBuildPlan,
     onSave,
     onRemove,
-    onStartFocus
+    onStartFocus,
+    remainingBuilds,
+    dailyLimit,
+    isAdmin,
+    onUnlockAdmin
 }: {
     planDraft: string[];
     allTaskLookup: Map<string, { project: any, task: any }>;
@@ -16,12 +20,19 @@ export default function TodayPlanQueue({
     onSave: (taskIds: string[], source: "manual" | "auto") => void;
     onRemove: (id: string) => void;
     onStartFocus: (id: string) => void;
+    remainingBuilds: number;
+    dailyLimit: number;
+    isAdmin: boolean;
+    onUnlockAdmin: (code: string) => Promise<void>;
 }) {
     const [isGenerating, setIsGenerating] = useState(false);
     const [prompt, setPrompt] = useState("");
     const [previewIds, setPreviewIds] = useState<string[] | null>(null);
     const [rationale, setRationale] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [adminCode, setAdminCode] = useState("");
+    const [isUnlockingAdmin, setIsUnlockingAdmin] = useState(false);
+    const [adminError, setAdminError] = useState<string | null>(null);
 
     const handleBuildPlan = async () => {
         setIsGenerating(true);
@@ -38,6 +49,20 @@ export default function TodayPlanQueue({
             setError(err instanceof Error ? err.message : "Failed to build plan");
         } finally {
             setIsGenerating(false);
+        }
+    };
+
+    const handleUnlockAdmin = async () => {
+        if (!adminCode.trim()) return;
+        setIsUnlockingAdmin(true);
+        setAdminError(null);
+        try {
+            await onUnlockAdmin(adminCode.trim());
+            setAdminCode("");
+        } catch (err) {
+            setAdminError(err instanceof Error ? err.message : "Failed to unlock admin bypass");
+        } finally {
+            setIsUnlockingAdmin(false);
         }
     };
 
@@ -68,9 +93,19 @@ export default function TodayPlanQueue({
                 subtitle={`${queuedItems.length} items lined up`}
                 rightControls={
                     <div className="flex gap-2">
+                        <div className={`hidden sm:flex items-center rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] ${isAdmin
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                            : "border-white/10 bg-white/5 text-muted"
+                            }`}>
+                            {isAdmin ? "Admin access" : `${remainingBuilds}/${dailyLimit} left today`}
+                        </div>
                         {!previewIds && (
                             <>
-                                <button className="button-secondary text-xs" onClick={handleBuildPlan} disabled={isGenerating}>
+                                <button
+                                    className="button-secondary text-xs"
+                                    onClick={handleBuildPlan}
+                                    disabled={isGenerating || (!isAdmin && remainingBuilds <= 0)}
+                                >
                                     <svg className={`w-3.5 h-3.5 mr-1.5 inline ${isGenerating ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                                     </svg>
@@ -114,6 +149,43 @@ export default function TodayPlanQueue({
                             </svg>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {!previewIds && (
+                <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Build My Plan quota</div>
+                            <div className="mt-1 text-sm text-white/80">
+                                {isAdmin ? "Admin access enabled for this account." : `${remainingBuilds} of ${dailyLimit} AI builds left today.`}
+                            </div>
+                        </div>
+                    </div>
+
+                    {!isAdmin && (
+                        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                                type="password"
+                                className="input"
+                                placeholder="Admin code"
+                                value={adminCode}
+                                onChange={(event) => setAdminCode(event.target.value)}
+                                onKeyDown={(event) => event.key === "Enter" && void handleUnlockAdmin()}
+                            />
+                            <button
+                                className="button-secondary text-xs"
+                                onClick={() => void handleUnlockAdmin()}
+                                disabled={isUnlockingAdmin || !adminCode.trim()}
+                            >
+                                {isUnlockingAdmin ? "Unlocking..." : "Unlock admin"}
+                            </button>
+                        </div>
+                    )}
+
+                    {adminError && (
+                        <div className="text-xs text-red-300">{adminError}</div>
+                    )}
                 </div>
             )}
 

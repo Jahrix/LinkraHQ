@@ -44,6 +44,25 @@ Important server env vars:
 - `PORT` defaults to `4170`
 - `CLIENT_ORIGIN` defaults to `http://localhost:5173`
 - `SESSION_SECRET` is recommended for stable local sessions
+- `SUPABASE_URL` and `SUPABASE_ANON_KEY` are required for Supabase-backed AI quota/admin checks
+
+## Supabase Quota/Admin Setup
+- Run the SQL migration in `supabase/migrations/20260309_ai_plan_admin_quota.sql`
+- This creates:
+  - `user_roles`
+  - `ai_plan_quotas`
+  - `admin_invite_codes`
+  - RPC functions for quota checks and admin code claims
+- To seed an admin invite code in Supabase SQL:
+
+```sql
+insert into public.admin_invite_codes (label, code_hash, uses_remaining)
+values (
+  'Jahrix admin',
+  encode(digest('YOUR_SECRET_CODE_HERE', 'sha256'), 'hex'),
+  1
+);
+```
 
 ## GitHub Setup
 - Linkra v0.2.4 uses **Supabase GitHub auth/linking** for the Commits flow.

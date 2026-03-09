@@ -105,42 +105,73 @@ describe("Cloudflare build plan function", () => {
   });
 
   it("returns a valid plan when Anthropic responds with JSON", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          content: [
-            {
-              type: "text",
-              text: "{\"taskIds\":[\"t1\"],\"rationale\":\"Fix the production path first.\"}"
-            }
-          ]
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([{ is_admin: false, used: 0, daily_limit: 10, remaining: 10 }]),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        )
       )
-    );
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            content: [
+              {
+                type: "text",
+                text: "{\"taskIds\":[\"t1\"],\"rationale\":\"Fix the production path first.\"}"
+              }
+            ]
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([{ is_admin: false, used: 1, daily_limit: 10, remaining: 9 }]),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        )
+      );
 
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await onRequest({
       request: new Request("https://notes.jahrix.xyz/api/ai/build-plan", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer test-user-token"
+        },
         body: JSON.stringify({ state: buildState() })
       }),
       env: {
         ANTHROPIC_API_KEY: "test-key",
-        ANTHROPIC_MODEL: "claude-test"
+        ANTHROPIC_MODEL: "claude-test",
+        SUPABASE_URL: "https://supabase.test",
+        SUPABASE_ANON_KEY: "anon-key"
       }
     });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       taskIds: ["t1"],
-      rationale: "Fix the production path first."
+      rationale: "Fix the production path first.",
+      quota: {
+        isAdmin: false,
+        used: 1,
+        dailyLimit: 10,
+        remaining: 9
+      }
     });
   });
 });

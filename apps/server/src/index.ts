@@ -24,6 +24,11 @@ import { getGitHealth, getScanStatus, runGitScanNow, fetchLocalCommits, startGit
 import { loadStore } from "./store.js";
 import { updateInsights, runInsightAction } from "./insights.js";
 import { runBackupNow, getBackupDir } from "./backup.js";
+import {
+  claimAdminInvite,
+  consumeAiPlanQuota,
+  fetchAiPlanQuotaStatus
+} from "./supabaseQuota.js";
 
 const __filename_local = fileURLToPath(import.meta.url);
 const __dirname_local = path.dirname(__filename_local);
@@ -554,6 +559,22 @@ app.post("/auth/logout", requireLocalControl, (req, res) => {
   });
 });
 
+app.post("/api/admin/unlock", requireLocalControl, authRateLimit, async (req, res) => {
+  const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
+  if (!code) {
+    return res.status(400).json({ error: "Admin code is required." });
+  }
+
+  try {
+    const quota = await claimAdminInvite(req, code);
+    res.json({ quota });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to unlock admin access.";
+    const status = message === "Authentication required." ? 401 : 403;
+    res.status(status).json({ error: message });
+  }
+});
+
 app.post("/api/github/user", async (req, res) => {
   const { pat } = req.body as { pat?: string };
   const token = pat || req.session.githubToken;
@@ -638,9 +659,28 @@ app.post("/api/github/commits/match", async (req, res) => {
 });
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
+app.post("/api/ai/build-plan/quota", requireLocalControl, async (req, res) => {
+  try {
+    const quota = await fetchAiPlanQuotaStatus(req);
+    res.json({ quota });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load AI plan quota.";
+    const status = message === "Authentication required." ? 401 : 503;
+    res.status(status).json({ error: message });
+  }
+});
+
 app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res) => {
   const state = readRequestState(req, res);
   if (!state) return;
+  let quota;
+  try {
+    quota = await fetchAiPlanQuotaStatus(req);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load AI plan quota.";
+    const status = message === "Authentication required." ? 401 : 503;
+    return res.status(status).json({ error: message });
+  }
 
   if (!ANTHROPIC_API_KEY) {
     return res.status(503).json({
@@ -654,6 +694,12 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
   if (tasks.length === 0) {
     return res.status(400).json({
       error: "No open tasks available to build a plan from."
+    });
+  }
+
+  if (!quota.isAdmin && quota.remaining <= 0) {
+    return res.status(429).json({
+      error: `Daily Build My Plan limit reached. ${quota.remaining}/${quota.dailyLimit} left today.`
     });
   }
 
@@ -693,7 +739,8 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
       .map((block) => (block as any).text)
       .join("");
     const plan = parseBuildPlanResponse(rawText, tasks.map((task) => task.id));
-    res.json(plan);
+    const nextQuota = quota.isAdmin ? quota : await consumeAiPlanQuota(req);
+    res.json({ ...plan, quota: nextQuota });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to generate plan";
     res.status(500).json({ error: message });

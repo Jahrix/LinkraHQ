@@ -1,12 +1,16 @@
 import type { AppState, LocalRepo, WeeklyReview, SuggestedAction } from "@linkra/shared";
+import { supabase } from "./supabase";
 
 export const API_BASE = import.meta.env.VITE_API_URL || "";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const accessToken = session?.access_token ?? null;
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(options.headers ?? {})
     },
     ...options
@@ -152,9 +156,25 @@ export const api = {
       }
     ),
   buildMyPlan: (state: AppState, prompt?: string) =>
-    request<{ taskIds: string[]; rationale: string }>("/api/ai/build-plan", {
+    request<{
+      taskIds: string[];
+      rationale: string;
+      quota: { isAdmin: boolean; used: number; dailyLimit: number; remaining: number };
+    }>("/api/ai/build-plan", {
       method: "POST",
       body: JSON.stringify({ state, prompt })
+    }),
+  aiPlanQuota: () =>
+    request<{ quota: { isAdmin: boolean; used: number; dailyLimit: number; remaining: number } }>(
+      "/api/ai/build-plan/quota",
+      {
+        method: "POST"
+      }
+    ),
+  unlockAdminBypass: (code: string) =>
+    request<{ quota: { isAdmin: boolean; used: number; dailyLimit: number; remaining: number } }>("/api/admin/unlock", {
+      method: "POST",
+      body: JSON.stringify({ code })
     }),
   logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" })
 };

@@ -5,6 +5,7 @@ import { useAppState } from "../lib/state";
 import { formatDate } from "../lib/date";
 import { useToast } from "../lib/toast";
 import { supabase } from "../lib/supabase";
+import { playCommitSound } from "../lib/sounds";
 import {
   buildCommitsRedirectUrl,
   finalizeAuthRedirectUrl,
@@ -172,7 +173,7 @@ export default function CommitsPage() {
     }
   };
 
-  const loadCommits = useCallback(async () => {
+  const loadCommits = useCallback(async (silent = false) => {
     if (!githubUser || !githubToken) return;
     setLoading(true);
     setError(null);
@@ -199,6 +200,9 @@ export default function CommitsPage() {
       setError("GitHub authorization expired. Please reconnect.");
     } else {
       setError(errors.length > 0 ? errors.join(" ") : null);
+      if (!silent && errors.length === 0 && state.userSettings.selectedRepos.length > 0) {
+        playCommitSound();
+      }
     }
 
     setLoading(false);
@@ -207,10 +211,10 @@ export default function CommitsPage() {
   // Load commits + set up 60s auto-refresh when connected
   useEffect(() => {
     if (!githubUser || !githubToken) return;
-    loadCommits();
+    loadCommits(true);
 
     autoRefreshRef.current = setInterval(() => {
-      loadCommits();
+      loadCommits(true);
     }, REFRESH_INTERVAL);
 
     return () => {

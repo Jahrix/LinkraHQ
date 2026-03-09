@@ -55,6 +55,7 @@ import { formatDate } from "../lib/date";
 import { dedupeById, dedupeLocalRepos } from "../lib/collections";
 import { usePomodoro } from "../lib/pomodoroContext";
 import { supabase } from "../lib/supabase";
+import { playCommitSound, playEndOfDaySound } from "../lib/sounds";
 import {
   fetchGithubRepoCommits,
   findMatchingCommit,
@@ -92,6 +93,12 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const [todayPlanDraft, setTodayPlanDraft] = useState<string[]>([]);
   const [todayPlanNotes, setTodayPlanNotes] = useState("");
   const [todayTaskQuery, setTodayTaskQuery] = useState("");
+  const [aiPlanQuota, setAiPlanQuota] = useState({
+    remaining: 10,
+    dailyLimit: 10,
+    used: 0,
+    isAdmin: false
+  });
 
   const duplicateWarnings = useRef(new Set<string>());
 
@@ -317,6 +324,25 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
   }, [state.todayPlanByDate]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void api.aiPlanQuota()
+      .then((response) => {
+        if (!cancelled) {
+          setAiPlanQuota(response.quota);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAiPlanQuota((current) => current);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.metadata.created_at]);
+
   // Auto-complete from commits removed — must be explicitly triggered by the user.
 
   useEffect(() => {
@@ -471,6 +497,9 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       }
     }, `Failed to ${nextClosed ? "close" : "open"} day.`);
     if (saved) {
+      if (nextClosed) {
+        playEndOfDaySound();
+      }
       push(`Day ${nextClosed ? "closed" : "opened"}.`, "success");
     }
   };
@@ -567,6 +596,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     if (selectedProject.localRepoPath) {
       await loadLocalCommits();
     }
+    playCommitSound();
     push("Commits refreshed.", "success");
   };
 
@@ -736,12 +766,24 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const buildMyPlanWithAI = async (prompt?: string) => {
+    if (!aiPlanQuota.isAdmin && aiPlanQuota.remaining <= 0) {
+      throw new Error(`Daily Build My Plan limit reached. ${aiPlanQuota.remaining}/${aiPlanQuota.dailyLimit} left today.`);
+    }
+
     try {
-      return await api.buildMyPlan(state, prompt);
+      const result = await api.buildMyPlan(state, prompt);
+      setAiPlanQuota(result.quota);
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI plan generation failed";
       throw new Error(message);
     }
+  };
+
+  const unlockAdminBypass = async (code: string) => {
+    const response = await api.unlockAdminBypass(code);
+    setAiPlanQuota(response.quota);
+    push("Admin access enabled for this account.", "success");
   };
 
   const movePlanItem = (index: number, direction: -1 | 1) => {
@@ -1103,6 +1145,10 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
             onSave={persistTodayPlan}
             onRemove={removePlanItem}
             onStartFocus={startFocus}
+            remainingBuilds={aiPlanQuota.remaining}
+            dailyLimit={aiPlanQuota.dailyLimit}
+            isAdmin={aiPlanQuota.isAdmin}
+            onUnlockAdmin={unlockAdminBypass}
           />
 
           {selectedProject && (selectedProject.remoteRepo || selectedProject.githubRepo) && (

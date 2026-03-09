@@ -1,8 +1,11 @@
 import { AppStateSchema, createBuildPlanPrompt, parseBuildPlanResponse } from "../../../packages/shared/src/index.js";
+import { consumeAiPlanQuota, fetchAiPlanQuotaStatus } from "../_lib/supabaseQuota";
 
 interface Env {
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  SUPABASE_URL?: string;
+  SUPABASE_ANON_KEY?: string;
 }
 
 interface PagesContext {
@@ -111,10 +114,24 @@ export async function onRequest(context: PagesContext) {
     ? (payload as { prompt: string }).prompt
     : "";
   const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(parsedState.data, prompt);
+  let quota;
+  try {
+    quota = await fetchAiPlanQuotaStatus(request, env);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load AI plan quota.";
+    const status = message === "Authentication required." ? 401 : 503;
+    return jsonResponse(status, { error: message });
+  }
 
   if (tasks.length === 0) {
     return jsonResponse(400, {
       error: "No open tasks available to build a plan from."
+    });
+  }
+
+  if (!quota.isAdmin && quota.remaining <= 0) {
+    return jsonResponse(429, {
+      error: `Daily Build My Plan limit reached. ${quota.remaining}/${quota.dailyLimit} left today.`
     });
   }
 
@@ -147,7 +164,8 @@ export async function onRequest(context: PagesContext) {
 
   try {
     const plan = parseBuildPlanResponse(rawText, tasks.map((task) => task.id));
-    return jsonResponse(200, plan);
+    const nextQuota = quota.isAdmin ? quota : await consumeAiPlanQuota(request, env);
+    return jsonResponse(200, { ...plan, quota: nextQuota });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to generate plan";
     return jsonResponse(500, { error: message });

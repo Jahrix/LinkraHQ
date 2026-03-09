@@ -7,6 +7,7 @@ import { cloneAppState } from "../lib/appStateModel";
 import { dedupeById, dedupeByKey } from "../lib/collections";
 import { formatDate } from "../lib/date";
 import { useAppState } from "../lib/state";
+import { playEndOfDaySound } from "../lib/sounds";
 import { useToast } from "../lib/toast";
 
 function startOfWeek(date: Date) {
@@ -209,6 +210,7 @@ export default function WeeklyReviewPage() {
       return;
     }
     setReview(closedReview);
+    playEndOfDaySound();
     push("Week closed and snapshot stored locally.", "success");
   };
 

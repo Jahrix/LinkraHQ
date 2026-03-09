@@ -20,6 +20,7 @@ import { supabase } from "./lib/supabase";
 import AuthPage from "./pages/AuthPage";
 import { PomodoroProvider } from "./lib/pomodoroContext";
 import { finalizeAuthRedirectUrl } from "./lib/githubAuth";
+import { playStartupSoundOnce } from "./lib/sounds";
 
 function Shell() {
   const { state, loading, error, refresh } = useAppState();
@@ -41,6 +42,14 @@ function Shell() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      return;
+    }
+    playStartupSoundOnce(userId);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     const cleanedUrl = finalizeAuthRedirectUrl(window.location);
