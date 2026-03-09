@@ -39,7 +39,7 @@ export default function AuthPage() {
                                 anchor: "text-sm text-accent hover:underline"
                             }
                         }}
-                        providers={["github"]}
+                        providers={["google", "github"]}
                         redirectTo={window.location.origin}
                     />
                 </GlassPanel>
