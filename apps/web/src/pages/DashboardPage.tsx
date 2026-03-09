@@ -99,6 +99,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     used: 0,
     isAdmin: false
   });
+  const [isLoadingQuota, setIsLoadingQuota] = useState(true);
 
   const duplicateWarnings = useRef(new Set<string>());
 
@@ -336,6 +337,11 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       .catch(() => {
         if (!cancelled) {
           setAiPlanQuota((current) => current);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingQuota(false);
         }
       });
 
@@ -1057,6 +1063,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
             remainingBuilds={aiPlanQuota.remaining}
             dailyLimit={aiPlanQuota.dailyLimit}
             isAdmin={aiPlanQuota.isAdmin}
+            isLoadingQuota={isLoadingQuota}
           />
 
           {selectedProject && (selectedProject.remoteRepo || selectedProject.githubRepo) && (

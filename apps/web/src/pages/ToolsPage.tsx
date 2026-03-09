@@ -8,22 +8,90 @@ import GlassPanel from "../components/GlassPanel";
 import SectionHeader from "../components/SectionHeader";
 
 const DEFAULT_MINUTES = 25;
+const TIMER_STORAGE_KEY = "linkra:tools-pomodoro";
+
+interface StoredPomodoroTimer {
+  minutes: number;
+  secondsLeft: number;
+  running: boolean;
+  startPresses: number;
+  completedCount: number;
+  endsAt: number | null;
+}
+
+function getSessionStorage() {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function clampMinutes(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_MINUTES;
+  return Math.min(90, Math.max(5, Math.floor(value)));
+}
+
+function readStoredTimer(): StoredPomodoroTimer {
+  const fallback: StoredPomodoroTimer = {
+    minutes: DEFAULT_MINUTES,
+    secondsLeft: DEFAULT_MINUTES * 60,
+    running: false,
+    startPresses: 0,
+    completedCount: 0,
+    endsAt: null
+  };
+  const storage = getSessionStorage();
+  if (!storage) return fallback;
+
+  try {
+    const raw = storage.getItem(TIMER_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<StoredPomodoroTimer>;
+    const minutes = clampMinutes(parsed.minutes ?? DEFAULT_MINUTES);
+    const running = Boolean(parsed.running);
+    const endsAt = typeof parsed.endsAt === "number" ? parsed.endsAt : null;
+    const computedSeconds =
+      running && endsAt
+        ? Math.max(0, Math.ceil((endsAt - Date.now()) / 1000))
+        : Math.max(0, Math.floor(parsed.secondsLeft ?? minutes * 60));
+
+    return {
+      minutes,
+      secondsLeft: computedSeconds,
+      running: running && computedSeconds > 0,
+      startPresses: Math.max(0, Math.floor(parsed.startPresses ?? 0)),
+      completedCount: Math.max(0, Math.floor(parsed.completedCount ?? 0)),
+      endsAt: running && computedSeconds > 0 ? endsAt : null
+    };
+  } catch {
+    return fallback;
+  }
+}
 
 export default function ToolsPage() {
   const { state, save } = useAppState();
   const { push } = useToast();
+  const [timerState, setTimerState] = useState<StoredPomodoroTimer>(() => readStoredTimer());
   const [sessionText, setSessionText] = useState("");
-  const [minutes, setMinutes] = useState(DEFAULT_MINUTES);
-  const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
-  const [running, setRunning] = useState(false);
-  const [startPresses, setStartPresses] = useState(0);
-  const [localCompletedCount, setLocalCompletedCount] = useState(0);
   const [timerDisabled, setTimerDisabled] = useState(false);
+
+  const { minutes, secondsLeft, running, startPresses, completedCount, endsAt } = timerState;
 
   useEffect(() => {
     if (!running) return;
     const interval = setInterval(() => {
-      setSecondsLeft((prev) => prev - 1);
+      setTimerState((prev) => {
+        const remaining = prev.endsAt ? Math.max(0, Math.ceil((prev.endsAt - Date.now()) / 1000)) : Math.max(0, prev.secondsLeft - 1);
+        if (remaining === prev.secondsLeft) return prev;
+        return {
+          ...prev,
+          secondsLeft: remaining,
+          running: remaining > 0 && prev.running,
+          endsAt: remaining > 0 ? prev.endsAt : null
+        };
+      });
     }, 1000);
     return () => clearInterval(interval);
   }, [running]);
@@ -34,11 +102,21 @@ export default function ToolsPage() {
     }
   }, [secondsLeft, running]);
 
+  useEffect(() => {
+    const storage = getSessionStorage();
+    if (!storage) return;
+    storage.setItem(TIMER_STORAGE_KEY, JSON.stringify(timerState));
+  }, [timerState]);
+
   if (!state) return null;
 
   const resetTimer = () => {
-    setRunning(false);
-    setSecondsLeft(minutes * 60);
+    setTimerState((prev) => ({
+      ...prev,
+      running: false,
+      secondsLeft: prev.minutes * 60,
+      endsAt: null
+    }));
   };
 
   const toggleTimer = () => {
@@ -48,16 +126,35 @@ export default function ToolsPage() {
     }
     setTimerDisabled(true);
     setTimeout(() => setTimerDisabled(false), 1500);
-    
-    if (!running) {
-      setStartPresses((c) => c + 1);
-    }
-    setRunning(!running);
+
+    setTimerState((prev) => {
+      if (prev.running) {
+        const remaining = prev.endsAt ? Math.max(0, Math.ceil((prev.endsAt - Date.now()) / 1000)) : prev.secondsLeft;
+        return {
+          ...prev,
+          running: false,
+          secondsLeft: remaining,
+          endsAt: null
+        };
+      }
+
+      return {
+        ...prev,
+        running: true,
+        startPresses: prev.startPresses + 1,
+        endsAt: Date.now() + prev.secondsLeft * 1000
+      };
+    });
   };
 
   const completeSession = async () => {
-    setRunning(false);
-    setLocalCompletedCount(c => c + 1);
+    setTimerState((prev) => ({
+      ...prev,
+      running: false,
+      secondsLeft: prev.minutes * 60,
+      completedCount: prev.completedCount + 1,
+      endsAt: null
+    }));
     const now = new Date().toISOString();
     const next = cloneAppState(state);
     next.focusSessions = [
@@ -83,7 +180,6 @@ export default function ToolsPage() {
       ...next.sessionLogs
     ];
     const saved = await save(next);
-    setSecondsLeft(minutes * 60);
     if (!saved) {
       push("Session recorded but failed to save. Data may be lost on refresh.", "error");
     }
@@ -112,7 +208,7 @@ export default function ToolsPage() {
 
   const minutesDisplay = Math.floor(secondsLeft / 60);
   const secondsDisplay = String(secondsLeft % 60).padStart(2, "0");
-  const completedSessions = localCompletedCount;
+  const completedSessions = completedCount;
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto">
@@ -144,9 +240,14 @@ export default function ToolsPage() {
               max={90}
               value={minutes}
               onChange={(event) => {
-                const value = Number(event.target.value);
-                setMinutes(value);
-                setSecondsLeft(value * 60);
+                const value = clampMinutes(Number(event.target.value));
+                setTimerState((prev) => ({
+                  ...prev,
+                  minutes: value,
+                  secondsLeft: value * 60,
+                  running: false,
+                  endsAt: null
+                }));
               }}
             />
             <span className="chip self-center">minutes</span>

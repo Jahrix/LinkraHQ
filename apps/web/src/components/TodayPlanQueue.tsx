@@ -14,7 +14,8 @@ export default function TodayPlanQueue({
     onAddTask,
     remainingBuilds,
     dailyLimit,
-    isAdmin
+    isAdmin,
+    isLoadingQuota
 }: {
     planDraft: string[];
     allTaskLookup: Map<string, { project: any, task: any }>;
@@ -27,6 +28,7 @@ export default function TodayPlanQueue({
     remainingBuilds: number;
     dailyLimit: number;
     isAdmin: boolean;
+    isLoadingQuota?: boolean;
 }) {
     const [isGenerating, setIsGenerating] = useState(false);
     const [selectedTaskId, setSelectedTaskId] = useState("");
@@ -108,18 +110,18 @@ export default function TodayPlanQueue({
                 subtitle={`${queuedItems.length} items lined up`}
                 rightControls={
                     <div className="flex gap-2">
-                        <div className={`hidden sm:flex items-center rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] ${isAdmin
+                        <div className={`hidden sm:flex items-center rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] ${isLoadingQuota ? "border-white/10 bg-white/5 text-muted animate-pulse" : isAdmin
                             ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
                             : "border-white/10 bg-white/5 text-muted"
                             }`}>
-                            {isAdmin ? "Admin access" : `${remainingBuilds}/${dailyLimit} left today`}
+                            {isLoadingQuota ? "Checking..." : isAdmin ? "Admin access" : `${remainingBuilds}/${dailyLimit} left today`}
                         </div>
                         {!previewIds && (
                             <>
                                 <button
                                     className="button-secondary text-xs"
                                     onClick={handleBuildPlan}
-                                    disabled={isGenerating || (!isAdmin && remainingBuilds <= 0)}
+                                    disabled={isGenerating || isLoadingQuota || (!isAdmin && remainingBuilds <= 0)}
                                 >
                                     <svg className={`w-3.5 h-3.5 mr-1.5 inline ${isGenerating ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -191,7 +193,7 @@ export default function TodayPlanQueue({
                 </div>
             )}
 
-            {!previewIds && !isAdmin && (
+            {!previewIds && !isAdmin && !isLoadingQuota && (
                 <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-white/5 bg-white/[0.02] p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
