@@ -101,6 +101,7 @@ function newProject({
     status,
     progress: 0,
     weeklyHours,
+    logoUrl: null,
     githubRepo,
     remoteRepo: githubRepo,
     localRepoPath: null,
@@ -205,6 +206,7 @@ function defaultState(): AppState {
       repoScanIntervalMinutes: 15,
       repoExcludePatterns: ["**/node_modules/**", "**/.git/**"],
       gitWatcherEnabled: true,
+      githubPat: null,
       disabledInsightRules: [],
       enableDailyBackup: true,
       backupRetentionDays: 14,
@@ -218,6 +220,7 @@ function defaultState(): AppState {
         goals,
         score: metrics.score,
         completedPoints: metrics.completedPoints,
+        isClosed: false,
         archivedAt: null
       }
     },
@@ -333,6 +336,7 @@ export function applyDailyRollover(state: AppState) {
       goals,
       score: metrics.score,
       completedPoints: metrics.completedPoints,
+      isClosed: false,
       archivedAt: null
     };
   }
@@ -376,6 +380,7 @@ export function normalizeState(state: AppState): AppState {
     projects: (state.projects || fallback.projects).map((project) => ({
       ...project,
       status: VALID_PROJECT_STATUSES.has(project.status) ? project.status : "Not Started",
+      logoUrl: project.logoUrl ?? null,
       remoteRepo: project.remoteRepo ?? project.githubRepo ?? null,
       localRepoPath: project.localRepoPath ?? null,
       healthScore: project.healthScore ?? null,
@@ -469,6 +474,7 @@ export function mergeStates(current: AppState, incoming: AppState, preferIncomin
         ? incoming.userSettings.repoExcludePatterns
         : current.userSettings.repoExcludePatterns,
       gitWatcherEnabled: incoming.userSettings.gitWatcherEnabled ?? current.userSettings.gitWatcherEnabled,
+      githubPat: incoming.userSettings.githubPat ?? current.userSettings.githubPat,
       disabledInsightRules: incoming.userSettings.disabledInsightRules?.length
         ? incoming.userSettings.disabledInsightRules
         : current.userSettings.disabledInsightRules,

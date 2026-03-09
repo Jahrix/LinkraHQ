@@ -17,7 +17,7 @@ export interface BuildPlanPromptPayload {
   userMessage: string;
 }
 
-export function createBuildPlanPrompt(state: AppState, now = new Date()): BuildPlanPromptPayload {
+export function createBuildPlanPrompt(state: AppState, prompt = "", now = new Date()): BuildPlanPromptPayload {
   const nowIso = now.toISOString();
   const today = nowIso.slice(0, 10);
 
@@ -78,6 +78,7 @@ Rules:
 - Return exactly a JSON object: { "taskIds": string[], "rationale": string }
 - taskIds: 4-6 task IDs from the provided list only. Max 6.
 - rationale: 1-2 tight sentences. Confident tone. No hedging. Example: "These moves will ship visible progress on your highest-priority work today."
+- If the user provides specific "User guidance" below, PRIORITIZE tasks that align with that guidance above all other heuristics.
 - Do not include done tasks. Do not invent tasks.
 - Return only valid JSON, no markdown fences.
 
@@ -97,7 +98,8 @@ Avoid:
   const userMessage = `Today is ${today}. Here is my work context:
 ${JSON.stringify(contextSummary, null, 2)}
 
-Build my plan. Return JSON only: {"taskIds": [...], "rationale": "..."}`;
+Build my plan. ${prompt.trim() ? `User guidance for today: "${prompt}"` : ""}
+Return JSON only: {"taskIds": [...], "rationale": "..."}`;
 
   return {
     today,

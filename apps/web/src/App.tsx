@@ -127,7 +127,12 @@ function Shell() {
       <Sidebar active={active} onChange={(item) => setActive(item)} />
       <main className="flex-1 px-3 lg:px-6 py-3 lg:py-6 pb-24 lg:pb-6 flex flex-col gap-4 lg:gap-6 overflow-x-hidden min-w-0">
         <div className="sticky-header">
-          <Header score={score} userName={displayName} onOpenCommand={() => setCommandOpen(true)} />
+          <Header
+            score={score}
+            userName={displayName}
+            onOpenCommand={() => setCommandOpen(true)}
+            hideGreeting={active === "Dashboard"}
+          />
         </div>
         {loading && (
           <div className="panel flex items-center gap-3 text-sm text-muted">

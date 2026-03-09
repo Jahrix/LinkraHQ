@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import type { LocalRepo, Project } from "@linkra/shared";
+import { type ProjectDraft } from "../lib/projectModel";
 import Select from "./Select";
 
 type ProjectStatus = Project["status"];
@@ -19,16 +20,6 @@ const EMOJI_OPTIONS = [
   { emoji: "📱", label: "Mobile", keywords: ["mobile", "app"] }
 ];
 
-export type ProjectDraft = {
-  icon: string;
-  name: string;
-  subtitle: string;
-  status: ProjectStatus;
-  weeklyHours: number;
-  localRepoPath: string | null;
-  remoteRepo: string | null;
-};
-
 function baseDraft(project?: Project): ProjectDraft {
   return {
     icon: project?.icon ?? "🧩",
@@ -37,7 +28,8 @@ function baseDraft(project?: Project): ProjectDraft {
     status: (project?.status ?? "Not Started") as ProjectStatus,
     weeklyHours: project?.weeklyHours ?? 0,
     localRepoPath: project?.localRepoPath ?? null,
-    remoteRepo: project?.remoteRepo ?? project?.githubRepo ?? null
+    remoteRepo: project?.remoteRepo ?? project?.githubRepo ?? null,
+    logoUrl: project?.logoUrl ?? null
   };
 }
 
@@ -109,7 +101,13 @@ export default function ProjectModal({
                 value={emojiQuery}
                 onChange={(event) => setEmojiQuery(event.target.value)}
               />
-              <div className="chip text-lg">{draft.icon}</div>
+              <div className="chip text-lg overflow-hidden flex items-center justify-center bg-black/40 border-white/10">
+                {draft.logoUrl ? (
+                  <img src={draft.logoUrl} alt="Logo" className="w-6 h-6 object-contain" />
+                ) : (
+                  draft.icon
+                )}
+              </div>
             </div>
             <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-auto">
               {filteredEmoji.map((entry) => (
@@ -117,8 +115,8 @@ export default function ProjectModal({
                   type="button"
                   key={entry.emoji}
                   className={`rounded-lg border px-2 py-1 text-sm ${draft.icon === entry.emoji
-                      ? "border-white/30 bg-strong"
-                      : "border-muted bg-subtle hover:bg-muted"
+                    ? "border-white/30 bg-strong"
+                    : "border-muted bg-subtle hover:bg-muted"
                     }`}
                   onClick={() => setDraft((prev) => ({ ...prev, icon: entry.emoji }))}
                 >
@@ -203,6 +201,17 @@ export default function ProjectModal({
                 value={draft.remoteRepo ?? ""}
                 onChange={(event) =>
                   setDraft((prev) => ({ ...prev, remoteRepo: event.target.value.trim() || null }))
+                }
+              />
+            </label>
+            <label className="grid gap-1 text-sm md:col-span-2">
+              <span className="text-muted">Logo URL (Optional)</span>
+              <input
+                className="input"
+                placeholder="https://example.com/logo.png"
+                value={draft.logoUrl ?? ""}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, logoUrl: event.target.value.trim() || null }))
                 }
               />
             </label>

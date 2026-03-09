@@ -72,6 +72,7 @@ export const createDefaultAppState = (options: DefaultAppStateOptions = {}): App
       repoScanIntervalMinutes: 15,
       repoExcludePatterns: ["**/node_modules/**", "**/.git/**"],
       gitWatcherEnabled: options.gitWatcherEnabled ?? false,
+      githubPat: null,
       disabledInsightRules: [],
       enableDailyBackup: options.enableDailyBackup ?? false,
       backupRetentionDays: options.backupRetentionDays ?? 14,
@@ -85,6 +86,7 @@ export const createDefaultAppState = (options: DefaultAppStateOptions = {}): App
         goals: dailyGoals,
         score: metrics.score,
         completedPoints: metrics.completedPoints,
+        isClosed: false,
         archivedAt: null
       }
     },

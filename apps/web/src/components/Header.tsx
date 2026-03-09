@@ -12,11 +12,13 @@ function getGreeting(hour: number) {
 export default function Header({
   score,
   userName,
-  onOpenCommand
+  onOpenCommand,
+  hideGreeting = false
 }: {
   score: number;
   userName: string;
   onOpenCommand: () => void;
+  hideGreeting?: boolean;
 }) {
   const [pulse, setPulse] = useState<"up" | "down" | null>(null);
   const [prev, setPrev] = useState(score);
@@ -63,20 +65,29 @@ export default function Header({
   });
 
   return (
-    <GlassPanel as="header" variant="quiet" className="app-header-shell flex items-center justify-between gap-3 px-4 py-3 lg:px-6 lg:py-4">
-      <div className="min-w-0 flex items-center gap-4">
-        <div>
-          <h1 className="text-xl lg:text-2xl font-bold tracking-tight text-white mb-0.5">
-            {greeting},{" "}
-            <span className="text-accent-2">{firstName}</span>
-          </h1>
-          <div className="flex items-center gap-2.5 text-xs font-medium text-muted">
-            <span className="tabular-nums tracking-wide">{clockStr}</span>
-            <span className="w-px h-3 bg-white/15 inline-block" />
-            <span>{dateStr}</span>
+    <GlassPanel
+      as="header"
+      variant="quiet"
+      className={`app-header-shell flex items-center gap-3 transition-all duration-500 ${hideGreeting
+          ? "justify-end w-fit ml-auto px-4 py-2"
+          : "justify-between px-4 py-3 lg:px-6 lg:py-4 w-full"
+        }`}
+    >
+      {!hideGreeting && (
+        <div className="min-w-0 flex items-center gap-4">
+          <div>
+            <h1 className="text-xl lg:text-2xl font-bold tracking-tight text-white mb-0.5">
+              {greeting},{" "}
+              <span className="text-accent-2">{firstName}</span>
+            </h1>
+            <div className="flex items-center gap-2.5 text-xs font-medium text-muted">
+              <span className="tabular-nums tracking-wide">{clockStr}</span>
+              <span className="w-px h-3 bg-white/15 inline-block" />
+              <span>{dateStr}</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="flex items-center gap-3 lg:gap-4 flex-shrink-0">
         <div className="flex flex-col items-end">

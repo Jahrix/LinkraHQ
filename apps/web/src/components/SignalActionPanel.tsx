@@ -1,14 +1,15 @@
 import React from "react";
 import Pill from "./Pill";
 import { type Insight, type SuggestedAction } from "@linkra/shared";
+import { type InsightGroup } from "../lib/insightStore";
 import { shortLabelForInsightAction } from "../lib/taskRules";
 
 export default function SignalActionPanel({
     groupedInsights,
     runInsightAction
 }: {
-    groupedInsights: any[];
-    runInsightAction: (group: any, action: SuggestedAction) => void;
+    groupedInsights: InsightGroup[];
+    runInsightAction: (group: InsightGroup, action: SuggestedAction) => void;
 }) {
     return (
         <div className="mt-4 flex-1 grid gap-3 overflow-y-auto pr-2">

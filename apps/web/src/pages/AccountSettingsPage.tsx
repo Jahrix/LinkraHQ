@@ -16,6 +16,7 @@ import {
     buildAccountRedirectUrl,
     formatGithubConnectError,
     hasGithubIdentity,
+    hasGoogleIdentity,
     startGithubConnect
 } from "../lib/githubAuth";
 import { supabase } from "../lib/supabase";
@@ -61,6 +62,7 @@ export default function AccountSettingsPage() {
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
     const [role, setRole] = useState("");
+    const [githubPat, setGithubPat] = useState("");
 
     const [preview, setPreview] = useState<ImportPreview | null>(null);
     const [importError, setImportError] = useState<string | null>(null);
@@ -76,7 +78,10 @@ export default function AccountSettingsPage() {
                 setRole(u.user_metadata?.role || "");
             }
         });
-    }, []);
+        if (state?.userSettings.githubPat) {
+            setGithubPat(state.userSettings.githubPat);
+        }
+    }, [state?.userSettings.githubPat]);
 
     // When user cancels editing, reset form fields to current user metadata.
     const handleCancelEdit = () => {
@@ -144,10 +149,37 @@ export default function AccountSettingsPage() {
         }
     };
 
+    const linkGoogle = async () => {
+        setIsLinking(true);
+        try {
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: buildAccountRedirectUrl(window.location)
+                }
+            });
+            if (error) throw error;
+            push("Redirecting to Google...");
+        } catch (error) {
+            push(error instanceof Error ? error.message : "Failed to connect Google.", "error");
+        } finally {
+            setIsLinking(false);
+        }
+    };
+
     const logout = async () => {
         await supabase.auth.signOut();
         await api.logout();
         await refresh();
+    };
+
+    const saveGithubPat = async () => {
+        const saved = await persistState((next) => {
+            next.userSettings.githubPat = githubPat.trim() || null;
+        }, "Failed to save GitHub PAT.");
+        if (saved) {
+            push("GitHub PAT saved successfully!", "success");
+        }
     };
 
     const toggleFeature = async (featureId: string) => {
@@ -390,6 +422,62 @@ export default function AccountSettingsPage() {
                                         {isLinking ? "Redirecting..." : "Connect"}
                                     </button>
                                 )}
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-bg-2 border border-stroke rounded-xl">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-white text-black rounded-full flex items-center justify-center text-2xl">
+                                        <i className="fa-brands fa-google" aria-label="Google"></i>
+                                    </div>
+                                    <div>
+                                        <p className="font-semibold text-strong">Google</p>
+                                        <p className="text-xs text-muted">Sync identity and metadata</p>
+                                    </div>
+                                </div>
+                                {hasGoogleIdentity(user) ? (
+                                    <span className="text-sm text-green-500 font-medium px-3 py-1 rounded-full bg-green-500/10">Connected</span>
+                                ) : (
+                                    <button onClick={linkGoogle} disabled={isLinking} className="button-secondary">
+                                        {isLinking ? "Redirecting..." : "Connect"}
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="p-4 bg-bg-2 border border-stroke rounded-xl space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 bg-white/5 text-muted rounded-full flex items-center justify-center text-2xl">
+                                            <i className="fa-solid fa-key" aria-label="PAT"></i>
+                                        </div>
+                                        <div>
+                                            <p className="font-semibold text-strong">GitHub Personal Access Token</p>
+                                            <p className="text-xs text-muted">Use a PAT for long-term & private repo tracking</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={saveGithubPat} className="button-primary text-xs py-1.5">
+                                        Save PAT
+                                    </button>
+                                </div>
+                                <input
+                                    type="password"
+                                    className="input w-full bg-black/20"
+                                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                                    value={githubPat}
+                                    onChange={(e) => setGithubPat(e.target.value)}
+                                />
+                                <div className="space-y-2">
+                                    <p className="text-[10px] text-muted leading-relaxed">
+                                        Generate a token in GitHub Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Tokens (classic).
+                                        Required scopes: <code className="text-accent">repo</code> (for private repo access), <code className="text-accent">read:user</code>.
+                                    </p>
+                                    <div className="flex items-start gap-2 p-2 rounded-lg bg-accent/5 border border-accent/10">
+                                        <div className="text-accent mt-0.5"><i className="fa-solid fa-shield-halved text-[10px]"></i></div>
+                                        <p className="text-[10px] text-accent/80 leading-relaxed">
+                                            <strong>Security Notice:</strong> Your token is stored in your private application state blob.
+                                            It is strictly isolated to your account and is never shared or exposed to other users.
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="text-xs text-amber-500/80 bg-amber-500/10 p-3 rounded-lg border border-amber-500/20">

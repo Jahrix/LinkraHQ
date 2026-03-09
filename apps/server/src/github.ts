@@ -1,4 +1,5 @@
 import fetch from "node-fetch";
+import { normalizeRepo } from "@linkra/shared";
 
 interface GithubUser {
   login: string;
@@ -207,7 +208,7 @@ export function findMatchingCommit({
 }
 
 function buildGithubCommitsUrl(repo: string, branch: string, limit: number) {
-  const normalizedRepo = repo.trim();
+  const normalizedRepo = normalizeRepo(repo);
   const normalizedBranch = branch.trim();
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), MAX_GITHUB_COMMITS);
 

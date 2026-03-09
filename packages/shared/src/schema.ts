@@ -28,6 +28,7 @@ export const DailyGoalsEntrySchema = z.object({
   goals: z.array(GoalSchema),
   score: z.number(),
   completedPoints: z.number(),
+  isClosed: z.boolean().default(false),
   archivedAt: z.string().nullable()
 });
 
@@ -89,6 +90,7 @@ export const ProjectSchema = z.object({
     .default("Not Started"),
   progress: z.number().min(0).max(100).default(0),
   weeklyHours: z.number().min(0).default(0),
+  logoUrl: z.string().nullable().default(null),
   githubRepo: z.string().nullable(),
   remoteRepo: z.string().nullable().default(null),
   localRepoPath: z.string().nullable().default(null),
@@ -167,6 +169,7 @@ export const UserSettingsSchema = z.object({
   repoScanIntervalMinutes: z.number().default(15),
   repoExcludePatterns: z.array(z.string()).default(["**/node_modules/**", "**/.git/**"]),
   gitWatcherEnabled: z.boolean().default(true),
+  githubPat: z.string().nullable().default(null),
   disabledInsightRules: z.array(z.string()).default([]),
   enableDailyBackup: z.boolean().default(true),
   backupRetentionDays: z.number().default(14),

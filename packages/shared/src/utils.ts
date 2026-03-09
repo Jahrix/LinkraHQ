@@ -45,3 +45,14 @@ function shiftDate(date: string, deltaDays: number) {
   current.setDate(current.getDate() + deltaDays);
   return todayKey(current);
 }
+export function normalizeRepo(repoStr: string | null | undefined): string {
+  if (!repoStr) return "";
+  let clean = repoStr.trim();
+  // Remove protocol and domain if present
+  clean = clean.replace(/^(https?:\/\/)?(www\.)?github\.com\//, "");
+  // Remove .git suffix
+  clean = clean.replace(/\.git$/, "");
+  // Remove trailing slash
+  clean = clean.replace(/\/$/, "");
+  return clean;
+}

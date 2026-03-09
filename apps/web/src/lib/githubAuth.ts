@@ -74,6 +74,13 @@ export function hasGithubIdentity(user: Pick<User, "identities"> | null | undefi
   return user.identities?.some((identity) => identity.provider === "github") ?? false;
 }
 
+export function hasGoogleIdentity(user: Pick<User, "identities"> | null | undefined) {
+  if (!user) {
+    return false;
+  }
+  return user.identities?.some((identity) => identity.provider === "google") ?? false;
+}
+
 export function getGithubIdentity(user: Pick<User, "identities"> | null | undefined): UserIdentity | null {
   return user?.identities?.find((identity) => identity.provider === "github") ?? null;
 }

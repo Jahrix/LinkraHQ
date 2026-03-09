@@ -192,7 +192,15 @@ export default function CommitsPage() {
       }
     }
     setCommits(results);
-    setError(errors.length > 0 ? errors.join(" ") : null);
+
+    const isAuthExpired = errors.some(e => e.includes("authorization expired"));
+    if (isAuthExpired) {
+      setGithubToken(null);
+      setError("GitHub authorization expired. Please reconnect.");
+    } else {
+      setError(errors.length > 0 ? errors.join(" ") : null);
+    }
+
     setLoading(false);
   }, [githubUser, githubToken, state.userSettings.selectedRepos]);
 
