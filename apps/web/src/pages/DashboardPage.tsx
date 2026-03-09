@@ -698,6 +698,8 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const loadLocalCommits = async () => {
     if (!selectedProject?.localRepoPath) return;
+    const isLocal = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+    if (!isLocal) return;
     try {
       const response = await api.gitLocalCommits(state, selectedProject.localRepoPath, 8);
       setLocalCommitFeed(response.commits ?? []);
@@ -940,6 +942,8 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
           <PomodoroTimer />
         ) : (
           <TodayMissionHero
+            title="Momentum and Command"
+            description="Momentum and command is the key to opening the command center."
             topTask={topTask}
             userName={state.github.user?.name || state.github.user?.login}
             tasksRemaining={todayPlanDraft.length}

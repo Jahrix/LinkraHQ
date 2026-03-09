@@ -128,10 +128,13 @@ export const api = {
   startupStatus: () => request<{ os: string; instructions: string; files: string[] }>("/api/startup/status"),
   createStartup: () => request<{ os: string; instructions: string; files: string[] }>("/api/startup/create", { method: "POST" }),
   githubUser: (pat?: string | null) =>
-    request<{ user: { login: string; avatarUrl: string | null; name: string | null } }>("/api/github/user", {
-      method: "POST",
-      body: JSON.stringify({ pat: pat || undefined })
-    }),
+    request<{ user: { login: string; avatarUrl: string | null; name: string | null } }>(
+      "/api/github/user",
+      {
+        method: "POST",
+        body: JSON.stringify({ pat: pat || undefined })
+      }
+    ),
   githubCommits: (repo: string, branch: string, limit: number, pat?: string | null) =>
     request<{ commits: any[]; rateLimit: { remaining: number; reset: number } | null }>(
       "/api/github/commits",

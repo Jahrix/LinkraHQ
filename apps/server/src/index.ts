@@ -554,7 +554,7 @@ app.post("/auth/logout", requireLocalControl, (req, res) => {
   });
 });
 
-app.post("/api/github/user", requireLocalControl, async (req, res) => {
+app.post("/api/github/user", async (req, res) => {
   const { pat } = req.body as { pat?: string };
   const token = pat || req.session.githubToken;
   if (!token) {
@@ -571,7 +571,7 @@ app.post("/api/github/user", requireLocalControl, async (req, res) => {
   res.json({ user: req.session.githubUser });
 });
 
-app.post("/api/github/commits", requireLocalControl, async (req, res) => {
+app.post("/api/github/commits", async (req, res) => {
   const { repo, branch = "main", limit = 20, pat } = req.body as {
     repo?: string;
     branch?: string;
@@ -603,7 +603,7 @@ app.post("/api/github/commits", requireLocalControl, async (req, res) => {
   }
 });
 
-app.post("/api/github/commits/match", requireLocalControl, async (req, res) => {
+app.post("/api/github/commits/match", async (req, res) => {
   const { repo, branch = "main", text, limit = 30, pat } = req.body as {
     repo?: string;
     branch?: string;
