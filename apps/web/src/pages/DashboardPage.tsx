@@ -54,12 +54,21 @@ import { computeTodayPlan, isTaskBlocked } from "../lib/taskRules";
 import { formatDate } from "../lib/date";
 import { dedupeById, dedupeLocalRepos } from "../lib/collections";
 import { usePomodoro } from "../lib/pomodoroContext";
+import { supabase } from "../lib/supabase";
+import {
+  fetchGithubRepoCommits,
+  findMatchingCommit,
+  getGithubProviderToken,
+  hasGithubIdentity
+} from "../lib/githubAuth";
 
 const tabs = ["Tasks", "Roadmap", "Journal", "Project Settings"];
 const uiStatuses = ["Not Started", "In Progress", "Review", "On Hold", "Done", "Archived"] as const;
 type UiProjectStatus = (typeof uiStatuses)[number];
 
 const projectColors = ["#5DD8FF", "#78E3A4", "#F9A8D4", "#F59E0B", "#60A5FA", "#A78BFA", "#22D3EE"];
+const GITHUB_BRANCH = "main";
+const GITHUB_CONNECT_MESSAGE = "Connect GitHub in Commits or add a GitHub PAT in Settings.";
 
 export default function DashboardPage({ projectId }: { projectId?: string | null }) {
   const { state, save } = useAppState();
@@ -135,6 +144,33 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const githubRepoOptions = Array.from(
     new Set(projects.map((project) => project.githubRepo).filter((repo): repo is string => Boolean(repo)))
   );
+
+  const resolveGithubToken = async () => {
+    const pat = state.userSettings.githubPat?.trim();
+    if (pat) {
+      return pat;
+    }
+
+    const [{ data: { session } }, { data: { user } }] = await Promise.all([
+      supabase.auth.getSession(),
+      supabase.auth.getUser()
+    ]);
+
+    if (!hasGithubIdentity(user)) {
+      return null;
+    }
+
+    return getGithubProviderToken(session);
+  };
+
+  const matchGithubCommit = async (repo: string, text: string, token: string) => {
+    const result = await fetchGithubRepoCommits(token, repo, GITHUB_BRANCH, 30);
+    return findMatchingCommit({
+      repo,
+      text,
+      commits: result.commits
+    });
+  };
 
   const filteredInsights = activeInsights.filter((insight) => {
     if (insightFilter === "priority") return insight.severity !== "info";
@@ -476,14 +512,16 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     task.status = done ? "done" : "todo";
     task.completedAt = done ? new Date().toISOString() : null;
 
-    const repoToken = state.userSettings.githubPat;
     const rawRepo = selectedProject.remoteRepo ?? selectedProject.githubRepo;
-    const repo = normalizeRepo(rawRepo);
+    const repo = rawRepo ? normalizeRepo(rawRepo) : null;
     try {
-      if (done && rawRepo && (state.github.loggedIn || repoToken)) {
+      if (done && repo) {
+        const githubToken = await resolveGithubToken();
+        if (!githubToken) {
+          throw new Error(GITHUB_CONNECT_MESSAGE);
+        }
         setIsMatching(true);
-        const result = await api.githubCommitMatch(repo, task.text, "main", 30, repoToken);
-        task.linkedCommit = result.match ?? null;
+        task.linkedCommit = await matchGithubCommit(repo, task.text, githubToken);
       }
     } catch {
       task.linkedCommit = null;
@@ -541,6 +579,12 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     push("Scanning commits for task matches...", "info");
     let completions = 0;
     const next = cloneAppState(state);
+    const githubToken = await resolveGithubToken();
+
+    if (!githubToken) {
+      push(GITHUB_CONNECT_MESSAGE, "warning");
+      return;
+    }
 
     for (const project of projects) {
       const repo = project.remoteRepo ?? project.githubRepo;
@@ -551,15 +595,15 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
       for (const task of openTasks) {
         try {
-          const result = await api.githubCommitMatch(normalizeRepo(repo), task.text, "main", 30, state.userSettings.githubPat);
-          if (result?.match) {
+          const match = await matchGithubCommit(normalizeRepo(repo), task.text, githubToken);
+          if (match) {
             const nextProject = next.projects.find(p => p.id === project.id);
             const nextTask = nextProject?.tasks.find(t => t.id === task.id);
             if (nextTask) {
               nextTask.done = true;
               nextTask.status = "done";
               nextTask.completedAt = new Date().toISOString();
-              nextTask.linkedCommit = result.match;
+              nextTask.linkedCommit = match;
               completions++;
             }
           }
@@ -641,7 +685,11 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
     const repo = normalizeRepo(rawRepo);
     try {
-      const response = await api.githubCommits(repo, "main", 8, state.userSettings.githubPat);
+      const githubToken = await resolveGithubToken();
+      if (!githubToken) {
+        throw new Error(GITHUB_CONNECT_MESSAGE);
+      }
+      const response = await fetchGithubRepoCommits(githubToken, repo, GITHUB_BRANCH, 8);
       setCommitFeed(response.commits ?? []);
     } catch (err) {
       push(`GitHub Error [${repo}]: ${err instanceof Error ? err.message : "Failed to load"}.`, "error");
