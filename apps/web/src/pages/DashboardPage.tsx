@@ -9,12 +9,12 @@ import {
   type ProjectTask,
   type RoadmapCard,
   type RoadmapLane,
-  type SuggestedAction
+  type SuggestedAction,
+  normalizeRepo
 } from "@linkra/shared";
 import { useAppState } from "../lib/state";
 import ProgressRing from "../components/ProgressRing";
 import StackedBar from "../components/StackedBar";
-import TabBar from "../components/TabBar";
 import TaskRow from "../components/TaskRow";
 import GlassPanel from "../components/GlassPanel";
 import SectionHeader from "../components/SectionHeader";
@@ -27,7 +27,24 @@ import TodayMissionHero from "../components/TodayMissionHero";
 import TodayPlanQueue from "../components/TodayPlanQueue";
 import PomodoroTimer from "../components/PomodoroTimer";
 import ProjectCard from "../components/ProjectCard";
-import ProjectModal, { type ProjectDraft } from "../components/ProjectModal";
+import ProjectModal from "../components/ProjectModal";
+import {
+  type ProjectDraft,
+  isArchivedProject,
+  applyProjectDraftToProject,
+  createProjectFromDraft,
+  isRoadmapCardForProject,
+  resolveRoadmapProject,
+  normalizeRoadmapProjectRefs
+} from "../lib/projectModel";
+import {
+  type InsightGroup,
+  groupInsights,
+  resolveRepoPath,
+  formatInsightMetrics,
+  severityRank,
+  successMessageForInsightAction
+} from "../lib/insightStore";
 import SignalActionPanel from "../components/SignalActionPanel";
 import { api } from "../lib/api";
 import { cloneAppState } from "../lib/appStateModel";
@@ -38,21 +55,9 @@ import { formatDate } from "../lib/date";
 import { dedupeById, dedupeLocalRepos } from "../lib/collections";
 import { usePomodoro } from "../lib/pomodoroContext";
 
-const tabs = ["Tasks", "Roadmap", "GitHub", "Journal", "Project Settings"];
+const tabs = ["Tasks", "Roadmap", "Journal", "Project Settings"];
 const uiStatuses = ["Not Started", "In Progress", "Review", "On Hold", "Done", "Archived"] as const;
 type UiProjectStatus = (typeof uiStatuses)[number];
-
-type InsightGroup = {
-  key: string;
-  ruleId: string;
-  projectId: string | null;
-  repoId: string | null;
-  title: string;
-  reason: string;
-  severity: "info" | "warn" | "crit";
-  items: Insight[];
-  actions: SuggestedAction[];
-};
 
 const projectColors = ["#5DD8FF", "#78E3A4", "#F9A8D4", "#F59E0B", "#60A5FA", "#A78BFA", "#22D3EE"];
 
@@ -69,6 +74,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const [taskText, setTaskText] = useState("");
   const [taskDue, setTaskDue] = useState("");
   const [taskPriority, setTaskPriority] = useState<"low" | "med" | "high">("med");
+  const [isMatching, setIsMatching] = useState(false);
   const [commitFeed, setCommitFeed] = useState<any[]>([]);
   const [localCommitFeed, setLocalCommitFeed] = useState<any[]>([]);
 
@@ -147,12 +153,18 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     const remote = commitFeed.map(c => ({
       sha: c.sha,
       shortSha: c.sha.substring(0, 7),
-      message: c.message
+      message: c.message,
+      date: c.date,
+      author: c.author,
+      url: c.url
     }));
     const local = localCommitFeed.map(c => ({
       sha: c.sha,
       shortSha: c.hash || c.sha.substring(0, 7),
-      message: c.message
+      message: c.message,
+      date: c.date,
+      author: c.author,
+      url: null
     }));
     return [...local, ...remote];
   }, [commitFeed, localCommitFeed]);
@@ -164,10 +176,10 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     { key: "shipped", label: "Shipped" }
   ];
 
-  const totalHours = visibleProjects.reduce((sum, project) => sum + project.weeklyHours, 0);
-  const totalTasks = visibleProjects.reduce((sum, project) => sum + project.tasks.length, 0);
-  const completedTasks = visibleProjects.reduce(
-    (sum, project) => sum + project.tasks.filter((task) => task.done).length,
+  const totalHours = dashboardProjects.reduce((sum, project) => sum + project.weeklyHours, 0);
+  const totalTasks = dashboardProjects.reduce((sum, project) => sum + project.tasks.length, 0);
+  const completedTasks = dashboardProjects.reduce(
+    (sum, project) => sum + project.tasks.filter((t) => t.done).length,
     0
   );
   const tasksProgress = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -195,7 +207,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     )
   );
 
-  const availableTodayTasks = visibleProjects.flatMap((project) =>
+  const availableTodayTasks = dashboardProjects.flatMap((project) =>
     dedupeById(project.tasks)
       .items.filter((task) => !task.done)
       .map((task) => ({
@@ -238,6 +250,14 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   useEffect(() => {
     setCommitFeed([]);
     setLocalCommitFeed([]);
+    if (selectedProject) {
+      if (selectedProject.remoteRepo || selectedProject.githubRepo) {
+        loadCommits();
+      }
+      if (selectedProject.localRepoPath) {
+        loadLocalCommits();
+      }
+    }
   }, [selectedProject?.id]);
 
   useEffect(() => {
@@ -260,6 +280,8 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       setTodayPlanDraft(autoPlan);
     }
   }, [state.todayPlanByDate]);
+
+  // Auto-complete from commits removed — must be explicitly triggered by the user.
 
   useEffect(() => {
     const duplicateProjectSignature = dedupedProjects.duplicates.join(",");
@@ -287,9 +309,9 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const moveProject = async (idx: number, dir: -1 | 1) => {
     const target = idx + dir;
-    if (target < 0 || target >= visibleProjects.length) return;
-    const fromId = visibleProjects[idx].id;
-    const toId = visibleProjects[target].id;
+    if (target < 0 || target >= dashboardProjects.length) return;
+    const fromId = dashboardProjects[idx].id;
+    const toId = dashboardProjects[target].id;
     await persistState((next) => {
       const fromIdx = next.projects.findIndex((p) => p.id === fromId);
       const toIdx = next.projects.findIndex((p) => p.id === toId);
@@ -403,6 +425,20 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     push("Goal template saved.", "success");
   };
 
+  const toggleDayClosed = async () => {
+    if (!todayEntry) return;
+    const nextClosed = !todayEntry.isClosed;
+    const saved = await persistState((next) => {
+      const entry = next.dailyGoalsByDate[todayKey()];
+      if (entry) {
+        entry.isClosed = nextClosed;
+      }
+    }, `Failed to ${nextClosed ? "close" : "open"} day.`);
+    if (saved) {
+      push(`Day ${nextClosed ? "closed" : "opened"}.`, "success");
+    }
+  };
+
   const addTask = async () => {
     if (!selectedProject || !taskText.trim()) return;
     const saved = await persistState((next) => {
@@ -440,13 +476,19 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     task.status = done ? "done" : "todo";
     task.completedAt = done ? new Date().toISOString() : null;
 
-    if (done && selectedProject.githubRepo && state.github.loggedIn) {
-      try {
-        const result = await api.githubCommitMatch(selectedProject.githubRepo, task.text);
+    const repoToken = state.userSettings.githubPat;
+    const rawRepo = selectedProject.remoteRepo ?? selectedProject.githubRepo;
+    const repo = normalizeRepo(rawRepo);
+    try {
+      if (done && rawRepo && (state.github.loggedIn || repoToken)) {
+        setIsMatching(true);
+        const result = await api.githubCommitMatch(repo, task.text, "main", 30, repoToken);
         task.linkedCommit = result.match ?? null;
-      } catch {
-        task.linkedCommit = null;
       }
+    } catch {
+      task.linkedCommit = null;
+    } finally {
+      setIsMatching(false);
     }
 
     if (!done) task.linkedCommit = null;
@@ -475,6 +517,65 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     const saved = await save(next);
     if (!saved) {
       push("Failed to update task status.", "error");
+    }
+  };
+
+  const refreshAllCommits = async () => {
+    if (!selectedProject) return;
+    push("Refreshing commits...", "info");
+    if (selectedProject.remoteRepo || selectedProject.githubRepo) {
+      await loadCommits();
+    }
+    if (selectedProject.localRepoPath) {
+      await loadLocalCommits();
+    }
+    push("Commits refreshed.", "success");
+  };
+
+  const autoCompleteFromCommits = async () => {
+    if (!state || !projects.length) return;
+    const confirmed = window.confirm(
+      "This will scan commits and auto-mark matching tasks as done. Continue?"
+    );
+    if (!confirmed) return;
+    push("Scanning commits for task matches...", "info");
+    let completions = 0;
+    const next = cloneAppState(state);
+
+    for (const project of projects) {
+      const repo = project.remoteRepo ?? project.githubRepo;
+      if (!repo || project.status === "Archived") continue;
+
+      const openTasks = project.tasks.filter(t => !t.done);
+      if (!openTasks.length) continue;
+
+      for (const task of openTasks) {
+        try {
+          const result = await api.githubCommitMatch(normalizeRepo(repo), task.text, "main", 30, state.userSettings.githubPat);
+          if (result?.match) {
+            const nextProject = next.projects.find(p => p.id === project.id);
+            const nextTask = nextProject?.tasks.find(t => t.id === task.id);
+            if (nextTask) {
+              nextTask.done = true;
+              nextTask.status = "done";
+              nextTask.completedAt = new Date().toISOString();
+              nextTask.linkedCommit = result.match;
+              completions++;
+            }
+          }
+        } catch (err) {
+          console.error(`Auto-complete failed for task ${task.id}:`, err);
+        }
+      }
+    }
+
+    if (completions > 0) {
+      const saved = await save(next);
+      if (saved) {
+        push(`Auto-completed ${completions} tasks from commits!`, "success");
+      }
+    } else {
+      push("Checked commits. No new task matches found.", "info");
     }
   };
 
@@ -531,17 +632,19 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     if (!saved) return;
   };
 
+
   const loadCommits = async () => {
-    const repo = selectedProject?.remoteRepo ?? selectedProject?.githubRepo;
-    if (!repo) {
+    const rawRepo = selectedProject?.remoteRepo ?? selectedProject?.githubRepo;
+    if (!rawRepo) {
       push("Link a GitHub repo first.", "warning");
       return;
     }
+    const repo = normalizeRepo(rawRepo);
     try {
-      const response = await api.githubCommits(repo, "main", 8);
+      const response = await api.githubCommits(repo, "main", 8, state.userSettings.githubPat);
       setCommitFeed(response.commits ?? []);
     } catch (err) {
-      push(err instanceof Error ? err.message : "Failed to load commits.", "error");
+      push(`GitHub Error [${repo}]: ${err instanceof Error ? err.message : "Failed to load"}.`, "error");
     }
   };
 
@@ -582,9 +685,9 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     push(source === "auto" ? "Today plan auto-generated." : "Today plan saved.", "success");
   };
 
-  const buildMyPlanWithAI = async () => {
+  const buildMyPlanWithAI = async (prompt?: string) => {
     try {
-      return await api.buildMyPlan(state);
+      return await api.buildMyPlan(state, prompt);
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI plan generation failed";
       throw new Error(message);
@@ -790,8 +893,11 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
         ) : (
           <TodayMissionHero
             topTask={topTask}
+            userName={state.github.user?.name || state.github.user?.login}
             tasksRemaining={todayPlanDraft.length}
+            isClosed={!!todayEntry?.isClosed}
             onStartFocus={startFocus}
+            onToggleClosed={toggleDayClosed}
           />
         )}
       </div>
@@ -804,34 +910,37 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
             <button className="button-secondary" onClick={openCreateProjectModal}>+ New</button>
           }
         />
-        <div className={`mt-5 grid gap-4 ${
-          visibleProjects.length === 1 ? "grid-cols-1 sm:grid-cols-2" :
-          visibleProjects.length === 2 ? "grid-cols-1 sm:grid-cols-2" :
-          visibleProjects.length === 3 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" :
-          "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
-        }`}>
-          {visibleProjects.map((project, idx) => (
+        <div className={`mt-5 grid gap-4 ${dashboardProjects.length === 1 ? "grid-cols-1 sm:grid-cols-2" :
+          dashboardProjects.length === 2 ? "grid-cols-1 sm:grid-cols-2" :
+            dashboardProjects.length === 3 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" :
+              "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+          }`}>
+          {dashboardProjects.map((project, idx) => (
             <div key={project.id} className="relative group/card">
               <ProjectCard
                 project={project}
                 isSelected={selectedProject?.id === project.id}
                 onClick={() => { setSelectedProjectId(project.id); setActiveTab("Tasks"); }}
-                size={visibleProjects.length <= 2 ? "lg" : visibleProjects.length <= 3 ? "md" : "sm"}
+                size={dashboardProjects.length <= 2 ? "lg" : dashboardProjects.length <= 3 ? "md" : "sm"}
               />
-              <div className="absolute bottom-2 left-2 flex gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
-                {idx > 0 && (
+              <div className="absolute top-1/2 -translate-y-1/2 left-1 right-1 flex justify-between pointer-events-none opacity-0 group-hover/card:opacity-100 transition-opacity">
+                {idx > 0 ? (
                   <button
                     onClick={(e) => { e.stopPropagation(); moveProject(idx, -1); }}
-                    className="p-1 rounded bg-black/50 hover:bg-black/70 text-muted hover:text-white transition text-xs"
+                    className="p-1 rounded-full bg-black/80 hover:bg-white text-muted hover:text-black transition-all pointer-events-auto shadow-xl border border-white/10"
                     title="Move left"
-                  >←</button>
-                )}
-                {idx < visibleProjects.length - 1 && (
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                  </button>
+                ) : <div />}
+                {idx < dashboardProjects.length - 1 && (
                   <button
                     onClick={(e) => { e.stopPropagation(); moveProject(idx, 1); }}
-                    className="p-1 rounded bg-black/50 hover:bg-black/70 text-muted hover:text-white transition text-xs"
+                    className="p-1 rounded-full bg-black/80 hover:bg-white text-muted hover:text-black transition-all pointer-events-auto shadow-xl border border-white/10"
                     title="Move right"
-                  >→</button>
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                  </button>
                 )}
               </div>
             </div>
@@ -844,14 +953,22 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
         <div className="xl:col-span-2 flex flex-col gap-6">
           <GlassPanel variant="standard" className="flex-1 flex flex-col">
             <div className="flex gap-4 items-center mb-6 pb-6 border-b border-subtle">
-              <div className="w-16 h-16 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-3xl shadow-[0_0_30px_rgba(139,92,246,0.15)] flex-shrink-0">
-                {selectedProject?.icon ?? "👤"}
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-[0_0_30px_rgba(255,255,255,0.05)] flex-shrink-0 overflow-hidden border ${selectedProject ? "bg-accent/10 border-accent/20" : "bg-white/5 border-white/10"}`}>
+                {selectedProject?.logoUrl ? (
+                  <img src={selectedProject.logoUrl} alt={selectedProject.name} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="opacity-80">{selectedProject?.icon ?? "🧠"}</span>
+                )}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-2xl tracking-tight truncate text-white">{selectedProject?.name ?? "Global view"}</h3>
-                <p className="text-sm text-muted mt-1 truncate font-medium">{selectedProject?.subtitle ?? "Select a project above"}</p>
+                <h3 className="font-black text-2xl tracking-tighter truncate text-white uppercase italic">
+                  {selectedProject?.name ?? "Executive Briefing"}
+                </h3>
+                <p className="text-[10px] text-muted-foreground mt-0.5 truncate font-black uppercase tracking-[0.2em] opacity-60">
+                  {selectedProject?.subtitle ?? "Unified Project Intelligence"}
+                </p>
               </div>
-              <div className="flex gap-6 text-center shrink-0 items-center">
+              <div className="flex gap-8 text-center shrink-0 items-center pr-2">
                 <div>
                   <strong className="block text-2xl font-bold mb-1">{selectedProject?.tasks.length ?? 0}</strong>
                   <span className="text-muted text-[10px] uppercase tracking-[0.2em] font-bold">Tasks</span>
@@ -871,7 +988,19 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
               </div>
             </div>
 
-            <SectionHeader title="Tasks" />
+            <SectionHeader
+              title="Tasks"
+              rightControls={
+                <button
+                  onClick={autoCompleteFromCommits}
+                  className="text-[10px] uppercase font-bold tracking-widest text-accent hover:text-accent-100 flex items-center gap-1.5"
+                  title="Scan commits and auto-complete matching tasks"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  Auto-Complete
+                </button>
+              }
+            />
             <div className="mt-4 flex-1 grid gap-2 overflow-y-auto pr-2 min-h-[300px]">
               {selectedTasks.length === 0 && <p className="text-sm text-muted flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-white/20"></span>No tasks.</p>}
               {selectedTasks.map(task => (
@@ -923,6 +1052,61 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
             onRemove={removePlanItem}
             onStartFocus={startFocus}
           />
+
+          {selectedProject && (selectedProject.remoteRepo || selectedProject.githubRepo) && (
+            <GlassPanel variant="standard" className="flex flex-col">
+              <SectionHeader
+                title="Recent Commits"
+                subtitle={selectedProject.remoteRepo || selectedProject.githubRepo || undefined}
+                className="mb-8"
+                rightControls={
+                  <button
+                    onClick={refreshAllCommits}
+                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition"
+                    title="Refresh commits"
+                  >
+                    <svg className="w-3.5 h-3.5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  </button>
+                }
+              />
+              <div className="mt-4 space-y-3">
+                {commitOptions.slice(0, 5).map(commit => (
+                  <div key={commit.sha} className="group/commit p-3 rounded-xl bg-white/[0.03] border border-white/5 hover:border-white/10 transition">
+                    <div className="flex justify-between items-start gap-2 mb-1">
+                      <span className="text-[10px] font-mono text-accent opacity-70">
+                        {commit.shortSha}
+                      </span>
+                      <span className="text-[10px] text-muted whitespace-nowrap">
+                        {new Date(commit.date).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="text-xs text-white/90 line-clamp-2 leading-relaxed">
+                      {commit.message}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-[10px] text-muted truncate">
+                        by {commit.author}
+                      </span>
+                      {commit.url && (
+                        <a
+                          href={commit.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-accent opacity-0 group-hover/commit:opacity-100 transition-opacity"
+                        >
+                          View →
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {commitOptions.length === 0 && (
+                  <p className="text-xs text-muted text-center py-4 italic">No recent commits found.</p>
+                )}
+
+              </div>
+            </GlassPanel>
+          )}
 
           <GlassPanel variant="standard" className="flex flex-col justify-center h-28">
             <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-muted mb-3 flex items-center gap-2">
@@ -1026,286 +1210,4 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   );
 }
 
-function deadlineLabel(dateStr: string) {
-  const today = new Date();
-  const due = new Date(dateStr);
-  const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return { text: `${Math.abs(diffDays)}d overdue`, tone: "overdue" as const };
-  if (diffDays === 0) return { text: "Due today", tone: "normal" as const };
-  return { text: `${diffDays}d left`, tone: "normal" as const };
-}
-
-function severityRank(level: "info" | "warn" | "crit") {
-  if (level === "crit") return 2;
-  if (level === "warn") return 1;
-  return 0;
-}
-
-function successMessageForInsightAction(type: SuggestedAction["type"]) {
-  switch (type) {
-    case "CREATE_TASK":
-      return "Task created.";
-    case "SCHEDULE_FOCUS":
-      return "Focus session scheduled.";
-    case "MOVE_ROADMAP_NOW":
-    case "MOVE_ROADMAP_CARD":
-      return "Roadmap card updated.";
-    case "COPY_REPO_PATH":
-      return "Repo path copied.";
-    case "OPEN_REPO":
-      return "Open repo requested.";
-    case "SNOOZE_1D":
-      return "Insight snoozed for 1 day.";
-    case "SNOOZE_1W":
-      return "Insight snoozed for 1 week.";
-    case "CREATE_JOURNAL":
-      return "Journal entry added.";
-    case "DISMISS":
-      return "Insight dismissed.";
-    default:
-      return "Insight action applied.";
-  }
-}
-
-function formatInsightMetrics(items: Insight[]) {
-  const metrics = items.flatMap((item) => Object.entries(item.metrics ?? {}));
-  if (!metrics.length) {
-    return [["Reason", items[0]?.reason ?? "No additional metrics"]];
-  }
-
-  const grouped = new Map<string, string[]>();
-  for (const [key, rawValue] of metrics) {
-    const label = key.replace(/([A-Z])/g, " $1").replace(/_/g, " ").trim();
-    const display =
-      typeof rawValue === "number"
-        ? Number.isInteger(rawValue)
-          ? `${rawValue}`
-          : rawValue.toFixed(1)
-        : Array.isArray(rawValue)
-          ? rawValue.join(", ")
-          : typeof rawValue === "object" && rawValue !== null
-            ? JSON.stringify(rawValue)
-            : String(rawValue);
-    const list = grouped.get(label) ?? [];
-    if (!list.includes(display)) {
-      list.push(display);
-      grouped.set(label, list);
-    }
-  }
-
-  return Array.from(grouped.entries()).map(([label, values]) => [label, values.join(" · ")]);
-}
-
-function defaultInsightActions(insight: Insight): SuggestedAction[] {
-  const actions: SuggestedAction[] = [];
-  actions.push({
-    id: `${insight.id}-task`,
-    type: "CREATE_TASK",
-    label: "Create Task",
-    payload: {
-      projectId: insight.projectId ?? null,
-      title: `Follow up: ${insight.title}`
-    }
-  });
-  actions.push({
-    id: `${insight.id}-focus`,
-    type: "SCHEDULE_FOCUS",
-    label: "Schedule Focus",
-    payload: {
-      projectId: insight.projectId ?? null,
-      reason: insight.title,
-      minutes: 45
-    }
-  });
-  if (insight.projectId) {
-    actions.push({
-      id: `${insight.id}-roadmap`,
-      type: "MOVE_ROADMAP_NOW",
-      label: "Move Roadmap Card to Now",
-      payload: {
-        projectId: insight.projectId
-      }
-    });
-  }
-  actions.push({
-    id: `${insight.id}-copy`,
-    type: "COPY_REPO_PATH",
-    label: "Copy Repo Path",
-    payload: { repoId: insight.repoId ?? null, projectId: insight.projectId ?? null }
-  });
-  actions.push({
-    id: `${insight.id}-snooze-1d`,
-    type: "SNOOZE_1D",
-    label: "Snooze 1 day",
-    payload: { insightId: insight.id }
-  });
-  actions.push({
-    id: `${insight.id}-snooze-1w`,
-    type: "SNOOZE_1W",
-    label: "Snooze 1 week",
-    payload: { insightId: insight.id }
-  });
-  return actions;
-}
-
-function groupInsights(list: Insight[]): InsightGroup[] {
-  const map = new Map<string, InsightGroup>();
-  for (const insight of list) {
-    const key = `${insight.ruleId}:${insight.projectId ?? "none"}:${insight.repoId ?? "none"}`;
-    const existing = map.get(key);
-    const suggestedActions = dedupeInsightActions(
-      insight.suggestedActions.length ? insight.suggestedActions : defaultInsightActions(insight),
-      insight
-    );
-    if (!existing) {
-      map.set(key, {
-        key,
-        ruleId: insight.ruleId,
-        projectId: insight.projectId ?? null,
-        repoId: insight.repoId ?? null,
-        title: insight.title,
-        reason: insight.reason,
-        severity: insight.severity,
-        items: [insight],
-        actions: [...suggestedActions]
-      });
-    } else {
-      existing.items.push(insight);
-      existing.actions = dedupeInsightActions([...existing.actions, ...suggestedActions], insight);
-      if (severityRank(insight.severity) > severityRank(existing.severity)) {
-        existing.severity = insight.severity;
-      }
-      if (!existing.projectId && insight.projectId) existing.projectId = insight.projectId;
-      if (!existing.repoId && insight.repoId) existing.repoId = insight.repoId;
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
-}
-
-function dedupeInsightActions(actions: SuggestedAction[], insight: Insight) {
-  const map = new Map<string, SuggestedAction>();
-  for (const action of actions) {
-    const payload =
-      action.type === "SNOOZE_1D" || action.type === "SNOOZE_1W"
-        ? { ...action.payload, insightId: action.payload.insightId ?? insight.id }
-        : action.payload;
-    const normalized = { ...action, payload };
-    const key = `${normalized.type}:${JSON.stringify(normalized.payload ?? {})}`;
-    if (!map.has(key)) {
-      map.set(key, normalized);
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => insightActionPriority(a.type) - insightActionPriority(b.type));
-}
-
-function insightActionPriority(type: SuggestedAction["type"]) {
-  switch (type) {
-    case "CREATE_TASK":
-      return 0;
-    case "SCHEDULE_FOCUS":
-      return 1;
-    case "MOVE_ROADMAP_NOW":
-      return 2;
-    case "MOVE_ROADMAP_CARD":
-      return 3;
-    case "OPEN_REPO":
-      return 4;
-    case "COPY_REPO_PATH":
-      return 5;
-    case "CREATE_JOURNAL":
-      return 6;
-    case "SNOOZE_1D":
-      return 7;
-    case "SNOOZE_1W":
-      return 8;
-    default:
-      return 9;
-  }
-}
-
-function clampWeeklyHours(value: number) {
-  return Math.max(0, Math.min(40, value));
-}
-
-function createProjectFromDraft(draft: ProjectDraft, color: string): Project {
-  const nowIso = new Date().toISOString();
-  return {
-    id: crypto.randomUUID(),
-    name: draft.name.trim(),
-    subtitle: draft.subtitle.trim(),
-    icon: draft.icon,
-    color,
-    status: draft.status,
-    progress: 0,
-    weeklyHours: clampWeeklyHours(Number(draft.weeklyHours) || 0),
-    githubRepo: draft.remoteRepo?.trim() || null,
-    remoteRepo: draft.remoteRepo?.trim() || null,
-    localRepoPath: draft.localRepoPath || null,
-    healthScore: null,
-    archivedAt: draft.status === "Archived" ? nowIso : null,
-    createdAt: nowIso,
-    updatedAt: nowIso,
-    tasks: []
-  };
-}
-
-function applyProjectDraftToProject(project: Project, draft: ProjectDraft) {
-  const nowIso = new Date().toISOString();
-  project.name = draft.name.trim();
-  project.subtitle = draft.subtitle.trim();
-  project.icon = draft.icon;
-  project.status = draft.status;
-  project.weeklyHours = clampWeeklyHours(Number(draft.weeklyHours) || 0);
-  project.githubRepo = draft.remoteRepo?.trim() || null;
-  project.remoteRepo = draft.remoteRepo?.trim() || null;
-  project.localRepoPath = draft.localRepoPath || null;
-  project.archivedAt = draft.status === "Archived" ? project.archivedAt ?? nowIso : null;
-  project.updatedAt = nowIso;
-}
-
-function normalizeRoadmapProjectRefs(cards: RoadmapCard[], project: Project, aliases: string[] = []) {
-  const refs = new Set([project.id, project.name, ...aliases]);
-  return cards.map((card) => {
-    if (!card.project) return card;
-    if (refs.has(card.project)) {
-      return {
-        ...card,
-        project: project.id,
-        updatedAt: new Date().toISOString()
-      };
-    }
-    return card;
-  });
-}
-
-function isArchivedProject(project: Project) {
-  return project.status === "Archived";
-}
-
-function resolveRoadmapProject(ref: string | null, projects: Project[]) {
-  if (!ref) return null;
-  return projects.find((project) => project.id === ref || project.name === ref) ?? null;
-}
-
-function isRoadmapCardForProject(card: RoadmapCard, project: Project | null, projects: Project[]) {
-  if (!project || !card.project) return false;
-  const ref = resolveRoadmapProject(card.project, projects);
-  if (!ref) return card.project === project.name;
-  return ref.id === project.id;
-}
-
-function resolveRepoPath(
-  group: InsightGroup,
-  selectedProject: Project | null,
-  repoById: Map<string, LocalRepo>,
-  repoByPath: Map<string, LocalRepo>
-) {
-  if (group.repoId) {
-    const byId = repoById.get(group.repoId);
-    if (byId) return byId.path;
-  }
-  if (selectedProject?.localRepoPath && repoByPath.get(selectedProject.localRepoPath)) {
-    return selectedProject.localRepoPath;
-  }
-  return null;
-}
+// Redundant code removed. Logic migrated to projectModel.ts and insightStore.ts

@@ -16,7 +16,8 @@ import {
 } from "@linkra/shared";
 import {
   fetchGithubCommits,
-  findMatchingCommit
+  fetchGithubUser,
+  findMatchingCommit,
 } from "./github.js";
 import { createStartupAssets, detectOS, startupInstructions, getStartupDir } from "./startup.js";
 import { getGitHealth, getScanStatus, runGitScanNow, fetchLocalCommits, startGitScanScheduler, startGitWatcher } from "./gitScan.js";
@@ -553,16 +554,32 @@ app.post("/auth/logout", requireLocalControl, (req, res) => {
   });
 });
 
-app.get("/api/github/user", requireLocalControl, (req, res) => {
-  if (!req.session.githubToken) {
+app.post("/api/github/user", requireLocalControl, async (req, res) => {
+  const { pat } = req.body as { pat?: string };
+  const token = pat || req.session.githubToken;
+  if (!token) {
     return res.status(401).json({ error: "Not logged in" });
+  }
+  if (pat) {
+    try {
+      const user = await fetchGithubUser(pat);
+      return res.json({ user });
+    } catch (err) {
+      return res.status(401).json({ error: "Invalid PAT" });
+    }
   }
   res.json({ user: req.session.githubUser });
 });
 
-app.get("/api/github/commits", requireLocalControl, async (req, res) => {
-  const { repo, branch = "main", limit = "20" } = req.query as Record<string, string>;
-  if (!req.session.githubToken) {
+app.post("/api/github/commits", requireLocalControl, async (req, res) => {
+  const { repo, branch = "main", limit = 20, pat } = req.body as {
+    repo?: string;
+    branch?: string;
+    limit?: number;
+    pat?: string;
+  };
+  const token = pat || req.session.githubToken;
+  if (!token) {
     return res.status(401).json({ error: "Not logged in" });
   }
   if (!repo) {
@@ -570,9 +587,9 @@ app.get("/api/github/commits", requireLocalControl, async (req, res) => {
   }
   try {
     const result = await fetchGithubCommits({
-      token: req.session.githubToken,
+      token,
       repo,
-      branch,
+      branch: branch || "main",
       limit: Number(limit) || 20
     });
     res.json(result);
@@ -587,13 +604,15 @@ app.get("/api/github/commits", requireLocalControl, async (req, res) => {
 });
 
 app.post("/api/github/commits/match", requireLocalControl, async (req, res) => {
-  const { repo, branch = "main", text, limit = 30 } = req.body as {
+  const { repo, branch = "main", text, limit = 30, pat } = req.body as {
     repo?: string;
     branch?: string;
     text?: string;
     limit?: number;
+    pat?: string;
   };
-  if (!req.session.githubToken) {
+  const token = (pat || req.session.githubToken) as string;
+  if (!token) {
     return res.status(401).json({ error: "Not logged in" });
   }
   if (!repo || !text) {
@@ -601,7 +620,7 @@ app.post("/api/github/commits/match", requireLocalControl, async (req, res) => {
   }
   try {
     const result = await fetchGithubCommits({
-      token: req.session.githubToken,
+      token,
       repo,
       branch,
       limit: Number(limit) || 30
@@ -629,7 +648,8 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
     });
   }
 
-  const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(state);
+  const { prompt } = req.body as { prompt?: string };
+  const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(state, prompt);
 
   if (tasks.length === 0) {
     return res.status(400).json({

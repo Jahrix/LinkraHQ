@@ -98,7 +98,7 @@ function buildState() {
 
 describe("build plan helpers", () => {
   it("creates a prompt with only open active-project tasks", () => {
-    const prompt = createBuildPlanPrompt(buildState(), new Date("2026-03-08T10:00:00.000Z"));
+    const prompt = createBuildPlanPrompt(buildState(), "", new Date("2026-03-08T10:00:00.000Z"));
 
     expect(prompt.today).toBe("2026-03-08");
     expect(prompt.tasks).toHaveLength(2);

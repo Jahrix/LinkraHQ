@@ -127,23 +127,31 @@ export const api = {
     ),
   startupStatus: () => request<{ os: string; instructions: string; files: string[] }>("/api/startup/status"),
   createStartup: () => request<{ os: string; instructions: string; files: string[] }>("/api/startup/create", { method: "POST" }),
-  githubUser: () => request<{ user: { login: string; avatarUrl: string | null; name: string | null } }>("/api/github/user"),
-  githubCommits: (repo: string, branch: string, limit: number) =>
+  githubUser: (pat?: string | null) =>
+    request<{ user: { login: string; avatarUrl: string | null; name: string | null } }>("/api/github/user", {
+      method: "POST",
+      body: JSON.stringify({ pat: pat || undefined })
+    }),
+  githubCommits: (repo: string, branch: string, limit: number, pat?: string | null) =>
     request<{ commits: any[]; rateLimit: { remaining: number; reset: number } | null }>(
-      `/api/github/commits?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&limit=${limit}`
+      "/api/github/commits",
+      {
+        method: "POST",
+        body: JSON.stringify({ repo, branch, limit, pat: pat || undefined })
+      }
     ),
-  githubCommitMatch: (repo: string, text: string, branch = "main", limit = 30) =>
+  githubCommitMatch: (repo: string, text: string, branch = "main", limit = 30, pat?: string | null) =>
     request<{ match: any | null; rateLimit: { remaining: number; reset: number } | null }>(
       "/api/github/commits/match",
       {
         method: "POST",
-        body: JSON.stringify({ repo, branch, text, limit })
+        body: JSON.stringify({ repo, branch, text, limit, pat })
       }
     ),
-  buildMyPlan: (state: AppState) =>
+  buildMyPlan: (state: AppState, prompt?: string) =>
     request<{ taskIds: string[]; rationale: string }>("/api/ai/build-plan", {
       method: "POST",
-      body: JSON.stringify({ state })
+      body: JSON.stringify({ state, prompt })
     }),
   logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" })
 };

@@ -107,7 +107,10 @@ export async function onRequest(context: PagesContext) {
     return jsonResponse(400, { error: "state is required and must be valid" });
   }
 
-  const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(parsedState.data);
+  const prompt = typeof (payload as { prompt?: unknown } | null)?.prompt === "string"
+    ? (payload as { prompt: string }).prompt
+    : "";
+  const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(parsedState.data, prompt);
 
   if (tasks.length === 0) {
     return jsonResponse(400, {

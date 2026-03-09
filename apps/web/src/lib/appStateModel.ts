@@ -27,11 +27,15 @@ export const createDefaultAppState = (nowIso = new Date().toISOString()): AppSta
   );
 };
 
-export const createExportBundle = (state: AppState, createdAt = new Date().toISOString()): ExportBundle => ({
-  schema_version: SCHEMA_VERSION,
-  created_at: createdAt,
-  data: cloneAppState(state)
-});
+export const createExportBundle = (state: AppState, createdAt = new Date().toISOString()): ExportBundle => {
+  const clone = cloneAppState(state);
+  clone.userSettings.githubPat = null;
+  return {
+    schema_version: SCHEMA_VERSION,
+    created_at: createdAt,
+    data: clone
+  };
+};
 
 export const applyImportBundle = (
   current: AppState,
@@ -81,6 +85,7 @@ export const normalizeRuntimeAppState = (state: AppState, now = new Date()): App
       goals,
       score: metrics.score,
       completedPoints: metrics.completedPoints,
+      isClosed: false,
       archivedAt: null
     };
   }
