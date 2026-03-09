@@ -251,8 +251,23 @@ export default function WeeklyReviewPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <GlassPanel variant="hero">
+    <div className="space-y-8 max-w-[1600px] mx-auto">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-2">
+        <div>
+          <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic leading-none">Weekly Review</h1>
+          <p className="text-muted font-bold uppercase tracking-[0.3em] mt-3 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-accent animate-pulse shadow-[0_0_8px_rgba(93,216,255,0.5)]"></span>
+            Reflect and calibrate
+          </p>
+        </div>
+        <div className="flex items-center gap-4 bg-white/5 border border-white/10 px-6 py-4 rounded-2xl backdrop-blur-xl">
+          <div className="text-center">
+            <span className="block text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Week</span>
+            <span className="text-xl font-black text-white tracking-tighter">{weekStart}</span>
+          </div>
+        </div>
+      </div>
+      <GlassPanel variant="standard" className="p-6">
         <SectionHeader
           eyebrow="Review"
           title="Weekly Review"

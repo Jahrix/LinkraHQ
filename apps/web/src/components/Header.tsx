@@ -1,7 +1,20 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Pill from "./Pill";
 import GlassPanel from "./GlassPanel";
 import { playGreetingSoundOnce } from "../lib/sounds";
+
+export const MOMENTUM_PULSE_MS = 5000;
+
+export function resolveMomentumPulse(
+  previousScore: number,
+  nextScore: number,
+  hasInitialized: boolean
+): "up" | "down" | null {
+  if (!hasInitialized || previousScore === nextScore) {
+    return null;
+  }
+  return nextScore > previousScore ? "up" : "down";
+}
 
 function getGreeting(hour: number) {
   if (hour >= 5 && hour < 12) return "Good Morning";
@@ -12,18 +25,21 @@ function getGreeting(hour: number) {
 
 export default function Header({
   score,
+  momentumSignal,
   userName,
   onOpenCommand,
   hideGreeting = false
 }: {
   score: number;
+  momentumSignal: number;
   userName: string;
   onOpenCommand: () => void;
   hideGreeting?: boolean;
 }) {
   const [pulse, setPulse] = useState<"up" | "down" | null>(null);
-  const [prev, setPrev] = useState(score);
+  const [prevSignal, setPrevSignal] = useState(momentumSignal);
   const [now, setNow] = useState(new Date());
+  const hasInitializedScore = useRef(false);
 
   useEffect(() => {
     const tick = setInterval(() => setNow(new Date()), 1000);
@@ -31,17 +47,19 @@ export default function Header({
   }, []);
 
   useEffect(() => {
-    if (score > prev) {
-      setPulse("up");
-    } else if (score < prev) {
-      setPulse("down");
+    const nextPulse = resolveMomentumPulse(prevSignal, momentumSignal, hasInitializedScore.current);
+    hasInitializedScore.current = true;
+    setPrevSignal(momentumSignal);
+
+    if (!nextPulse) {
+      setPulse(null);
+      return;
     }
-    setPrev(score);
-    if (score !== prev) {
-      const t = setTimeout(() => setPulse(null), 600);
-      return () => clearTimeout(t);
-    }
-  }, [score, prev]);
+
+    setPulse(nextPulse);
+    const t = setTimeout(() => setPulse(null), MOMENTUM_PULSE_MS);
+    return () => clearTimeout(t);
+  }, [momentumSignal, prevSignal]);
 
   const colorClass = pulse === "up"
     ? "text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)] scale-125"

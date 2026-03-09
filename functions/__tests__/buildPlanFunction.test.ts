@@ -174,4 +174,39 @@ describe("Cloudflare build plan function", () => {
       }
     });
   });
+
+  it("returns 400 when queued task ids are provided but none are eligible", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([{ is_admin: false, used: 0, daily_limit: 10, remaining: 10 }]),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      )
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await onRequest({
+      request: new Request("https://notes.jahrix.xyz/api/ai/build-plan", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer test-user-token"
+        },
+        body: JSON.stringify({ state: buildState(), queueTaskIds: ["missing-task"] })
+      }),
+      env: {
+        ANTHROPIC_API_KEY: "test-key",
+        SUPABASE_URL: "https://supabase.test",
+        SUPABASE_ANON_KEY: "anon-key"
+      }
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "No queued tasks available to build a plan from."
+    });
+  });
 });

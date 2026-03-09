@@ -27,17 +27,20 @@ function Shell() {
   const [active, setActive] = useState<NavItem>("Dashboard");
   const [commandOpen, setCommandOpen] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      setAuthResolved(true);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      setAuthResolved(true);
     });
 
     return () => subscription.unsubscribe();
@@ -117,6 +120,11 @@ function Shell() {
   }, [refresh]);
 
   const score = Object.values(state?.dailyGoalsByDate || {}).reduce((acc, entry) => acc + entry.score, 0);
+  const completedTaskCount = (state?.projects || []).reduce(
+    (acc, project) => acc + project.tasks.filter((task) => task.done).length,
+    0
+  );
+  const momentumSignal = score + completedTaskCount;
   const streak = state ? computeStreak(Object.values(state.dailyGoalsByDate)) : 0;
 
   const displayName =
@@ -126,6 +134,20 @@ function Shell() {
     session?.user?.user_metadata?.preferred_username ||
     session?.user?.email?.split("@")[0] ||
     "there";
+
+  if (!authResolved) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6">
+        <div className="panel flex items-center gap-3 text-sm text-muted">
+          <svg className="animate-spin w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          Restoring your workspace…
+        </div>
+      </div>
+    );
+  }
 
   if (!session) {
     return <AuthPage />;
@@ -138,6 +160,7 @@ function Shell() {
         <div className="sticky-header">
           <Header
             score={score}
+            momentumSignal={momentumSignal}
             userName={displayName}
             onOpenCommand={() => setCommandOpen(true)}
             hideGreeting={active === "Dashboard"}

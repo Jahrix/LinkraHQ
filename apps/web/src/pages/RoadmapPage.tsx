@@ -114,6 +114,7 @@ export default function RoadmapPage() {
             placeholder="Filter operations..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            autoComplete="off"
           />
           <div className="h-4 w-[1px] bg-white/10" />
           <span className="text-[10px] font-black uppercase tracking-widest px-4 text-muted/60">{filteredCards.length} Cards</span>
@@ -123,7 +124,7 @@ export default function RoadmapPage() {
       <GlassPanel variant="standard" className="p-6">
         <SectionHeader title="Deployment Intake" subtitle="Capture upcoming project milestones" />
         <div className="grid gap-4 md:grid-cols-2 mt-4">
-          <input className="input font-bold" placeholder="Milestone Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input className="input font-bold" placeholder="Milestone Title" value={title} onChange={(e) => setTitle(e.target.value)} autoComplete="off" />
           <Select
             className="w-full"
             value={projectId}
@@ -147,6 +148,7 @@ export default function RoadmapPage() {
             placeholder="Tags (comma separated)..."
             value={tags}
             onChange={(e) => setTags(e.target.value)}
+            autoComplete="off"
           />
           <button className="button-primary px-8 font-black uppercase tracking-widest text-[10px]" onClick={addCard}>
             Deploy Card

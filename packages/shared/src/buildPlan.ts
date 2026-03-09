@@ -17,15 +17,21 @@ export interface BuildPlanPromptPayload {
   userMessage: string;
 }
 
-export function createBuildPlanPrompt(state: AppState, prompt = "", now = new Date()): BuildPlanPromptPayload {
+export function createBuildPlanPrompt(
+  state: AppState,
+  prompt = "",
+  now = new Date(),
+  candidateTaskIds?: string[]
+): BuildPlanPromptPayload {
   const nowIso = now.toISOString();
   const today = nowIso.slice(0, 10);
+  const taskFilter = candidateTaskIds ? new Set(candidateTaskIds) : null;
 
   const activeProjects = state.projects.filter((project) => project.status !== "Archived");
 
   const tasks = activeProjects.flatMap((project) =>
     project.tasks
-      .filter((task) => !task.done)
+      .filter((task) => !task.done && (!taskFilter || taskFilter.has(task.id)))
       .map((task) => ({
         id: task.id,
         text: task.text,

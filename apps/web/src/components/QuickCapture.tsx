@@ -150,6 +150,7 @@ export default function QuickCapture() {
           placeholder="Capture a thought, task, or roadmap card..."
           value={text}
           onChange={(event) => setText(event.target.value)}
+          autoComplete="off"
         />
         <button className="button-primary" onClick={handleCapture}>
           Add

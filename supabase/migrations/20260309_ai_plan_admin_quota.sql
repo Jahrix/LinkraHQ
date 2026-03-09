@@ -1,5 +1,3 @@
-create extension if not exists pgcrypto;
-
 create table if not exists public.user_roles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   role text not null check (role in ('admin')),
@@ -16,19 +14,8 @@ create table if not exists public.ai_plan_quotas (
   primary key (user_id, day)
 );
 
-create table if not exists public.admin_invite_codes (
-  id uuid primary key default gen_random_uuid(),
-  label text,
-  code_hash text not null unique,
-  uses_remaining integer not null default 1 check (uses_remaining >= 0),
-  expires_at timestamptz,
-  created_by uuid references auth.users(id) on delete set null,
-  created_at timestamptz not null default now()
-);
-
 alter table public.user_roles enable row level security;
 alter table public.ai_plan_quotas enable row level security;
-alter table public.admin_invite_codes enable row level security;
 
 drop policy if exists "user_roles_select_own" on public.user_roles;
 create policy "user_roles_select_own"
@@ -141,65 +128,5 @@ begin
 end;
 $$;
 
-drop function if exists public.linkra_claim_admin_invite(text, integer);
-create or replace function public.linkra_claim_admin_invite(
-  p_code text,
-  p_daily_limit integer default 10
-)
-returns table (
-  is_admin boolean,
-  used integer,
-  daily_limit integer,
-  remaining integer
-)
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_user_id uuid := auth.uid();
-  v_code_hash text := encode(digest(coalesce(p_code, ''), 'sha256'), 'hex');
-  v_today date := current_date;
-  v_limit integer := greatest(1, coalesce(p_daily_limit, 10));
-  v_used integer := 0;
-begin
-  if v_user_id is null then
-    raise exception 'Authentication required.';
-  end if;
-
-  if coalesce(trim(p_code), '') = '' then
-    raise exception 'Admin code is required.';
-  end if;
-
-  update public.admin_invite_codes
-  set uses_remaining = uses_remaining - 1
-  where code_hash = v_code_hash
-    and uses_remaining > 0
-    and (expires_at is null or expires_at > now());
-
-  if not found then
-    raise exception 'Invalid admin code.';
-  end if;
-
-  insert into public.user_roles (user_id, role, granted_by, created_at)
-  values (v_user_id, 'admin', v_user_id, now())
-  on conflict (user_id) do update
-    set role = excluded.role;
-
-  select q.used, q.daily_limit
-  into v_used, v_limit
-  from public.ai_plan_quotas q
-  where q.user_id = v_user_id
-    and q.day = v_today;
-
-  v_used := coalesce(v_used, 0);
-  v_limit := greatest(1, coalesce(v_limit, p_daily_limit, 10));
-
-  return query
-  select true, v_used, v_limit, v_limit;
-end;
-$$;
-
 grant execute on function public.linkra_get_ai_plan_status(integer) to authenticated;
 grant execute on function public.linkra_consume_ai_plan_quota(integer) to authenticated;
-grant execute on function public.linkra_claim_admin_invite(text, integer) to authenticated;

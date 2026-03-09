@@ -113,7 +113,17 @@ export async function onRequest(context: PagesContext) {
   const prompt = typeof (payload as { prompt?: unknown } | null)?.prompt === "string"
     ? (payload as { prompt: string }).prompt
     : "";
-  const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(parsedState.data, prompt);
+  const queueTaskIds = Array.isArray((payload as { queueTaskIds?: unknown } | null)?.queueTaskIds)
+    ? ((payload as { queueTaskIds: unknown[] }).queueTaskIds.filter(
+        (taskId): taskId is string => typeof taskId === "string"
+      ))
+    : undefined;
+  const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(
+    parsedState.data,
+    prompt,
+    new Date(),
+    queueTaskIds
+  );
   let quota;
   try {
     quota = await fetchAiPlanQuotaStatus(request, env);
@@ -125,7 +135,7 @@ export async function onRequest(context: PagesContext) {
 
   if (tasks.length === 0) {
     return jsonResponse(400, {
-      error: "No open tasks available to build a plan from."
+      error: queueTaskIds ? "No queued tasks available to build a plan from." : "No open tasks available to build a plan from."
     });
   }
 

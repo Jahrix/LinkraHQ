@@ -20,7 +20,6 @@ import GlassPanel from "../components/GlassPanel";
 import SectionHeader from "../components/SectionHeader";
 import Pill from "../components/Pill";
 import Modal from "../components/Modal";
-import Select from "../components/Select";
 import EmojiPicker from "../components/EmojiPicker";
 import ProjectJournalPanel from "../components/ProjectJournalPanel";
 import TodayMissionHero from "../components/TodayMissionHero";
@@ -28,6 +27,8 @@ import TodayPlanQueue from "../components/TodayPlanQueue";
 import PomodoroTimer from "../components/PomodoroTimer";
 import ProjectCard from "../components/ProjectCard";
 import ProjectModal from "../components/ProjectModal";
+import ProjectRail from "../components/dashboard/ProjectRail";
+import ProjectCommandCenter from "../components/dashboard/ProjectCommandCenter";
 import {
   type ProjectDraft,
   isArchivedProject,
@@ -92,7 +93,6 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const [todayPlanDraft, setTodayPlanDraft] = useState<string[]>([]);
   const [todayPlanNotes, setTodayPlanNotes] = useState("");
-  const [todayTaskQuery, setTodayTaskQuery] = useState("");
   const [aiPlanQuota, setAiPlanQuota] = useState({
     remaining: 10,
     dailyLimit: 10,
@@ -263,11 +263,11 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       }))
   );
 
-  const todayTaskOptions = availableTodayTasks.filter(
-    (task) =>
-      !todayPlanDraft.includes(task.id) &&
-      `${task.projectName} ${task.text}`.toLowerCase().includes(todayTaskQuery.toLowerCase())
-  );
+  const todayTaskOptions = availableTodayTasks.filter((task) => !todayPlanDraft.includes(task.id));
+  const todayQueueOptions = todayTaskOptions.map((task) => ({
+    value: task.id,
+    label: `${task.projectName} - ${task.text}`
+  }));
 
   const persistState = async (
     mutate: (draft: AppState) => void,
@@ -303,13 +303,14 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
   }, [selectedProject?.id]);
 
+  const savedPlanTaskIdsString = JSON.stringify(state.todayPlanByDate?.[todayKey()]?.taskIds ?? null);
+  
   useEffect(() => {
     const saved = state.todayPlanByDate?.[todayKey()];
     setTodayPlanNotes(saved?.notes ?? "");
     if (saved && saved.taskIds.length > 0) {
       setTodayPlanDraft(saved.taskIds);
     } else {
-      // No saved plan for today — auto-compute from unfinished tasks so Today's Mission is never blank
       const taskList = projects.flatMap((project) =>
         project.tasks.map((task) => ({
           task,
@@ -322,7 +323,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       const autoPlan = computeTodayPlan(taskList, { maxTasks: 5 });
       setTodayPlanDraft(autoPlan);
     }
-  }, [state.todayPlanByDate]);
+  }, [savedPlanTaskIdsString]); // ONLY re-run if the saved task IDs actually changed
 
   useEffect(() => {
     let cancelled = false;
@@ -344,6 +345,9 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   }, [state.metadata.created_at]);
 
   // Auto-complete from commits removed — must be explicitly triggered by the user.
+  useEffect(() => {
+     // Re-run compute auto plan if projects change and we have no plan, but it's handled by the dependencies.
+  }, [projects]);
 
   useEffect(() => {
     const duplicateProjectSignature = dedupedProjects.duplicates.join(",");
@@ -531,37 +535,48 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const toggleTask = async (taskId: string, done: boolean) => {
     if (!selectedProject) return;
-    const next = cloneAppState(state);
-    const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
-    if (!project) return;
-    const task = project.tasks.find((item) => item.id === taskId);
-    if (!task) return;
+    
+    // Optimistic fast save
+    const saved = await persistState((next) => {
+      const p = next.projects.find((candidate) => candidate.id === selectedProject.id);
+      const t = p?.tasks.find((item) => item.id === taskId);
+      if (t) {
+        t.done = done;
+        t.status = done ? "done" : "todo";
+        t.completedAt = done ? new Date().toISOString() : null;
+        if (!done) t.linkedCommit = null;
+      }
+    }, "Failed to update task.");
 
-    task.done = done;
-    task.status = done ? "done" : "todo";
-    task.completedAt = done ? new Date().toISOString() : null;
+    if (!saved) return;
 
+    // Background github matching
     const rawRepo = selectedProject.remoteRepo ?? selectedProject.githubRepo;
     const repo = rawRepo ? normalizeRepo(rawRepo) : null;
-    try {
-      if (done && repo) {
-        const githubToken = await resolveGithubToken();
-        if (!githubToken) {
-          throw new Error(GITHUB_CONNECT_MESSAGE);
-        }
+    if (done && repo) {
+      try {
         setIsMatching(true);
-        task.linkedCommit = await matchGithubCommit(repo, task.text, githubToken);
+        const githubToken = await resolveGithubToken();
+        if (githubToken) {
+          const taskText = selectedProject.tasks.find(t => t.id === taskId)?.text;
+          if (taskText) {
+            const match = await matchGithubCommit(repo, taskText, githubToken);
+            if (match) {
+              await persistState((next) => {
+                const p = next.projects.find(x => x.id === selectedProject.id);
+                const t = p?.tasks.find(x => x.id === taskId);
+                if (t) {
+                  t.linkedCommit = { ...match, score: 1 };
+                }
+              });
+            }
+          }
+        }
+      } catch {
+        // silent fail for auto-match is fine
+      } finally {
+        setIsMatching(false);
       }
-    } catch {
-      task.linkedCommit = null;
-    } finally {
-      setIsMatching(false);
-    }
-
-    if (!done) task.linkedCommit = null;
-    const saved = await save(next);
-    if (!saved) {
-      push("Failed to update task.", "error");
     }
   };
 
@@ -607,15 +622,16 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     );
     if (!confirmed) return;
     push("Scanning commits for task matches...", "info");
-    let completions = 0;
-    const next = cloneAppState(state);
+    
     const githubToken = await resolveGithubToken();
-
     if (!githubToken) {
       push(GITHUB_CONNECT_MESSAGE, "warning");
       return;
     }
 
+    // Step 1: Gather matches without locking a stale state clone
+    const foundMatches: { projectId: string; taskId: string; match: any }[] = [];
+    
     for (const project of projects) {
       const repo = project.remoteRepo ?? project.githubRepo;
       if (!repo || project.status === "Archived") continue;
@@ -627,15 +643,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
         try {
           const match = await matchGithubCommit(normalizeRepo(repo), task.text, githubToken);
           if (match) {
-            const nextProject = next.projects.find(p => p.id === project.id);
-            const nextTask = nextProject?.tasks.find(t => t.id === task.id);
-            if (nextTask) {
-              nextTask.done = true;
-              nextTask.status = "done";
-              nextTask.completedAt = new Date().toISOString();
-              nextTask.linkedCommit = match;
-              completions++;
-            }
+            foundMatches.push({ projectId: project.id, taskId: task.id, match });
           }
         } catch (err) {
           console.error(`Auto-complete failed for task ${task.id}:`, err);
@@ -643,10 +651,23 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       }
     }
 
-    if (completions > 0) {
-      const saved = await save(next);
+    // Step 2: Apply all matches transactionally to the freshest state
+    if (foundMatches.length > 0) {
+      const saved = await persistState((next) => {
+        for (const { projectId, taskId, match } of foundMatches) {
+          const project = next.projects.find(p => p.id === projectId);
+          const task = project?.tasks.find(t => t.id === taskId);
+          if (task && !task.done) {
+            task.done = true;
+            task.status = "done";
+            task.completedAt = new Date().toISOString();
+            task.linkedCommit = { ...match, score: 1 };
+          }
+        }
+      }, "Failed to apply auto-completions.");
+      
       if (saved) {
-        push(`Auto-completed ${completions} tasks from commits!`, "success");
+        push(`Auto-completed ${foundMatches.length} tasks from commits!`, "success");
       }
     } else {
       push("Checked commits. No new task matches found.", "info");
@@ -753,6 +774,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const persistTodayPlan = async (taskIds: string[], source: "auto" | "manual") => {
+    setTodayPlanDraft(taskIds);
     const saved = await persistState((next) => {
       next.todayPlanByDate[todayKey()] = {
         taskIds,
@@ -770,20 +792,19 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       throw new Error(`Daily Build My Plan limit reached. ${aiPlanQuota.remaining}/${aiPlanQuota.dailyLimit} left today.`);
     }
 
+    const queueTaskIds = Array.from(new Set(todayPlanDraft)).filter((taskId) => allTaskLookup.has(taskId));
+    if (queueTaskIds.length === 0) {
+      throw new Error("Add tasks to Today's Queue before using Build My Plan.");
+    }
+
     try {
-      const result = await api.buildMyPlan(state, prompt);
+      const result = await api.buildMyPlan(state, prompt, queueTaskIds);
       setAiPlanQuota(result.quota);
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI plan generation failed";
       throw new Error(message);
     }
-  };
-
-  const unlockAdminBypass = async (code: string) => {
-    const response = await api.unlockAdminBypass(code);
-    setAiPlanQuota(response.quota);
-    push("Admin access enabled for this account.", "success");
   };
 
   const movePlanItem = (index: number, direction: -1 | 1) => {
@@ -804,7 +825,6 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       if (prev.includes(taskId) || prev.length >= 7) return prev;
       return [...prev, taskId];
     });
-    setTodayTaskQuery("");
   };
 
   const startFocus = (taskId: string) => {
@@ -987,7 +1007,6 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
             title="Momentum and Command"
             description="Momentum and command is the key to opening the command center."
             topTask={topTask}
-            userName={state.github.user?.name || state.github.user?.login}
             tasksRemaining={todayPlanDraft.length}
             isClosed={!!todayEntry?.isClosed}
             onStartFocus={startFocus}
@@ -996,145 +1015,33 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
         )}
       </div>
 
-      <GlassPanel variant="hero" className="mb-6">
-        <SectionHeader
-          title="Projects"
-          subtitle={showArchived ? "All projects" : "Active projects"}
-          rightControls={
-            <button className="button-secondary" onClick={openCreateProjectModal}>+ New</button>
-          }
-        />
-        <div className={`mt-5 grid gap-4 ${dashboardProjects.length === 1 ? "grid-cols-1 sm:grid-cols-2" :
-          dashboardProjects.length === 2 ? "grid-cols-1 sm:grid-cols-2" :
-            dashboardProjects.length === 3 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" :
-              "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
-          }`}>
-          {dashboardProjects.map((project, idx) => (
-            <div key={project.id} className="relative group/card">
-              <ProjectCard
-                project={project}
-                isSelected={selectedProject?.id === project.id}
-                onClick={() => { setSelectedProjectId(project.id); setActiveTab("Tasks"); }}
-                size={dashboardProjects.length <= 2 ? "lg" : dashboardProjects.length <= 3 ? "md" : "sm"}
-              />
-              <div className="absolute top-1/2 -translate-y-1/2 left-1 right-1 flex justify-between pointer-events-none opacity-0 group-hover/card:opacity-100 transition-opacity">
-                {idx > 0 ? (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); moveProject(idx, -1); }}
-                    className="p-1 rounded-full bg-black/80 hover:bg-white text-muted hover:text-black transition-all pointer-events-auto shadow-xl border border-white/10"
-                    title="Move left"
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                  </button>
-                ) : <div />}
-                {idx < dashboardProjects.length - 1 && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); moveProject(idx, 1); }}
-                    className="p-1 rounded-full bg-black/80 hover:bg-white text-muted hover:text-black transition-all pointer-events-auto shadow-xl border border-white/10"
-                    title="Move right"
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </GlassPanel>
+      <ProjectRail
+        projects={dashboardProjects}
+        selectedProjectId={selectedProject?.id ?? null}
+        onSelectProject={(id) => { setSelectedProjectId(id); setActiveTab("Tasks"); }}
+        onMoveProject={moveProject}
+        onNewProject={openCreateProjectModal}
+        showArchived={showArchived}
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Left Column - Selected Project Command Center */}
-        <div className="xl:col-span-2 flex flex-col gap-6">
-          <GlassPanel variant="standard" className="flex-1 flex flex-col">
-            <div className="flex gap-4 items-center mb-6 pb-6 border-b border-subtle">
-              <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-[0_0_30px_rgba(255,255,255,0.05)] flex-shrink-0 overflow-hidden border ${selectedProject ? "bg-accent/10 border-accent/20" : "bg-white/5 border-white/10"}`}>
-                {selectedProject?.logoUrl ? (
-                  <img src={selectedProject.logoUrl} alt={selectedProject.name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="opacity-80">{selectedProject?.icon ?? "🧠"}</span>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-black text-2xl tracking-tighter truncate text-white uppercase italic">
-                  {selectedProject?.name ?? "Executive Briefing"}
-                </h3>
-                <p className="text-[10px] text-muted-foreground mt-0.5 truncate font-black uppercase tracking-[0.2em] opacity-60">
-                  {selectedProject?.subtitle ?? "Unified Project Intelligence"}
-                </p>
-              </div>
-              <div className="flex gap-8 text-center shrink-0 items-center pr-2">
-                <div>
-                  <strong className="block text-2xl font-bold mb-1">{selectedProject?.tasks.length ?? 0}</strong>
-                  <span className="text-muted text-[10px] uppercase tracking-[0.2em] font-bold">Tasks</span>
-                </div>
-                <div>
-                  <strong className="block text-2xl font-bold mb-1 text-emerald-400">{selectedProjectTaskProgress}%</strong>
-                  <span className="text-emerald-500/70 text-[10px] uppercase tracking-[0.2em] font-bold">Done</span>
-                </div>
-                {selectedProject && (
-                  <button className="button-secondary p-2 ml-2" onClick={() => setActiveTab("Project Settings")} aria-label="Project Settings">
-                    <svg className="w-4 h-4 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <SectionHeader
-              title="Tasks"
-              rightControls={
-                <button
-                  onClick={autoCompleteFromCommits}
-                  className="text-[10px] uppercase font-bold tracking-widest text-accent hover:text-accent-100 flex items-center gap-1.5"
-                  title="Scan commits and auto-complete matching tasks"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                  Auto-Complete
-                </button>
-              }
-            />
-            <div className="mt-4 flex-1 grid gap-2 overflow-y-auto pr-2 min-h-[300px]">
-              {selectedTasks.length === 0 && <p className="text-sm text-muted flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-white/20"></span>No tasks.</p>}
-              {selectedTasks.map(task => (
-                <TaskRow
-                  key={task.id}
-                  text={task.text}
-                  done={task.done}
-                  onToggle={(nextValue) => toggleTask(task.id, nextValue)}
-                  onDelete={() => deleteTask(task.id)}
-                />
-              ))}
-            </div>
-            <div className="flex gap-3 mt-6 mb-6">
-              <input
-                value={taskText}
-                onChange={(e) => setTaskText(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addTask()}
-                placeholder="New task..."
-                className="input flex-1 bg-white/5 border-white/5 text-base py-3"
-              />
-              <button onClick={addTask} className="button-secondary px-6">Add</button>
-            </div>
-
-            {selectedProject && (
-              <div className="mt-2 pt-6 border-t border-subtle">
-                <SectionHeader title="Action Log" subtitle="Notes, blockers, ideas" />
-                <div className="mt-4">
-                  <ProjectJournalPanel
-                    project={selectedProject}
-                    tasks={selectedProject.tasks}
-                    roadmapCards={filteredRoadmap}
-                    journalEntries={state.journalEntries.filter(entry => entry.projectId === selectedProject.id)}
-                    repo={selectedProjectRepo}
-                    commitOptions={commitOptions}
-                  />
-                </div>
-              </div>
-            )}
-          </GlassPanel>
-        </div>
+        <ProjectCommandCenter
+          project={selectedProject}
+          tasks={selectedTasks}
+          taskText={taskText}
+          onTaskTextChange={setTaskText}
+          onAddTask={addTask}
+          onToggleTask={toggleTask}
+          onDeleteTask={deleteTask}
+          onAutoCompleteFromCommits={autoCompleteFromCommits}
+          onOpenSettings={() => setActiveTab("Project Settings")}
+          taskProgress={selectedProjectTaskProgress}
+          roadmapCards={filteredRoadmap}
+          journalEntries={state.journalEntries.filter(entry => entry.projectId === selectedProject?.id)}
+          localRepo={selectedProjectRepo}
+          commitOptions={commitOptions}
+        />
 
         {/* Right Column - Secondary Systems */}
         <div className="flex flex-col gap-6">
@@ -1145,10 +1052,11 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
             onSave={persistTodayPlan}
             onRemove={removePlanItem}
             onStartFocus={startFocus}
+            availableTaskOptions={todayQueueOptions}
+            onAddTask={addPlanItem}
             remainingBuilds={aiPlanQuota.remaining}
             dailyLimit={aiPlanQuota.dailyLimit}
             isAdmin={aiPlanQuota.isAdmin}
-            onUnlockAdmin={unlockAdminBypass}
           />
 
           {selectedProject && (selectedProject.remoteRepo || selectedProject.githubRepo) && (

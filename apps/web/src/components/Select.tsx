@@ -113,7 +113,18 @@ export default function Select({
         const list = listRef.current;
         if (!list) return;
         const item = list.children[focusedIndex] as HTMLElement | undefined;
-        item?.scrollIntoView({ block: "nearest" });
+        if (!item) return;
+
+        const itemTop = item.offsetTop;
+        const itemBottom = itemTop + item.offsetHeight;
+        const viewTop = list.scrollTop;
+        const viewBottom = viewTop + list.clientHeight;
+
+        if (itemTop < viewTop) {
+            list.scrollTop = itemTop;
+        } else if (itemBottom > viewBottom) {
+            list.scrollTop = itemBottom - list.clientHeight;
+        }
     }, [focusedIndex, isOpen]);
 
     const getDisplayValue = () => {
@@ -185,7 +196,7 @@ export default function Select({
         <div
             ref={portalRef}
             style={dropdownStyle}
-            className="overflow-y-auto no-scrollbar shadow-2xl origin-top animate-in fade-in slide-in-from-top-1 duration-150 rounded-xl border border-stroke/50 bg-[rgba(15,20,28,0.97)] backdrop-blur-xl"
+            className="fixed overflow-y-auto no-scrollbar shadow-2xl origin-top animate-in fade-in slide-in-from-top-1 duration-150 rounded-xl border border-stroke/50 bg-[rgba(15,20,28,0.97)] backdrop-blur-xl"
         >
             <ul
                 ref={listRef}

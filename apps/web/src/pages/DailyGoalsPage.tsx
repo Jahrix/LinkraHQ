@@ -168,8 +168,8 @@ export default function DailyGoalsPage() {
 
         <div className="p-6 bg-white/[0.01] border-t border-white/5">
           <div className="grid gap-4 grid-cols-1 md:grid-cols-[1fr_200px_100px_auto]">
-            <input className="input bg-black/40 border-white/5 focus:border-accent/40" placeholder="Objective name..." value={title} onChange={(e) => setTitle(e.target.value)} />
-            <input className="input bg-black/40 border-white/5 focus:border-accent/40" placeholder="Category (e.g. Focus)" value={category} onChange={(e) => setCategory(e.target.value)} />
+            <input className="input bg-black/40 border-white/5 focus:border-accent/40" placeholder="Objective name..." value={title} onChange={(e) => setTitle(e.target.value)} autoComplete="off" />
+            <input className="input bg-black/40 border-white/5 focus:border-accent/40" placeholder="Category (e.g. Focus)" value={category} onChange={(e) => setCategory(e.target.value)} autoComplete="off" />
             <input
               className="input bg-black/40 border-white/5 focus:border-accent/40 text-center font-bold"
               type="number"
@@ -178,7 +178,7 @@ export default function DailyGoalsPage() {
               onChange={(e) => setPoints(Number(e.target.value))}
             />
             <button className="button-secondary px-8 font-black uppercase tracking-widest text-[10px]" onClick={addGoal}>
-              Add Move
+              Add More
             </button>
           </div>
         </div>
@@ -210,6 +210,7 @@ export default function DailyGoalsPage() {
                 placeholder="Template directive..."
                 value={templateTitle}
                 onChange={(e) => setTemplateTitle(e.target.value)}
+                autoComplete="off"
               />
               <button className="button-primary px-5 text-[9px] font-black uppercase tracking-widest" onClick={addTemplateGoal}>
                 Deploy Template

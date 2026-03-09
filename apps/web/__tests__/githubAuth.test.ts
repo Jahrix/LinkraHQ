@@ -2,13 +2,32 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildAccountRedirectUrl,
   buildCommitsRedirectUrl,
+  cacheGithubProviderToken,
+  clearCachedGithubProviderToken,
   finalizeAuthRedirectUrl,
   formatGithubConnectError,
   GITHUB_AUTH_SCOPES,
+  getCachedGithubProviderToken,
   hasGithubIdentity,
   startGithubConnect,
   startGithubReconnect
 } from "../src/lib/githubAuth";
+
+function createSessionStorageMock() {
+  const store = new Map<string, string>();
+  return {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      store.set(key, value);
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    clear: () => {
+      store.clear();
+    }
+  };
+}
 
 describe("github auth helpers", () => {
   it("builds a redirect back to the commits route", () => {
@@ -145,6 +164,9 @@ describe("github auth helpers", () => {
   });
 
   it("cleans auth tokens from the callback url and restores the commits route", () => {
+    const sessionStorageMock = createSessionStorageMock();
+    vi.stubGlobal("sessionStorage", sessionStorageMock);
+
     const cleanedUrl = finalizeAuthRedirectUrl({
       pathname: "/app",
       search: "?auth_redirect=commits&auth_return_to=%2Fapp%3Ftab%3Dcurrent",
@@ -152,6 +174,7 @@ describe("github auth helpers", () => {
     });
 
     expect(cleanedUrl).toBe("/app?tab=current#commits");
+    expect(getCachedGithubProviderToken()).toBe("provider");
   });
 
   it("cleans legacy auth errors back to the intended route", () => {
@@ -162,5 +185,16 @@ describe("github auth helpers", () => {
     });
 
     expect(cleanedUrl).toBe("/app#commits");
+  });
+
+  it("can cache and clear the GitHub provider token outside the callback flow", () => {
+    const sessionStorageMock = createSessionStorageMock();
+    vi.stubGlobal("sessionStorage", sessionStorageMock);
+
+    cacheGithubProviderToken("token-123");
+    expect(getCachedGithubProviderToken()).toBe("token-123");
+
+    clearCachedGithubProviderToken();
+    expect(getCachedGithubProviderToken()).toBeNull();
   });
 });

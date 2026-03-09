@@ -236,6 +236,7 @@ export default function ProjectJournalPanel({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             aria-label="Search journal entries"
+            autoComplete="off"
           />
           <Select
             className="w-[160px]"
@@ -402,6 +403,7 @@ export default function ProjectJournalPanel({
               value={draft.title}
               onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
               placeholder="Optional title"
+              autoComplete="off"
             />
           </label>
           <label className="grid gap-1">
@@ -412,6 +414,7 @@ export default function ProjectJournalPanel({
               value={draft.body}
               onChange={(event) => setDraft((prev) => ({ ...prev, body: event.target.value }))}
               placeholder="Capture the note, decision, blocker, or next step..."
+              autoComplete="off"
             />
           </label>
           <label className="grid gap-1">
@@ -421,6 +424,7 @@ export default function ProjectJournalPanel({
               value={draft.tags}
               onChange={(event) => setDraft((prev) => ({ ...prev, tags: event.target.value }))}
               placeholder="release, handoff, risky"
+              autoComplete="off"
             />
           </label>
           <label className="grid gap-1">
@@ -466,6 +470,7 @@ export default function ProjectJournalPanel({
               value={draft.manualCommitShas}
               onChange={(event) => setDraft((prev) => ({ ...prev, manualCommitShas: event.target.value }))}
               placeholder="a1b2c3d, e4f5g6h"
+              autoComplete="off"
             />
           </label>
         </div>

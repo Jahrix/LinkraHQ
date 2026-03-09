@@ -25,7 +25,6 @@ import { loadStore } from "./store.js";
 import { updateInsights, runInsightAction } from "./insights.js";
 import { runBackupNow, getBackupDir } from "./backup.js";
 import {
-  claimAdminInvite,
   consumeAiPlanQuota,
   fetchAiPlanQuotaStatus
 } from "./supabaseQuota.js";
@@ -559,22 +558,6 @@ app.post("/auth/logout", requireLocalControl, (req, res) => {
   });
 });
 
-app.post("/api/admin/unlock", requireLocalControl, authRateLimit, async (req, res) => {
-  const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
-  if (!code) {
-    return res.status(400).json({ error: "Admin code is required." });
-  }
-
-  try {
-    const quota = await claimAdminInvite(req, code);
-    res.json({ quota });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to unlock admin access.";
-    const status = message === "Authentication required." ? 401 : 403;
-    res.status(status).json({ error: message });
-  }
-});
-
 app.post("/api/github/user", async (req, res) => {
   const { pat } = req.body as { pat?: string };
   const token = pat || req.session.githubToken;
@@ -688,12 +671,15 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
     });
   }
 
-  const { prompt } = req.body as { prompt?: string };
-  const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(state, prompt);
+  const { prompt, queueTaskIds } = req.body as { prompt?: string; queueTaskIds?: string[] };
+  const candidateTaskIds = Array.isArray(queueTaskIds)
+    ? queueTaskIds.filter((taskId): taskId is string => typeof taskId === "string")
+    : undefined;
+  const { tasks, systemPrompt, userMessage } = createBuildPlanPrompt(state, prompt, new Date(), candidateTaskIds);
 
   if (tasks.length === 0) {
     return res.status(400).json({
-      error: "No open tasks available to build a plan from."
+      error: candidateTaskIds ? "No queued tasks available to build a plan from." : "No open tasks available to build a plan from."
     });
   }
 

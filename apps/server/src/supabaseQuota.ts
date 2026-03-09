@@ -10,10 +10,12 @@ export interface AiPlanQuotaStatus {
 const DEFAULT_DAILY_LIMIT = 10;
 
 function getSupabaseConfig() {
-  const url = process.env.SUPABASE_URL || "";
-  const anonKey = process.env.SUPABASE_ANON_KEY || "";
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
   if (!url || !anonKey) {
-    throw new Error("Supabase quota/admin access is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY.");
+    throw new Error(
+      "Supabase quota/admin access is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY, or reuse VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY locally."
+    );
   }
   return { url, anonKey };
 }
@@ -78,14 +80,6 @@ export async function fetchAiPlanQuotaStatus(req: express.Request) {
 
 export async function consumeAiPlanQuota(req: express.Request) {
   const result = await callRpc<unknown>(req, "linkra_consume_ai_plan_quota", {
-    p_daily_limit: DEFAULT_DAILY_LIMIT
-  });
-  return normalizeStatus(result);
-}
-
-export async function claimAdminInvite(req: express.Request, code: string) {
-  const result = await callRpc<unknown>(req, "linkra_claim_admin_invite", {
-    p_code: code,
     p_daily_limit: DEFAULT_DAILY_LIMIT
   });
   return normalizeStatus(result);

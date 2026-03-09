@@ -16,6 +16,7 @@ export interface GithubCommit {
 }
 
 export const GITHUB_AUTH_SCOPES = "repo read:user";
+const GITHUB_PROVIDER_TOKEN_STORAGE_KEY = "linkra.github.provider_token";
 const AUTH_REDIRECT_PARAM = "auth_redirect";
 const AUTH_RETURN_TO_PARAM = "auth_return_to";
 const AUTH_RESPONSE_PARAMS = [
@@ -153,6 +154,36 @@ export function getGithubProviderToken(session: Pick<Session, "provider_token"> 
   return session?.provider_token ?? null;
 }
 
+export function cacheGithubProviderToken(token: string | null | undefined) {
+  const storage = getSessionStorage();
+  if (!storage) {
+    return;
+  }
+
+  if (token && token.trim()) {
+    storage.setItem(GITHUB_PROVIDER_TOKEN_STORAGE_KEY, token);
+    return;
+  }
+
+  storage.removeItem(GITHUB_PROVIDER_TOKEN_STORAGE_KEY);
+}
+
+export function getCachedGithubProviderToken() {
+  const storage = getSessionStorage();
+  if (!storage) {
+    return null;
+  }
+  return storage.getItem(GITHUB_PROVIDER_TOKEN_STORAGE_KEY);
+}
+
+export function clearCachedGithubProviderToken() {
+  const storage = getSessionStorage();
+  if (!storage) {
+    return;
+  }
+  storage.removeItem(GITHUB_PROVIDER_TOKEN_STORAGE_KEY);
+}
+
 export function finalizeAuthRedirectUrl(locationLike: {
   pathname: string;
   search: string;
@@ -160,6 +191,10 @@ export function finalizeAuthRedirectUrl(locationLike: {
 }) {
   const searchParams = new URLSearchParams(locationLike.search);
   const { routeFromHash, hashParams } = parseHashFragment(locationLike.hash);
+  const providerToken = searchParams.get("provider_token") || hashParams.get("provider_token");
+  if (providerToken) {
+    cacheGithubProviderToken(providerToken);
+  }
   const hasAuthResponse =
     AUTH_RESPONSE_PARAMS.some((param) => searchParams.has(param) || hashParams.has(param));
 
@@ -412,6 +447,16 @@ function firstString(...values: unknown[]) {
     if (typeof value === "string" && value.trim()) {
       return value;
     }
+  }
+  return null;
+}
+
+function getSessionStorage() {
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    return window.sessionStorage;
+  }
+  if (typeof globalThis !== "undefined" && "sessionStorage" in globalThis) {
+    return (globalThis as { sessionStorage?: Storage }).sessionStorage ?? null;
   }
   return null;
 }

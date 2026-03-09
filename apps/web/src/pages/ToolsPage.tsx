@@ -4,6 +4,8 @@ import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
 import { formatTime } from "../lib/date";
 import QuickCapture from "../components/QuickCapture";
+import GlassPanel from "../components/GlassPanel";
+import SectionHeader from "../components/SectionHeader";
 
 const DEFAULT_MINUTES = 25;
 
@@ -14,6 +16,9 @@ export default function ToolsPage() {
   const [minutes, setMinutes] = useState(DEFAULT_MINUTES);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
   const [running, setRunning] = useState(false);
+  const [startPresses, setStartPresses] = useState(0);
+  const [localCompletedCount, setLocalCompletedCount] = useState(0);
+  const [timerDisabled, setTimerDisabled] = useState(false);
 
   useEffect(() => {
     if (!running) return;
@@ -36,8 +41,23 @@ export default function ToolsPage() {
     setSecondsLeft(minutes * 60);
   };
 
+  const toggleTimer = () => {
+    if (timerDisabled) {
+      push("Button rate limited. Please wait.", "warning");
+      return;
+    }
+    setTimerDisabled(true);
+    setTimeout(() => setTimerDisabled(false), 1500);
+    
+    if (!running) {
+      setStartPresses((c) => c + 1);
+    }
+    setRunning(!running);
+  };
+
   const completeSession = async () => {
     setRunning(false);
+    setLocalCompletedCount(c => c + 1);
     const now = new Date().toISOString();
     const next = cloneAppState(state);
     next.focusSessions = [
@@ -92,18 +112,27 @@ export default function ToolsPage() {
 
   const minutesDisplay = Math.floor(secondsLeft / 60);
   const secondsDisplay = String(secondsLeft % 60).padStart(2, "0");
+  const completedSessions = localCompletedCount;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 max-w-[1600px] mx-auto">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-2">
+        <div>
+          <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic leading-none">Command Tools</h1>
+          <p className="text-muted font-bold uppercase tracking-[0.3em] mt-3 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-accent animate-pulse shadow-[0_0_8px_rgba(93,216,255,0.5)]"></span>
+            Active Utilities
+          </p>
+        </div>
+      </div>
+      
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="panel space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-muted">Focus Timer</p>
-              <h2 className="text-lg font-semibold">Pomodoro session</h2>
-            </div>
-            <span className="chip">{state.focusSessions.length} sessions</span>
-          </div>
+        <GlassPanel variant="standard" className="space-y-4 p-6">
+          <SectionHeader 
+            eyebrow="Focus Timer" 
+            title="Pomodoro session" 
+            rightControls={<span className="chip">{completedSessions} completed</span>} 
+          />
           <div className="focus-display">
             {minutesDisplay}:{secondsDisplay}
           </div>
@@ -123,21 +152,24 @@ export default function ToolsPage() {
             <span className="chip self-center">minutes</span>
           </div>
           <div className="filter-row">
-            <button className="button-primary" onClick={() => setRunning((prev) => !prev)}>
+            <button 
+              className={`button-primary ${timerDisabled ? "opacity-50 cursor-not-allowed" : ""}`} 
+              onClick={toggleTimer}
+            >
               {running ? "Pause" : "Start"}
             </button>
             <button className="button-secondary" onClick={resetTimer}>
               Reset
             </button>
           </div>
-          <p className="text-sm text-muted">Completed sessions: {state.focusSessions.length}</p>
-        </div>
+          <p className="text-sm text-muted">Completed: {completedSessions} · Started: {startPresses} times</p>
+        </GlassPanel>
 
-        <div className="panel space-y-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Session Log</p>
-            <h2 className="text-lg font-semibold">What you did</h2>
-          </div>
+        <GlassPanel variant="standard" className="space-y-4 p-6">
+          <SectionHeader 
+            eyebrow="Session Log" 
+            title="What you did" 
+          />
           <div className="table">
             {state.sessionLogs.slice(0, 6).map((log) => (
               <div key={log.id} className="table-row">
@@ -154,19 +186,20 @@ export default function ToolsPage() {
               placeholder="What did you just do?"
               value={sessionText}
               onChange={(e) => setSessionText(e.target.value)}
+              autoComplete="off"
             />
             <button className="button-primary" onClick={addSessionLog}>
               Log
             </button>
           </div>
-        </div>
+        </GlassPanel>
       </div>
 
-      <div className="panel space-y-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Planned Focus</p>
-          <h2 className="text-lg font-semibold">Queued sessions</h2>
-        </div>
+      <GlassPanel variant="standard" className="space-y-4 p-6">
+        <SectionHeader 
+          eyebrow="Planned Focus" 
+          title="Queued sessions" 
+        />
         <div className="table">
           {state.focusSessions.filter((s) => s.planned).length === 0 && (
             <p className="text-sm text-muted">No planned sessions.</p>
@@ -183,7 +216,7 @@ export default function ToolsPage() {
               </div>
             ))}
         </div>
-      </div>
+      </GlassPanel>
 
       <QuickCapture />
     </div>

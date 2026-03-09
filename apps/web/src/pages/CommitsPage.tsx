@@ -8,10 +8,13 @@ import { supabase } from "../lib/supabase";
 import { playCommitSound } from "../lib/sounds";
 import {
   buildCommitsRedirectUrl,
+  cacheGithubProviderToken,
+  clearCachedGithubProviderToken,
   finalizeAuthRedirectUrl,
   formatGithubConnectError,
   fetchGithubRepoCommits,
   fetchGithubUserProfile,
+  getCachedGithubProviderToken,
   getGithubIdentity,
   getGithubIdentityProfile,
   getGithubProviderToken,
@@ -84,7 +87,11 @@ export default function CommitsPage() {
       ]);
 
       const linked = hasGithubIdentity(user);
-      const token = linked ? getGithubProviderToken(session) : null;
+      const sessionToken = getGithubProviderToken(session);
+      if (sessionToken) {
+        cacheGithubProviderToken(sessionToken);
+      }
+      const token = linked ? sessionToken || getCachedGithubProviderToken() : null;
       const identityProfile = getGithubIdentityProfile(user);
 
       setGithubConnected(linked);
@@ -94,6 +101,7 @@ export default function CommitsPage() {
         setGithubUser(null);
         setCommits({});
         setConnectError(null);
+        clearCachedGithubProviderToken();
         await clearLegacyGithubState();
         return;
       }
@@ -116,6 +124,7 @@ export default function CommitsPage() {
       setGithubUser(null);
       setCommits({});
       setConnectError(message);
+      clearCachedGithubProviderToken();
       await clearLegacyGithubState();
     } finally {
       setUserLoading(false);
@@ -141,6 +150,7 @@ export default function CommitsPage() {
         setGithubToken(null);
         setGithubUser(null);
         setCommits({});
+        clearCachedGithubProviderToken();
         void clearLegacyGithubState();
       }
     });
@@ -286,6 +296,7 @@ export default function CommitsPage() {
         setGithubToken(null);
         setGithubUser(null);
         setCommits({});
+        clearCachedGithubProviderToken();
         await clearLegacyGithubState();
         push("GitHub unlinked.");
         return;
@@ -308,6 +319,7 @@ export default function CommitsPage() {
       setGithubUser(null);
       setCommits({});
       setConnectError(null);
+      clearCachedGithubProviderToken();
       await clearLegacyGithubState();
       push("GitHub disconnected.");
     } catch (err) {
@@ -473,7 +485,7 @@ export default function CommitsPage() {
           <button className="button-primary" onClick={addRepo}>
             Add Repo
           </button>
-          <button className="button-secondary" onClick={loadCommits} disabled={loading}>
+          <button className="button-secondary" onClick={() => loadCommits()} disabled={loading}>
             {loading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
@@ -481,7 +493,7 @@ export default function CommitsPage() {
         {error && (
           <div className="rounded-xl border border-red-500/30 bg-red-900/20 p-3 text-sm text-red-300 flex items-center justify-between gap-3">
             <span>{error}</span>
-            <button className="button-secondary text-xs" onClick={loadCommits}>
+            <button className="button-secondary text-xs" onClick={() => loadCommits()}>
               Retry
             </button>
           </div>

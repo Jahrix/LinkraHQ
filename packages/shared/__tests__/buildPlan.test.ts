@@ -106,6 +106,18 @@ describe("build plan helpers", () => {
     expect(prompt.userMessage).toContain("Ship production fix");
   });
 
+  it("limits Build My Plan candidates to the queued task ids when provided", () => {
+    const prompt = createBuildPlanPrompt(
+      buildState(),
+      "",
+      new Date("2026-03-08T10:00:00.000Z"),
+      ["t2"]
+    );
+
+    expect(prompt.tasks).toHaveLength(1);
+    expect(prompt.tasks[0]?.id).toBe("t2");
+  });
+
   it("parses Claude JSON and filters unknown task ids", () => {
     const parsed = parseBuildPlanResponse(
       "```json\n{\"taskIds\":[\"t1\",\"missing\",\"t2\"],\"rationale\":\"Ship the production fix first.\"}\n```",

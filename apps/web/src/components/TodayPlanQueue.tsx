@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import GlassPanel from "./GlassPanel";
 import SectionHeader from "./SectionHeader";
+import Select from "./Select";
 
 export default function TodayPlanQueue({
     planDraft,
@@ -9,30 +10,31 @@ export default function TodayPlanQueue({
     onSave,
     onRemove,
     onStartFocus,
+    availableTaskOptions,
+    onAddTask,
     remainingBuilds,
     dailyLimit,
-    isAdmin,
-    onUnlockAdmin
+    isAdmin
 }: {
     planDraft: string[];
     allTaskLookup: Map<string, { project: any, task: any }>;
     onBuildPlan: (prompt?: string) => Promise<{ taskIds: string[], rationale: string } | null>;
-    onSave: (taskIds: string[], source: "manual" | "auto") => void;
+    onSave: (taskIds: string[], source: "manual" | "auto") => void | Promise<void>;
     onRemove: (id: string) => void;
     onStartFocus: (id: string) => void;
+    availableTaskOptions: { value: string; label: string }[];
+    onAddTask: (id: string) => void;
     remainingBuilds: number;
     dailyLimit: number;
     isAdmin: boolean;
-    onUnlockAdmin: (code: string) => Promise<void>;
 }) {
     const [isGenerating, setIsGenerating] = useState(false);
+    const [selectedTaskId, setSelectedTaskId] = useState("");
     const [prompt, setPrompt] = useState("");
     const [previewIds, setPreviewIds] = useState<string[] | null>(null);
     const [rationale, setRationale] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [adminCode, setAdminCode] = useState("");
-    const [isUnlockingAdmin, setIsUnlockingAdmin] = useState(false);
-    const [adminError, setAdminError] = useState<string | null>(null);
+    const [isAcceptingPlan, setIsAcceptingPlan] = useState(false);
 
     const handleBuildPlan = async () => {
         setIsGenerating(true);
@@ -52,25 +54,16 @@ export default function TodayPlanQueue({
         }
     };
 
-    const handleUnlockAdmin = async () => {
-        if (!adminCode.trim()) return;
-        setIsUnlockingAdmin(true);
-        setAdminError(null);
-        try {
-            await onUnlockAdmin(adminCode.trim());
-            setAdminCode("");
-        } catch (err) {
-            setAdminError(err instanceof Error ? err.message : "Failed to unlock admin bypass");
-        } finally {
-            setIsUnlockingAdmin(false);
-        }
-    };
-
-    const acceptPlan = () => {
+    const acceptPlan = async () => {
         if (previewIds) {
-            onSave(previewIds, "auto");
-            setPreviewIds(null);
-            setRationale(null);
+            setIsAcceptingPlan(true);
+            try {
+                await Promise.resolve(onSave(previewIds, "auto"));
+                setPreviewIds(null);
+                setRationale(null);
+            } finally {
+                setIsAcceptingPlan(false);
+            }
         }
     };
 
@@ -81,6 +74,28 @@ export default function TodayPlanQueue({
 
     const removePreviewItem = (id: string) => {
         setPreviewIds(prev => prev ? prev.filter(tid => tid !== id) : null);
+    };
+
+    useEffect(() => {
+        if (availableTaskOptions.length === 0) {
+            setSelectedTaskId("");
+            return;
+        }
+
+        setSelectedTaskId((current) =>
+            availableTaskOptions.some((option) => option.value === current)
+                ? current
+                : availableTaskOptions[0]!.value
+        );
+    }, [availableTaskOptions]);
+
+    const handleAddTask = () => {
+        if (!selectedTaskId) return;
+        const { scrollX, scrollY } = window;
+        onAddTask(selectedTaskId);
+        requestAnimationFrame(() => {
+            window.scrollTo({ left: scrollX, top: scrollY, behavior: "auto" });
+        });
     };
 
     const activeIds = previewIds ?? planDraft;
@@ -116,8 +131,10 @@ export default function TodayPlanQueue({
                         )}
                         {previewIds && (
                             <>
-                                <button className="button-secondary text-xs" onClick={discardPlan}>Cancel</button>
-                                <button className="button-primary text-xs" onClick={acceptPlan}>Accept Plan</button>
+                                <button className="button-secondary text-xs" onClick={discardPlan} disabled={isAcceptingPlan}>Cancel</button>
+                                <button className="button-primary text-xs" onClick={() => void acceptPlan()} disabled={isAcceptingPlan}>
+                                    {isAcceptingPlan ? "Applying..." : "Accept Plan"}
+                                </button>
                             </>
                         )}
                     </div>
@@ -130,6 +147,28 @@ export default function TodayPlanQueue({
                     <button className="button-secondary text-xs" onClick={handleBuildPlan} disabled={isGenerating}>
                         Retry
                     </button>
+                </div>
+            )}
+
+            {!previewIds && (
+                <div className="mt-5">
+                    <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-muted mb-2">Add Task To Queue</label>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <Select
+                            className="flex-1"
+                            value={selectedTaskId}
+                            onChange={setSelectedTaskId}
+                            options={availableTaskOptions}
+                            placeholder={availableTaskOptions.length === 0 ? "No tasks available" : "Select a task"}
+                        />
+                        <button
+                            className="button-secondary text-xs sm:shrink-0"
+                            onClick={handleAddTask}
+                            disabled={!selectedTaskId || availableTaskOptions.length === 0}
+                        >
+                            Add to Queue
+                        </button>
+                    </div>
                 </div>
             )}
 
@@ -152,40 +191,14 @@ export default function TodayPlanQueue({
                 </div>
             )}
 
-            {!previewIds && (
+            {!previewIds && !isAdmin && (
                 <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-white/5 bg-white/[0.02] p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Build My Plan quota</div>
-                            <div className="mt-1 text-sm text-white/80">
-                                {isAdmin ? "Admin access enabled for this account." : `${remainingBuilds} of ${dailyLimit} AI builds left today.`}
-                            </div>
+                            <div className="mt-1 text-sm text-white/80">{`${remainingBuilds} of ${dailyLimit} AI builds left today.`}</div>
                         </div>
                     </div>
-
-                    {!isAdmin && (
-                        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                            <input
-                                type="password"
-                                className="input"
-                                placeholder="Admin code"
-                                value={adminCode}
-                                onChange={(event) => setAdminCode(event.target.value)}
-                                onKeyDown={(event) => event.key === "Enter" && void handleUnlockAdmin()}
-                            />
-                            <button
-                                className="button-secondary text-xs"
-                                onClick={() => void handleUnlockAdmin()}
-                                disabled={isUnlockingAdmin || !adminCode.trim()}
-                            >
-                                {isUnlockingAdmin ? "Unlocking..." : "Unlock admin"}
-                            </button>
-                        </div>
-                    )}
-
-                    {adminError && (
-                        <div className="text-xs text-red-300">{adminError}</div>
-                    )}
                 </div>
             )}
 

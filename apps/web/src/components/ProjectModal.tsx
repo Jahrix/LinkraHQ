@@ -100,6 +100,7 @@ export default function ProjectModal({
                 placeholder="Search emoji"
                 value={emojiQuery}
                 onChange={(event) => setEmojiQuery(event.target.value)}
+                autoComplete="off"
               />
               <div className="chip text-lg overflow-hidden flex items-center justify-center bg-black/40 border-white/10">
                 {draft.logoUrl ? (
@@ -133,6 +134,7 @@ export default function ProjectModal({
                 className="input"
                 value={draft.name}
                 onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+                autoComplete="off"
               />
             </label>
             <label className="grid gap-1 text-sm">
@@ -141,6 +143,7 @@ export default function ProjectModal({
                 className="input"
                 value={draft.subtitle}
                 onChange={(event) => setDraft((prev) => ({ ...prev, subtitle: event.target.value }))}
+                autoComplete="off"
               />
             </label>
             <label className="grid gap-1 text-sm">
@@ -173,6 +176,7 @@ export default function ProjectModal({
                     weeklyHours: Math.max(0, Math.min(40, Number(event.target.value) || 0))
                   }))
                 }
+                autoComplete="off"
               />
             </label>
             <label className="grid gap-1 text-sm md:col-span-2">
@@ -202,6 +206,7 @@ export default function ProjectModal({
                 onChange={(event) =>
                   setDraft((prev) => ({ ...prev, remoteRepo: event.target.value.trim() || null }))
                 }
+                autoComplete="off"
               />
             </label>
             <label className="grid gap-1 text-sm md:col-span-2">
@@ -213,6 +218,7 @@ export default function ProjectModal({
                 onChange={(event) =>
                   setDraft((prev) => ({ ...prev, logoUrl: event.target.value.trim() || null }))
                 }
+                autoComplete="off"
               />
             </label>
           </div>

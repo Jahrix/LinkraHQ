@@ -15,7 +15,6 @@ export default function TodayMissionHero({
     totalTasks = 0,
     topTask,
     tasksRemaining,
-    userName,
     isClosed,
     onStartFocus,
     onToggleClosed,
@@ -30,7 +29,6 @@ export default function TodayMissionHero({
     totalTasks?: number;
     topTask: TaskProps | null;
     tasksRemaining: number;
-    userName?: string | null;
     isClosed?: boolean;
     onStartFocus: (taskId: string) => void;
     onToggleClosed?: () => void;
@@ -44,13 +42,6 @@ export default function TodayMissionHero({
 
             <div className="relative z-10 flex flex-col lg:flex-row items-stretch justify-between gap-8 p-6 md:p-8">
                 <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Authorized System Access</span>
-                            <span className="ml-2 text-xs font-bold text-accent">{userName || "Pilot"}</span>
-                        </div>
-                    </div>
-
                     <div className="flex items-center gap-2 mb-3">
                         <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.5)]"></span>
                         <span className="text-[10px] font-black uppercase tracking-[0.4em] text-accent-2/80">{title}</span>

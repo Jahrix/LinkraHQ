@@ -10,13 +10,17 @@ const DEFAULT_DAILY_LIMIT = 10;
 interface SupabaseEnv {
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
+  VITE_SUPABASE_URL?: string;
+  VITE_SUPABASE_ANON_KEY?: string;
 }
 
 function getSupabaseConfig(env: SupabaseEnv) {
-  const url = env.SUPABASE_URL || "";
-  const anonKey = env.SUPABASE_ANON_KEY || "";
+  const url = env.SUPABASE_URL || env.VITE_SUPABASE_URL || "";
+  const anonKey = env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY || "";
   if (!url || !anonKey) {
-    throw new Error("Supabase quota/admin access is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY.");
+    throw new Error(
+      "Supabase quota/admin access is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY, or provide VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY."
+    );
   }
   return { url, anonKey };
 }
@@ -82,14 +86,6 @@ export async function fetchAiPlanQuotaStatus(request: Request, env: SupabaseEnv)
 
 export async function consumeAiPlanQuota(request: Request, env: SupabaseEnv) {
   const result = await callRpc<unknown>(request, env, "linkra_consume_ai_plan_quota", {
-    p_daily_limit: DEFAULT_DAILY_LIMIT
-  });
-  return normalizeStatus(result);
-}
-
-export async function claimAdminInvite(request: Request, env: SupabaseEnv, code: string) {
-  const result = await callRpc<unknown>(request, env, "linkra_claim_admin_invite", {
-    p_code: code,
     p_daily_limit: DEFAULT_DAILY_LIMIT
   });
   return normalizeStatus(result);

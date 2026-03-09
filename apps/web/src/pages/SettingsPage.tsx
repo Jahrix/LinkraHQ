@@ -6,6 +6,8 @@ import { useAppState } from "../lib/state";
 import { useToast } from "../lib/toast";
 import { formatDate } from "../lib/date";
 import Select from "../components/Select";
+import GlassPanel from "../components/GlassPanel";
+import SectionHeader from "../components/SectionHeader";
 
 export default function SettingsPage() {
   const { state, save } = useAppState();
@@ -184,12 +186,21 @@ export default function SettingsPage() {
       .filter((error): error is string => Boolean(error));
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div className="panel space-y-4">
+    <div className="space-y-8 max-w-[1600px] mx-auto">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-2">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Local Git</p>
-          <h2 className="text-lg font-semibold">Repo Scanning</h2>
+          <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic leading-none">Settings</h1>
+          <p className="text-muted font-bold uppercase tracking-[0.3em] mt-3 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-accent animate-pulse shadow-[0_0_8px_rgba(93,216,255,0.5)]"></span>
+            System Configuration
+          </p>
         </div>
+      </div>
+      <GlassPanel variant="standard" className="space-y-4 p-6">
+        <SectionHeader 
+          eyebrow="Local Git" 
+          title="Repo Scanning" 
+        />
         <div className="text-sm text-muted space-y-1">
           <div className="flex items-center gap-3 flex-wrap">
             <span>{localRepos.length > 0 ? `${localRepos.length} repo${localRepos.length !== 1 ? "s" : ""} found` : "No repos found"}</span>
@@ -214,6 +225,7 @@ export default function SettingsPage() {
             placeholder="Add watch directory (e.g. /Users/you/Developer)"
             value={watchDir}
             onChange={(e) => setWatchDir(e.target.value)}
+            autoComplete="off"
           />
           <button className="button-primary" onClick={addWatchDir}>
             Add Watch Dir
@@ -299,6 +311,7 @@ export default function SettingsPage() {
             placeholder="Exclude pattern (e.g. **/node_modules/**)"
             value={excludePattern}
             onChange={(e) => setExcludePattern(e.target.value)}
+            autoComplete="off"
           />
           <button className="button-secondary" onClick={addExcludePattern}>
             Add Exclude
@@ -322,13 +335,13 @@ export default function SettingsPage() {
             ))}
           </div>
         )}
-      </div>
+      </GlassPanel>
 
-      <div className="panel space-y-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Insights</p>
-          <h2 className="text-lg font-semibold">Signals → Actions</h2>
-        </div>
+      <GlassPanel variant="standard" className="space-y-4 p-6">
+        <SectionHeader 
+          eyebrow="Insights" 
+          title="Signals → Actions" 
+        />
         <div className="grid gap-2">
           {insightRules.map((rule) => {
             const disabled = state.userSettings.disabledInsightRules?.includes(rule.id);
@@ -347,13 +360,13 @@ export default function SettingsPage() {
             );
           })}
         </div>
-      </div>
+      </GlassPanel>
 
-      <div className="panel space-y-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Backups</p>
-          <h2 className="text-lg font-semibold">Auto-backup</h2>
-        </div>
+      <GlassPanel variant="standard" className="space-y-4 p-6">
+        <SectionHeader 
+          eyebrow="Backups" 
+          title="Auto-backup" 
+        />
         <div className="filter-row flex-wrap">
           <label className="toggle">
             Enable daily backups
@@ -378,13 +391,13 @@ export default function SettingsPage() {
           </button>
         </div>
         <p className="text-xs text-muted">Backups stored in ~/.linkra/backups.</p>
-      </div>
+      </GlassPanel>
 
-      <div className="panel space-y-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Startup</p>
-          <h2 className="text-lg font-semibold">Autostart</h2>
-        </div>
+      <GlassPanel variant="standard" className="space-y-4 p-6">
+        <SectionHeader 
+          eyebrow="Startup" 
+          title="Autostart" 
+        />
         <p className="text-sm text-muted">
           Generate local startup files. No admin rights needed. Copy into the OS startup folder.
         </p>
@@ -433,7 +446,7 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
-      </div>
+      </GlassPanel>
 
     </div>
   );

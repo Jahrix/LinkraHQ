@@ -155,14 +155,14 @@ export const api = {
         body: JSON.stringify({ repo, branch, text, limit, pat })
       }
     ),
-  buildMyPlan: (state: AppState, prompt?: string) =>
+  buildMyPlan: (state: AppState, prompt?: string, queueTaskIds?: string[]) =>
     request<{
       taskIds: string[];
       rationale: string;
       quota: { isAdmin: boolean; used: number; dailyLimit: number; remaining: number };
     }>("/api/ai/build-plan", {
       method: "POST",
-      body: JSON.stringify({ state, prompt })
+      body: JSON.stringify({ state, prompt, queueTaskIds })
     }),
   aiPlanQuota: () =>
     request<{ quota: { isAdmin: boolean; used: number; dailyLimit: number; remaining: number } }>(
@@ -171,10 +171,5 @@ export const api = {
         method: "POST"
       }
     ),
-  unlockAdminBypass: (code: string) =>
-    request<{ quota: { isAdmin: boolean; used: number; dailyLimit: number; remaining: number } }>("/api/admin/unlock", {
-      method: "POST",
-      body: JSON.stringify({ code })
-    }),
   logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" })
 };
