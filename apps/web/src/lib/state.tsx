@@ -63,29 +63,27 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
       authUserIdRef.current = user.id;
 
-      const { data, error: dbError } = await supabase
-        .from("user_state")
-        .select("state")
-        .eq("user_id", user.id)
-        .single();
+      const { data, error: dbError } = await supabase.rpc("get_complete_app_state");
 
-      if (dbError && dbError.code === "PGRST116") {
+      if (dbError && dbError.message.includes("Not authenticated")) {
+        throw dbError;
+      } else if (dbError) {
+        // Fallback for new users or missing RPC (during dev)
+        console.warn("RPC failed, falling back to default state creation", dbError);
         const fresh = createDefaultAppState();
-        const { error: insertError } = await supabase.from("user_state").insert({
-          user_id: user.id,
-          state: fresh,
-          updated_at: new Date().toISOString()
-        });
+        const { error: insertError } = await supabase.rpc("sync_app_state", { state_json: fresh });
         if (insertError) {
           throw insertError;
         }
         const normalized = normalizeRuntimeAppState(fresh);
         stateRef.current = normalized;
         setState(normalized);
-      } else if (dbError) {
-        throw dbError;
       } else {
-        const parsed = AppStateSchema.parse(data.state);
+        let loaded = data as any;
+        if (loaded.metadata?.schema_version !== SCHEMA_VERSION) {
+          loaded = migrateStateToCurrent(loaded);
+        }
+        const parsed = AppStateSchema.parse(loaded);
         const normalized = normalizeRuntimeAppState(parsed);
         stateRef.current = normalized;
         setState(normalized);
@@ -119,12 +117,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         throw new Error("You must be signed in to save state.");
       }
 
-      const { error: dbError } = await supabase
-        .from("user_state")
-        .upsert(
-          { user_id: user.id, state: candidate, updated_at: new Date().toISOString() },
-          { onConflict: "user_id" }
-        );
+      const { error: dbError } = await supabase.rpc("sync_app_state", { state_json: candidate });
 
       if (dbError) throw dbError;
       skipBroadcastRefreshRef.current = true;
