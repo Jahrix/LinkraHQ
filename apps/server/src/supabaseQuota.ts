@@ -84,3 +84,38 @@ export async function consumeAiPlanQuota(req: express.Request) {
   });
   return normalizeStatus(result);
 }
+
+export interface AgentQuotaResult {
+  allowed: boolean;
+  used: number;
+  limit: number;
+  reset_in_minutes: number;
+}
+
+function normalizeAgentQuota(payload: unknown): AgentQuotaResult {
+  const row = Array.isArray(payload) ? payload[0] : payload;
+  return {
+    allowed: Boolean((row as any)?.allowed),
+    used: Number((row as any)?.used) || 0,
+    limit: Number((row as any)?.limit) || 15,
+    reset_in_minutes: Number((row as any)?.reset_in_minutes) || 0
+  };
+}
+
+export async function checkAgentQuota(req: express.Request): Promise<AgentQuotaResult> {
+  const result = await callRpc<unknown>(req, "linkra_check_agent_quota");
+  return normalizeAgentQuota(result);
+}
+
+export async function getAgentQuotaStatus(req: express.Request): Promise<AgentQuotaResult> {
+  const result = await callRpc<unknown>(req, "linkra_get_agent_quota_status");
+  return normalizeAgentQuota(result);
+}
+
+export async function readSupabaseAppState(req: express.Request): Promise<unknown> {
+  return callRpc<unknown>(req, "get_complete_app_state");
+}
+
+export async function writeSupabaseAppState(req: express.Request, state: unknown): Promise<void> {
+  await callRpc<unknown>(req, "sync_app_state", { state_json: state });
+}

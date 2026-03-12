@@ -5,6 +5,7 @@ const navItems = [
   { id: "Daily Goals", icon: "✓", label: "Goals" },
   { id: "Roadmap", icon: "◫", label: "Roadmap" },
   { id: "Weekly Review", icon: "📅", label: "Review" },
+  { id: "Build", icon: "🏗️", label: "Build" },
   { id: "Commits", icon: "⎇", label: "Commits" },
   { id: "Tools", icon: "🔧", label: "Tools" },
   { id: "Settings", icon: "⚙️", label: "Settings" },

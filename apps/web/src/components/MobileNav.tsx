@@ -12,6 +12,7 @@ const mainNavItems = [
 const menuSheetItems = [
   { id: "Roadmap", icon: "◫", label: "Roadmap" },
   { id: "Weekly Review", icon: "📅", label: "Review" },
+  { id: "Build", icon: "🏗️", label: "Build" },
   { id: "Tools", icon: "🔧", label: "Tools" },
   { id: "Settings", icon: "⚙️", label: "Settings" }
 ] as const;
@@ -80,7 +81,7 @@ export default function MobileNav({ active, onChange }: { active: NavItem; onCha
       >
         <div className="w-12 h-1.5 bg-stroke rounded-full mx-auto mb-8" />
 
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           {menuSheetItems.map(item => {
             const isActive = active === item.id;
             return (

@@ -190,5 +190,41 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ state })
     }),
+  getAgentQuota: () =>
+    request<{ allowed: boolean; used: number; limit: number; reset_in_minutes: number }>("/api/agent-quota"),
+  agent: async (messages: { role: string; content: string }[]): Promise<{
+    reply: string;
+    actionTaken: string | null;
+    updatedState: boolean;
+    quota: { used: number; limit: number; reset_in_minutes: number } | null;
+  }> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const accessToken = session?.access_token ?? null;
+    const response = await fetch(`${API_BASE}/api/agent`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+      },
+      body: JSON.stringify({ messages })
+    });
+    const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+    if (!response.ok) {
+      const err = new Error(String(payload.error || `Request failed: ${response.status}`));
+      if (response.status === 429) {
+        (err as any).resetInMinutes = Number(payload.reset_in_minutes) || 0;
+        (err as any).used = Number(payload.used) || 15;
+        (err as any).limit = Number(payload.limit) || 15;
+      }
+      throw err;
+    }
+    return payload as {
+      reply: string;
+      actionTaken: string | null;
+      updatedState: boolean;
+      quota: { used: number; limit: number; reset_in_minutes: number } | null;
+    };
+  },
   logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" })
 };

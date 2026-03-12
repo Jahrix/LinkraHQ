@@ -26,7 +26,11 @@ import { updateInsights, runInsightAction } from "./insights.js";
 import { runBackupNow, getBackupDir } from "./backup.js";
 import {
   consumeAiPlanQuota,
-  fetchAiPlanQuotaStatus
+  fetchAiPlanQuotaStatus,
+  checkAgentQuota,
+  getAgentQuotaStatus,
+  readSupabaseAppState,
+  writeSupabaseAppState
 } from "./supabaseQuota.js";
 import os from "node:os";
 
@@ -917,6 +921,337 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
     res.json({ ...plan, quota: nextQuota });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to generate plan";
+    res.status(500).json({ error: message });
+  }
+});
+
+// ── Agent helpers ─────────────────────────────────────────────────────────────
+
+function buildAgentStateContext(state: AppState): string {
+  const todayStr = new Date().toISOString().split("T")[0];
+  const todayGoals = state.dailyGoalsByDate[todayStr];
+  const summary = {
+    projects: state.projects
+      .filter((p) => p.status !== "Archived")
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        status: p.status,
+        openTasks: p.tasks
+          .filter((t) => !t.done)
+          .map((t) => ({ id: t.id, text: t.text, priority: t.priority, dueDate: t.dueDate })),
+        completedTaskCount: p.tasks.filter((t) => t.done).length
+      })),
+    todayGoals: todayGoals
+      ? {
+          date: todayGoals.date,
+          goals: todayGoals.goals.map((g) => ({ id: g.id, title: g.title, done: g.done, points: g.points }))
+        }
+      : null,
+    roadmapCards: state.roadmapCards
+      .filter((c) => c.lane !== "shipped")
+      .map((c) => ({ id: c.id, title: c.title, lane: c.lane, description: c.description })),
+    recentSessions: state.sessionLogs
+      .slice(0, 5)
+      .map((s) => ({ id: s.id, text: s.text, project: s.project, ts: s.ts }))
+  };
+  return JSON.stringify(summary, null, 2);
+}
+
+async function executeAgentAction(
+  req: express.Request,
+  action: { type: string; payload: Record<string, unknown> }
+) {
+  const stateData = await readSupabaseAppState(req);
+  const parsed = AppStateSchema.safeParse(stateData);
+  if (!parsed.success) throw new Error("Invalid app state from Supabase");
+  let state: AppState = parsed.data;
+  const now = new Date().toISOString();
+  const todayStr = now.split("T")[0];
+
+  switch (action.type) {
+    case "CREATE_TASK": {
+      const { projectId, text, priority, dueDate } = action.payload as Record<string, unknown>;
+      const project = state.projects.find((p) => p.id === projectId);
+      if (!project) throw new Error(`Project ${projectId} not found`);
+      const newTask = {
+        id: crypto.randomUUID(),
+        text: String(text),
+        done: false,
+        status: "todo" as const,
+        dependsOnIds: [],
+        priority: (priority as "low" | "med" | "high") || "med",
+        dueDate: dueDate ? String(dueDate) : null,
+        milestone: null,
+        createdAt: now,
+        completedAt: null,
+        linkedCommit: null
+      };
+      state = {
+        ...state,
+        projects: state.projects.map((p) =>
+          p.id === projectId ? { ...p, tasks: [...p.tasks, newTask] } : p
+        )
+      };
+      break;
+    }
+    case "COMPLETE_TASK": {
+      const { projectId, taskId } = action.payload as Record<string, unknown>;
+      state = {
+        ...state,
+        projects: state.projects.map((p) =>
+          p.id === projectId
+            ? {
+                ...p,
+                tasks: p.tasks.map((t) =>
+                  t.id === taskId ? { ...t, done: true, status: "done" as const, completedAt: now } : t
+                )
+              }
+            : p
+        )
+      };
+      break;
+    }
+    case "ADD_GOAL": {
+      const { title, category, points } = action.payload as Record<string, unknown>;
+      const entry = state.dailyGoalsByDate[todayStr];
+      const newGoal = {
+        id: crypto.randomUUID(),
+        title: String(title),
+        category: String(category || "General"),
+        points: Number(points) || 1,
+        done: false,
+        createdAt: now,
+        completedAt: null
+      };
+      if (entry) {
+        state = {
+          ...state,
+          dailyGoalsByDate: {
+            ...state.dailyGoalsByDate,
+            [todayStr]: { ...entry, goals: [...entry.goals, newGoal] }
+          }
+        };
+      } else {
+        state = {
+          ...state,
+          dailyGoalsByDate: {
+            ...state.dailyGoalsByDate,
+            [todayStr]: {
+              date: todayStr,
+              goals: [newGoal],
+              score: 0,
+              completedPoints: 0,
+              isClosed: false,
+              archivedAt: null
+            }
+          }
+        };
+      }
+      break;
+    }
+    case "COMPLETE_GOAL": {
+      const { goalId } = action.payload as Record<string, unknown>;
+      const entry = state.dailyGoalsByDate[todayStr];
+      if (entry) {
+        const updatedGoals = entry.goals.map((g) =>
+          g.id === goalId ? { ...g, done: true, completedAt: now } : g
+        );
+        const completedPoints = updatedGoals.filter((g) => g.done).reduce((sum, g) => sum + g.points, 0);
+        state = {
+          ...state,
+          dailyGoalsByDate: {
+            ...state.dailyGoalsByDate,
+            [todayStr]: { ...entry, goals: updatedGoals, completedPoints, score: completedPoints }
+          }
+        };
+      }
+      break;
+    }
+    case "MOVE_ROADMAP_CARD": {
+      const { cardId, lane } = action.payload as Record<string, unknown>;
+      state = {
+        ...state,
+        roadmapCards: state.roadmapCards.map((c) =>
+          c.id === cardId ? { ...c, lane: lane as "now" | "next" | "later" | "shipped", updatedAt: now } : c
+        )
+      };
+      break;
+    }
+    case "CREATE_ROADMAP_CARD": {
+      const { title, lane, description, projectId } = action.payload as Record<string, unknown>;
+      const newCard = {
+        id: crypto.randomUUID(),
+        lane: (lane as "now" | "next" | "later") || "next",
+        title: String(title),
+        description: String(description || ""),
+        tags: [],
+        linkedRepo: null,
+        dueDate: null,
+        project: projectId ? String(projectId) : null,
+        createdAt: now,
+        updatedAt: now
+      };
+      state = { ...state, roadmapCards: [...state.roadmapCards, newCard] };
+      break;
+    }
+    case "LOG_SESSION": {
+      const { text, project } = action.payload as Record<string, unknown>;
+      const newSession = {
+        id: crypto.randomUUID(),
+        ts: now,
+        text: String(text),
+        project: project ? String(project) : null,
+        tags: []
+      };
+      state = { ...state, sessionLogs: [newSession, ...state.sessionLogs] };
+      break;
+    }
+    default:
+      throw new Error(`Unknown action type: ${action.type}`);
+  }
+
+  await writeSupabaseAppState(req, state);
+}
+
+const AGENT_SYSTEM_PROMPT = `You are Linkra Agent — an embedded AI assistant with direct access to the user's personal command center. You can read their data AND take real actions on it.
+
+You have access to the following tools. When you want to use one, respond with a JSON block in this exact format on its own line:
+ACTION: { "type": "TOOL_NAME", "payload": { ... } }
+
+Available tools:
+
+READ_STATE — read the full app state (no payload needed)
+CREATE_TASK — { "projectId": string, "text": string, "priority": "low"|"med"|"high", "dueDate": string|null }
+COMPLETE_TASK — { "projectId": string, "taskId": string }
+ADD_GOAL — { "title": string, "category": string, "points": number }
+COMPLETE_GOAL — { "goalId": string }
+MOVE_ROADMAP_CARD — { "cardId": string, "lane": "now"|"next"|"later"|"shipped" }
+CREATE_ROADMAP_CARD — { "title": string, "lane": "now"|"next"|"later", "description": string, "projectId": string|null }
+LOG_SESSION — { "text": string, "project": string|null }
+
+Rules:
+- Always read state first before taking any action so you have current context
+- Confirm before doing destructive or bulk actions — ask "Should I go ahead?"
+- After taking an action, describe what you did in plain English
+- You can chain multiple actions in one response if the user asks for something that requires it (e.g. "wrap up my day" = complete remaining goals + log a session)
+- Keep responses concise — you're a doer, not an explainer
+- If you don't have a tool for something, say so honestly`;
+
+app.get("/api/agent-quota", requireLocalControl, async (req, res) => {
+  try {
+    const status = await getAgentQuotaStatus(req);
+    res.json(status);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load agent quota.";
+    const httpStatus = message === "Authentication required." ? 401 : 503;
+    res.status(httpStatus).json({ error: message });
+  }
+});
+
+app.post("/api/agent", requireLocalControl, aiRateLimit, async (req, res) => {
+  if (!ANTHROPIC_API_KEY) {
+    return res.status(503).json({
+      error: "AI is not configured. Add ANTHROPIC_API_KEY to your server .env."
+    });
+  }
+
+  let agentQuota;
+  try {
+    agentQuota = await checkAgentQuota(req);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load quota.";
+    const httpStatus = message === "Authentication required." ? 401 : 503;
+    return res.status(httpStatus).json({ error: message });
+  }
+
+  if (!agentQuota.allowed) {
+    return res.status(429).json({
+      error: "agent_quota_exceeded",
+      used: agentQuota.used,
+      limit: agentQuota.limit,
+      reset_in_minutes: agentQuota.reset_in_minutes
+    });
+  }
+
+  const { messages } = req.body as { messages: { role: string; content: string }[] };
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: "messages array is required" });
+  }
+
+  try {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
+    const callClaude = async (msgs: { role: string; content: string }[]): Promise<string> => {
+      let result: Awaited<ReturnType<typeof client.messages.create>> | null = null;
+      let lastError: Error | null = null;
+      for (const model of DEFAULT_ANTHROPIC_MODELS) {
+        try {
+          result = await client.messages.create({
+            model,
+            max_tokens: 1024,
+            system: AGENT_SYSTEM_PROMPT,
+            messages: msgs.map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content
+            }))
+          });
+          break;
+        } catch (error) {
+          const e = error instanceof Error ? error : new Error("Model request failed");
+          lastError = e;
+          if (!e.message.includes("not_found_error")) break;
+        }
+      }
+      if (!result) throw lastError ?? new Error("No Anthropic model available for Agent.");
+      return result.content
+        .filter((b) => b.type === "text")
+        .map((b) => (b as { type: "text"; text: string }).text)
+        .join("");
+    };
+
+    let rawText = await callClaude(messages);
+    let actionTaken: string | null = null;
+    let updatedState = false;
+
+    const actionMatch = rawText.match(/^ACTION:\s*(\{.+?\})\s*$/m);
+    if (actionMatch) {
+      try {
+        const action = JSON.parse(actionMatch[1]) as { type: string; payload: Record<string, unknown> };
+
+        if (action.type === "READ_STATE") {
+          const stateData = await readSupabaseAppState(req);
+          const stateContext = buildAgentStateContext(stateData as AppState);
+          const messagesWithContext = [
+            ...messages,
+            { role: "assistant", content: rawText },
+            {
+              role: "user",
+              content: `Current state:\n${stateContext}\n\nPlease answer based on this.`
+            }
+          ];
+          rawText = await callClaude(messagesWithContext);
+          actionTaken = "READ_STATE";
+        } else {
+          await executeAgentAction(req, action);
+          actionTaken = action.type;
+          updatedState = true;
+        }
+      } catch (e) {
+        console.error("Agent action error:", e);
+      }
+    }
+
+    const reply = rawText.replace(/^ACTION:\s*\{.+?\}\s*$/m, "").trim();
+    res.json({
+      reply,
+      actionTaken,
+      updatedState,
+      quota: { used: agentQuota.used, limit: agentQuota.limit, reset_in_minutes: agentQuota.reset_in_minutes }
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Agent request failed";
     res.status(500).json({ error: message });
   }
 });
