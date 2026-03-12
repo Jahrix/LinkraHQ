@@ -11,14 +11,18 @@ export default function AuthPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
+    const [errorMessage, setErrorMessage] = useState("");
+    const [infoMessage, setInfoMessage] = useState("");
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setErrorMessage("");
+        setInfoMessage("");
 
         try {
             if (mode === "signup") {
-                const { error } = await supabase.auth.signUp({
+                const { data: signUpData, error } = await supabase.auth.signUp({
                     email,
                     password,
                     options: {
@@ -29,19 +33,49 @@ export default function AuthPage() {
                     }
                 });
                 if (error) throw error;
+                if (signUpData.user) {
+                    const full_name = `${firstName} ${lastName}`.trim();
+                    await supabase.from("profiles").upsert(
+                        { id: signUpData.user.id, full_name },
+                        { ignoreDuplicates: true }
+                    );
+                }
+                setInfoMessage("Check your email to confirm your account before signing in.");
                 push("Check your email for the confirmation link!", "success");
             } else {
                 const { error } = await supabase.auth.signInWithPassword({
                     email,
                     password,
                 });
-                if (error) throw error;
+                if (error) {
+                    console.error("[AuthPage] signInWithPassword error:", error);
+                    throw error;
+                }
                 push("Welcome back!", "success");
             }
         } catch (err: any) {
+            setErrorMessage(err.message);
             push(err.message, "error");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleForgotPassword = async () => {
+        setErrorMessage("");
+        setInfoMessage("");
+        if (!email) {
+            setErrorMessage("Enter your email address above, then click Forgot password.");
+            return;
+        }
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin,
+        });
+        if (error) {
+            console.error("[AuthPage] resetPasswordForEmail error:", error);
+            setErrorMessage(error.message);
+        } else {
+            setInfoMessage("Password reset email sent. Check your inbox.");
         }
     };
 
@@ -50,7 +84,7 @@ export default function AuthPage() {
             const { error } = await supabase.auth.signInWithOAuth({
                 provider,
                 options: {
-                    redirectTo: window.location.origin
+                    redirectTo: `${window.location.origin}/#dashboard`
                 }
             });
             if (error) throw error;
@@ -177,6 +211,25 @@ export default function AuthPage() {
                         >
                             {loading ? "Please wait..." : (mode === "signup" ? "Sign Up" : "Log In")}
                         </button>
+
+                        {errorMessage && (
+                            <p className="text-red-400 text-sm text-center">{errorMessage}</p>
+                        )}
+                        {infoMessage && (
+                            <p className="text-green-400 text-sm text-center">{infoMessage}</p>
+                        )}
+
+                        {mode === "signin" && (
+                            <div className="text-center">
+                                <button
+                                    type="button"
+                                    onClick={handleForgotPassword}
+                                    className="text-sm text-white/40 hover:text-white/70 transition-colors"
+                                >
+                                    Forgot password?
+                                </button>
+                            </div>
+                        )}
                     </form>
 
                     <div className="mt-8 text-center text-sm">
@@ -184,7 +237,7 @@ export default function AuthPage() {
                             {mode === "signup" ? "Already have an account?" : "Don't have an account yet?"}
                         </span>
                         <button
-                            onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
+                            onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setErrorMessage(""); setInfoMessage(""); }}
                             className="ml-2 font-bold hover:underline"
                         >
                             {mode === "signup" ? "Log in" : "Sign up"}

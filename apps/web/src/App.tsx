@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AppStateProvider, useAppState } from "./lib/state";
 import Sidebar, { type NavItem } from "./components/Sidebar";
+import MobileNav from "./components/MobileNav";
 import Header from "./components/Header";
 import CommandPalette, { type Command } from "./components/CommandPalette";
 import { ToastProvider } from "./lib/toast";
@@ -156,6 +157,7 @@ function Shell() {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
       <Sidebar active={active} onChange={(item) => setActive(item)} />
+      <div className="lg:hidden"><MobileNav active={active} onChange={(item) => setActive(item)} /></div>
       <main className="flex-1 px-3 lg:px-6 py-3 lg:py-6 pb-24 lg:pb-6 flex flex-col gap-4 lg:gap-6 overflow-x-hidden min-w-0">
         <div className="sticky-header">
           <Header
