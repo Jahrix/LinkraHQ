@@ -47,7 +47,12 @@ const __filename_local = fileURLToPath(import.meta.url);
 const __dirname_local = path.dirname(__filename_local);
 dotenv.config({ path: path.resolve(__dirname_local, "../.env") });
 
-const HOST = "127.0.0.1";
+console.log('Starting Linkra server...');
+console.log('PORT:', process.env.PORT);
+console.log('SUPABASE_URL set:', !!process.env.SUPABASE_URL);
+console.log('ANTHROPIC_API_KEY set:', !!process.env.ANTHROPIC_API_KEY);
+
+const HOST = "0.0.0.0";
 const PORT = Number(process.env.PORT || 4170);
 
 function getPersistentSecret(): string {

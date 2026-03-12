@@ -4,4 +4,4 @@ builder = "nixpacks"
 [deploy]
 startCommand = "node apps/server/dist/index.js"
 healthcheckPath = "/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
