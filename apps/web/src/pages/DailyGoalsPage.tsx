@@ -7,6 +7,7 @@ import { useToast } from "../lib/toast";
 import GlassPanel from "../components/GlassPanel";
 import SectionHeader from "../components/SectionHeader";
 import Pill from "../components/Pill";
+import FillMyDaySheet from "../components/FillMyDaySheet";
 
 export default function DailyGoalsPage() {
   const { state, save } = useAppState();
@@ -18,6 +19,7 @@ export default function DailyGoalsPage() {
   const [templateTitle, setTemplateTitle] = useState("");
   const [templateCategory, setTemplateCategory] = useState("Focus");
   const [templatePoints, setTemplatePoints] = useState(1);
+  const [fillSheetOpen, setFillSheetOpen] = useState(false);
 
   const key = todayKey();
 
@@ -122,6 +124,8 @@ export default function DailyGoalsPage() {
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
+      <FillMyDaySheet open={fillSheetOpen} onClose={() => setFillSheetOpen(false)} />
+
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-2">
         <div>
           <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic leading-none">Daily Discipline</h1>
@@ -129,6 +133,15 @@ export default function DailyGoalsPage() {
             <span className="w-2 h-2 rounded-full bg-accent animate-pulse shadow-[0_0_8px_rgba(93,216,255,0.5)]"></span>
             {todayLabel}
           </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setFillSheetOpen(true)}
+            className="px-4 py-2 rounded-xl font-bold text-sm text-white transition-opacity"
+            style={{ background: "#7c5cfc" }}
+          >
+            Fill My Day ✦
+          </button>
         </div>
         <div className="flex items-center gap-4 bg-white/5 border border-white/10 px-6 py-4 rounded-2xl backdrop-blur-xl">
           <div className="text-center">

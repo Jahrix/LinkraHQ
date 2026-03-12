@@ -679,6 +679,168 @@ app.post("/api/ai/build-plan/quota", requireLocalControl, async (req, res) => {
   }
 });
 
+app.post("/api/fill-my-day", requireLocalControl, aiRateLimit, async (req, res) => {
+  const state = readRequestState(req, res);
+  if (!state) return;
+
+  let quota;
+  try {
+    quota = await fetchAiPlanQuotaStatus(req);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load AI plan quota.";
+    const status = message === "Authentication required." ? 401 : 503;
+    return res.status(status).json({ error: message });
+  }
+
+  if (!ANTHROPIC_API_KEY) {
+    return res.status(503).json({
+      error: "AI planning is not configured. Add ANTHROPIC_API_KEY to your server .env to enable Fill My Day."
+    });
+  }
+
+  if (!quota.isAdmin && quota.remaining <= 0) {
+    return res.status(429).json({ error: "quota_exceeded" });
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Active projects with open tasks
+  const projects = state.projects
+    .filter((p) => p.status !== "Archived" && p.status !== "Done")
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      status: p.status,
+      updatedAt: p.updatedAt,
+      tasks: p.tasks
+        .filter((t) => t.status !== "done" && !t.done)
+        .map((t) => ({
+          id: t.id,
+          text: t.text,
+          status: t.status,
+          priority: t.priority,
+          dueDate: t.dueDate
+        }))
+    }))
+    .filter((p) => p.tasks.length > 0);
+
+  // Today's existing daily goals
+  const todayGoals = (state.dailyGoalsByDate[todayStr]?.goals ?? []).map((g) => ({
+    id: g.id,
+    title: g.title,
+    category: g.category,
+    points: g.points,
+    done: g.done
+  }));
+
+  // Momentum score (today's execution score, or 50 if no data)
+  const momentumScore = state.dailyGoalsByDate[todayStr]?.score ?? 50;
+
+  // Roadmap cards in "now" lane
+  const roadmapNowCards = state.roadmapCards
+    .filter((c) => c.lane === "now")
+    .map((c) => ({ id: c.id, title: c.title, project: c.project }));
+
+  // Focus sessions from last 7 days
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const recentFocusSessions = state.focusSessions
+    .filter((s) => s.startedAt >= sevenDaysAgo)
+    .map((s) => ({ startedAt: s.startedAt, durationMinutes: s.durationMinutes, projectId: s.projectId }));
+
+  // Active insights (not dismissed)
+  const now = new Date().toISOString();
+  const activeInsights = state.insights
+    .filter((i) => !i.dismissedUntil || i.dismissedUntil < now)
+    .map((i) => ({ id: i.id, ruleId: i.ruleId, projectId: i.projectId, severity: i.severity, title: i.title }));
+
+  const systemPrompt = `You are Linkra's AI planner. Your job is to fill the user's day with the right tasks.
+
+You will receive their current app state as JSON. Analyze:
+1. Projects and their open tasks — prioritize by: high priority > overdue > linked to a "now" roadmap card > most recently touched project
+2. Today's momentum score — if it's low (<40), suggest smaller quick-win tasks first
+3. Existing daily goals for today — do NOT duplicate anything already planned
+4. Focus session history — avoid overloading days where the user has already done 3+ sessions
+5. Active signals/insights — if a project has a DEAD_WEIGHT or STALE_REPO signal, deprioritize it
+
+Return ONLY a JSON array of goal objects, no explanation, no markdown:
+[
+  {
+    "title": "string — short, action-oriented task title (max 60 chars)",
+    "category": "string — project name or 'Admin' / 'Focus' / 'Review'",
+    "points": number — between 5 and 20 based on estimated effort,
+    "projectId": "string or null — the project id this task came from",
+    "taskId": "string or null — the original task id if sourced from a task"
+  }
+]
+
+Rules:
+- Return between 3 and 8 goals. Never more than 8.
+- Spread across at least 2 different projects if possible
+- Total points should be between 30 and 80
+- Titles must be action verbs: "Write...", "Fix...", "Review...", "Push...", "Close..."
+- Do not include tasks that are already done`;
+
+  const userMessage = JSON.stringify({ projects, todayGoals, momentumScore, roadmapNowCards, recentFocusSessions, activeInsights });
+
+  try {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
+    let message: Awaited<ReturnType<typeof client.messages.create>> | null = null;
+    let lastModelError: Error | null = null;
+
+    for (const model of DEFAULT_ANTHROPIC_MODELS) {
+      try {
+        message = await client.messages.create({
+          model,
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userMessage }]
+        });
+        break;
+      } catch (error) {
+        const modelError = error instanceof Error ? error : new Error("Model request failed");
+        lastModelError = modelError;
+        if (!modelError.message.includes("not_found_error")) {
+          break;
+        }
+      }
+    }
+
+    if (!message) {
+      throw lastModelError ?? new Error("No Anthropic model is available for Fill My Day.");
+    }
+
+    const rawText = message.content
+      .filter((block) => block.type === "text")
+      .map((block) => (block as any).text)
+      .join("");
+
+    // Extract JSON array from response
+    const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      throw new Error("Failed to parse goals from AI response.");
+    }
+    const goals = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(goals)) {
+      throw new Error("AI response was not an array of goals.");
+    }
+
+    const nextQuota = quota.isAdmin ? quota : await consumeAiPlanQuota(req);
+    res.json({
+      goals,
+      quota: {
+        used: nextQuota.used,
+        remaining: nextQuota.remaining,
+        dailyLimit: nextQuota.dailyLimit
+      }
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to generate goals";
+    res.status(500).json({ error: message });
+  }
+});
+
 app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res) => {
   const state = readRequestState(req, res);
   if (!state) return;
