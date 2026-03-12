@@ -30,7 +30,16 @@ import {
   checkAgentQuota,
   getAgentQuotaStatus,
   readSupabaseAppState,
-  writeSupabaseAppState
+  writeSupabaseAppState,
+  getUserIdFromToken,
+  createAgentConversation,
+  updateConversationTitle,
+  touchConversation,
+  insertAgentMessages,
+  listAgentConversations,
+  getAgentConversationMessages,
+  verifyConversationOwner,
+  deleteAgentConversation
 } from "./supabaseQuota.js";
 import os from "node:os";
 
@@ -1136,7 +1145,18 @@ Rules:
 - After taking an action, describe what you did in plain English
 - You can chain multiple actions in one response if the user asks for something that requires it (e.g. "wrap up my day" = complete remaining goals + log a session)
 - Keep responses concise — you're a doer, not an explainer
-- If you don't have a tool for something, say so honestly`;
+- If you don't have a tool for something, say so honestly
+
+Tone and communication rules:
+- Talk like a sharp, direct coworker — not a productivity report
+- No markdown. No bullet points. No bold text. No headers. Plain sentences only.
+- Keep replies short — 2 to 4 sentences max unless the user explicitly asks for a breakdown or list
+- Never say things like "Here's what I'd recommend:" or "Based on your state:" — just say the thing directly
+- Never summarize what you are about to do before doing it
+- Match the user's energy. If they say "hi", say hi back naturally and ask what they're working on. Do not immediately read state or plan their day.
+- Only read state and offer planning when the user actually asks for it — "what should I work on", "fill my day", "what's going on", etc.
+- If the user sends a casual message, respond casually. Save the agent capabilities for when they're needed.
+- When you do take an action, confirm it in one sentence. Not a paragraph.`;
 
 app.get("/api/agent-quota", requireLocalControl, async (req, res) => {
   try {
@@ -1174,9 +1194,19 @@ app.post("/api/agent", requireLocalControl, aiRateLimit, async (req, res) => {
     });
   }
 
-  const { messages } = req.body as { messages: { role: string; content: string }[] };
+  const { messages, conversationId: incomingConvId } = req.body as {
+    messages: { role: string; content: string }[];
+    conversationId?: string | null;
+  };
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: "messages array is required" });
+  }
+
+  let userId: string;
+  try {
+    userId = getUserIdFromToken(req);
+  } catch {
+    return res.status(401).json({ error: "Authentication required." });
   }
 
   try {
@@ -1244,15 +1274,104 @@ app.post("/api/agent", requireLocalControl, aiRateLimit, async (req, res) => {
     }
 
     const reply = rawText.replace(/^ACTION:\s*\{.+?\}\s*$/m, "").trim();
+
+    // ── Persist to Supabase ────────────────────────────────────────────────
+    let conversationId = incomingConvId ?? null;
+    let isNewConversation = false;
+
+    try {
+      if (!conversationId) {
+        // Auto-title: use first user message (trim to 60 chars)
+        const firstUserMsg = messages.find((m) => m.role === "user")?.content ?? "New conversation";
+        let title = firstUserMsg.slice(0, 60);
+        if (firstUserMsg.length > 60) title += "…";
+
+        // Try to generate a smarter title if we have a model
+        try {
+          const titleResp = await client.messages.create({
+            model: DEFAULT_ANTHROPIC_MODELS[0],
+            max_tokens: 20,
+            messages: [{ role: "user", content: `Write a 4-6 word title for a conversation starting with: "${firstUserMsg.slice(0, 120)}"` }]
+          });
+          const generated = titleResp.content.filter((b) => b.type === "text").map((b) => (b as any).text).join("").trim().replace(/^["']|["']$/g, "");
+          if (generated.length > 3 && generated.length < 80) title = generated;
+        } catch { /* non-fatal */ }
+
+        const conv = await createAgentConversation(req, title);
+        conversationId = conv.id;
+        isNewConversation = true;
+      } else {
+        await touchConversation(req, conversationId);
+      }
+
+      // Only persist the last user message + the new assistant reply
+      // (prior messages are already in DB from previous turns)
+      const lastUserMsg = messages[messages.length - 1];
+      const rowsToInsert = [];
+      if (isNewConversation) {
+        // New conversation: persist all messages
+        for (const m of messages) {
+          rowsToInsert.push({ conversation_id: conversationId, user_id: userId, role: m.role as "user" | "assistant", content: m.content, action_taken: null });
+        }
+      } else {
+        // Existing conversation: only the latest user message
+        rowsToInsert.push({ conversation_id: conversationId, user_id: userId, role: lastUserMsg.role as "user" | "assistant", content: lastUserMsg.content, action_taken: null });
+      }
+      // Always add assistant reply
+      rowsToInsert.push({ conversation_id: conversationId, user_id: userId, role: "assistant" as const, content: reply, action_taken: actionTaken });
+      await insertAgentMessages(req, rowsToInsert);
+    } catch (persistErr) {
+      console.error("Failed to persist agent conversation:", persistErr);
+      // Non-fatal — still return the reply
+    }
+
     res.json({
       reply,
       actionTaken,
       updatedState,
+      conversationId,
       quota: { used: agentQuota.used, limit: agentQuota.limit, reset_in_minutes: agentQuota.reset_in_minutes }
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Agent request failed";
     res.status(500).json({ error: message });
+  }
+});
+
+app.get("/api/agent/conversations", requireLocalControl, async (req, res) => {
+  try {
+    const conversations = await listAgentConversations(req);
+    res.json({ conversations });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load conversations.";
+    const httpStatus = message === "Authentication required." ? 401 : 503;
+    res.status(httpStatus).json({ error: message });
+  }
+});
+
+app.get("/api/agent/conversations/:id/messages", requireLocalControl, async (req, res) => {
+  try {
+    const owned = await verifyConversationOwner(req, req.params.id);
+    if (!owned) return res.status(404).json({ error: "Conversation not found." });
+    const messages = await getAgentConversationMessages(req, req.params.id);
+    res.json({ messages });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load messages.";
+    const httpStatus = message === "Authentication required." ? 401 : 503;
+    res.status(httpStatus).json({ error: message });
+  }
+});
+
+app.delete("/api/agent/conversations/:id", requireLocalControl, async (req, res) => {
+  try {
+    const owned = await verifyConversationOwner(req, req.params.id);
+    if (!owned) return res.status(404).json({ error: "Conversation not found." });
+    await deleteAgentConversation(req, req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete conversation.";
+    const httpStatus = message === "Authentication required." ? 401 : 503;
+    res.status(httpStatus).json({ error: message });
   }
 });
 

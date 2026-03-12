@@ -13,6 +13,23 @@ export interface QuotaInfo {
   remaining: number;
   dailyLimit: number;
 }
+
+export interface AgentConversation {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface AgentMessage {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  action_taken: string | null;
+  created_at: string;
+}
 import { supabase } from "./supabase";
 
 export const API_BASE = import.meta.env.VITE_API_URL || "";
@@ -192,10 +209,17 @@ export const api = {
     }),
   getAgentQuota: () =>
     request<{ allowed: boolean; used: number; limit: number; reset_in_minutes: number }>("/api/agent-quota"),
-  agent: async (messages: { role: string; content: string }[]): Promise<{
+  getConversations: () =>
+    request<{ conversations: AgentConversation[] }>("/api/agent/conversations"),
+  getConversationMessages: (id: string) =>
+    request<{ messages: AgentMessage[] }>(`/api/agent/conversations/${id}/messages`),
+  deleteConversation: (id: string) =>
+    request<{ ok: true }>(`/api/agent/conversations/${id}`, { method: "DELETE" }),
+  agent: async (messages: { role: string; content: string }[], conversationId?: string | null): Promise<{
     reply: string;
     actionTaken: string | null;
     updatedState: boolean;
+    conversationId: string | null;
     quota: { used: number; limit: number; reset_in_minutes: number } | null;
   }> => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -207,7 +231,7 @@ export const api = {
         "Content-Type": "application/json",
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
       },
-      body: JSON.stringify({ messages })
+      body: JSON.stringify({ messages, conversationId: conversationId ?? null })
     });
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok) {
@@ -223,6 +247,7 @@ export const api = {
       reply: string;
       actionTaken: string | null;
       updatedState: boolean;
+      conversationId: string | null;
       quota: { used: number; limit: number; reset_in_minutes: number } | null;
     };
   },

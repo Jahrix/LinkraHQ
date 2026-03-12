@@ -119,3 +119,123 @@ export async function readSupabaseAppState(req: express.Request): Promise<unknow
 export async function writeSupabaseAppState(req: express.Request, state: unknown): Promise<void> {
   await callRpc<unknown>(req, "sync_app_state", { state_json: state });
 }
+
+// ── Conversation helpers ───────────────────────────────────────────────────
+
+export interface AgentConversationRow {
+  id: string;
+  user_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count?: number;
+}
+
+export interface AgentMessageRow {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  role: "user" | "assistant";
+  content: string;
+  action_taken: string | null;
+  created_at: string;
+}
+
+export function getUserIdFromToken(req: express.Request): string {
+  const header = req.get("authorization") ?? "";
+  const token = header.replace(/^Bearer\s+/i, "");
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("Invalid JWT");
+  const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8"));
+  if (!payload.sub) throw new Error("JWT missing sub claim");
+  return payload.sub as string;
+}
+
+async function supabaseRest<T>(
+  req: express.Request,
+  path: string,
+  method: string,
+  body?: unknown,
+  extraHeaders?: Record<string, string>
+): Promise<T> {
+  const { url, anonKey } = getSupabaseConfig();
+  const response = await fetch(`${url}/rest/v1/${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      apikey: anonKey,
+      Authorization: getAuthHeader(req),
+      Prefer: "return=representation",
+      ...extraHeaders
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  const payload = contentType.includes("application/json") ? await response.json() : await response.text();
+  if (!response.ok) {
+    const message =
+      typeof payload === "string" ? payload :
+      typeof (payload as any)?.message === "string" ? (payload as any).message :
+      typeof (payload as any)?.error === "string" ? (payload as any).error :
+      "Supabase REST request failed.";
+    throw new Error(message);
+  }
+  return payload as T;
+}
+
+export async function createAgentConversation(req: express.Request, title = "New conversation"): Promise<AgentConversationRow> {
+  const userId = getUserIdFromToken(req);
+  const rows = await supabaseRest<AgentConversationRow[]>(
+    req, "agent_conversations", "POST", { user_id: userId, title }
+  );
+  return rows[0];
+}
+
+export async function updateConversationTitle(req: express.Request, id: string, title: string): Promise<void> {
+  await supabaseRest<unknown>(
+    req, `agent_conversations?id=eq.${id}`, "PATCH", { title }
+  );
+}
+
+export async function touchConversation(req: express.Request, id: string): Promise<void> {
+  await supabaseRest<unknown>(
+    req, `agent_conversations?id=eq.${id}`, "PATCH", { updated_at: new Date().toISOString() }
+  );
+}
+
+export async function insertAgentMessages(
+  req: express.Request,
+  rows: Array<{ conversation_id: string; user_id: string; role: "user" | "assistant"; content: string; action_taken: string | null }>
+): Promise<AgentMessageRow[]> {
+  return supabaseRest<AgentMessageRow[]>(req, "agent_messages", "POST", rows);
+}
+
+export async function listAgentConversations(req: express.Request): Promise<AgentConversationRow[]> {
+  const result = await callRpc<unknown>(req, "linkra_get_agent_conversations");
+  return (Array.isArray(result) ? result : []) as AgentConversationRow[];
+}
+
+export async function getAgentConversationMessages(req: express.Request, conversationId: string): Promise<AgentMessageRow[]> {
+  const rows = await supabaseRest<AgentMessageRow[]>(
+    req,
+    `agent_messages?conversation_id=eq.${conversationId}&order=created_at.asc`,
+    "GET"
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function verifyConversationOwner(req: express.Request, conversationId: string): Promise<boolean> {
+  const rows = await supabaseRest<AgentConversationRow[]>(
+    req,
+    `agent_conversations?id=eq.${conversationId}&select=id`,
+    "GET"
+  );
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+export async function deleteAgentConversation(req: express.Request, conversationId: string): Promise<void> {
+  await supabaseRest<unknown>(
+    req, `agent_conversations?id=eq.${conversationId}`, "DELETE", undefined
+  );
+}
