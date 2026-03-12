@@ -1,7 +1,0 @@
-[build]
-command = "cd ../.. && npm install && npm run build --workspace=@linkra/shared && npm run build --workspace=@linkra/server"
-
-[deploy]
-startCommand = "node dist/index.js"
-healthcheckPath = "/health"
-healthcheckTimeout = 30

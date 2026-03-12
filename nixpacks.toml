@@ -1,0 +1,11 @@
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = [
+  "npm run build --workspace=@linkra/shared",
+  "npm run build --workspace=@linkra/server"
+]
+
+[start]
+cmd = "node apps/server/dist/index.js"
