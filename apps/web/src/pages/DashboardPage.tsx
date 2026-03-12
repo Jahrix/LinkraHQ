@@ -48,6 +48,7 @@ import {
 } from "../lib/insightStore";
 import SignalActionPanel from "../components/SignalActionPanel";
 import { api } from "../lib/api";
+import { useAiQuota } from "../lib/aiQuotaContext";
 import { cloneAppState } from "../lib/appStateModel";
 import { resolveProjectSelection } from "../lib/dashboardSelection";
 import { useToast } from "../lib/toast";
@@ -93,13 +94,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const [todayPlanDraft, setTodayPlanDraft] = useState<string[]>([]);
   const [todayPlanNotes, setTodayPlanNotes] = useState("");
-  const [aiPlanQuota, setAiPlanQuota] = useState({
-    remaining: 10,
-    dailyLimit: 10,
-    used: 0,
-    isAdmin: false
-  });
-  const [isLoadingQuota, setIsLoadingQuota] = useState(true);
+  const { quota: aiPlanQuota, isLoading: isLoadingQuota, setQuota: setAiPlanQuota } = useAiQuota();
 
   const duplicateWarnings = useRef(new Set<string>());
 
@@ -326,29 +321,6 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
   }, [savedPlanTaskIdsString]); // ONLY re-run if the saved task IDs actually changed
 
-  useEffect(() => {
-    let cancelled = false;
-    void api.aiPlanQuota()
-      .then((response) => {
-        if (!cancelled) {
-          setAiPlanQuota(response.quota);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAiPlanQuota((current) => current);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingQuota(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [state.metadata.created_at]);
 
   // Auto-complete from commits removed — must be explicitly triggered by the user.
   useEffect(() => {
@@ -954,6 +926,15 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       next.insights = next.insights.map((insight) =>
         group.items.find((item) => item.id === insight.id)
           ? { ...insight, dismissedUntil: until, updatedAt: new Date().toISOString() }
+          : insight
+      );
+      return save(next);
+    }
+
+    if (action.type === "DISMISS") {
+      next.insights = next.insights.map((insight) =>
+        group.items.find((item) => item.id === insight.id)
+          ? { ...insight, dismissedUntil: "2099-01-01T00:00:00Z", updatedAt: new Date().toISOString() }
           : insight
       );
       return save(next);

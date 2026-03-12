@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { type RoadmapCard, type RoadmapLane } from "@linkra/shared";
 import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
@@ -22,8 +22,16 @@ export default function RoadmapPage() {
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+
+  // Track mousedown position to avoid triggering click on drag
+  const dragStartPos = useRef<{ x: number; y: number } | null>(null);
 
   if (!state) return null;
+
+  const selectedCard = selectedCardId
+    ? state.roadmapCards.find((c) => c.id === selectedCardId) ?? null
+    : null;
 
   const filteredCards = useMemo(() => {
     const lower = query.toLowerCase();
@@ -98,8 +106,33 @@ export default function RoadmapPage() {
     push("Link copied to clipboard.");
   };
 
+  const updateCard = async (patch: Partial<RoadmapCard>) => {
+    if (!selectedCardId) return;
+    const next = cloneAppState(state);
+    next.roadmapCards = next.roadmapCards.map((c) =>
+      c.id === selectedCardId ? { ...c, ...patch, updatedAt: new Date().toISOString() } : c
+    );
+    await save(next);
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedCardId(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const activeProjects = state.projects.filter((project) => project.status !== "Archived");
   const projectNameById = new Map(state.projects.map((project) => [project.id, project.name]));
+
+  const linkedTasks = selectedCard?.project
+    ? (state.projects
+        .find((p) => p.id === selectedCard.project)
+        ?.tasks.filter((t) =>
+          t.text.toLowerCase().includes(selectedCard.title.toLowerCase())
+        ) ?? [])
+    : [];
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto">
@@ -179,6 +212,20 @@ export default function RoadmapPage() {
                     key={card.id}
                     className="group bg-white/5 border border-white/5 p-5 rounded-2xl hover:bg-white/[0.08] hover:border-white/20 hover:shadow-[0_0_30px_rgba(255,255,255,0.05)] transition-all duration-300 cursor-grab active:cursor-grabbing relative overflow-hidden"
                     draggable
+                    onMouseDown={(e) => {
+                      dragStartPos.current = { x: e.clientX, y: e.clientY };
+                    }}
+                    onMouseUp={(e) => {
+                      const start = dragStartPos.current;
+                      if (start) {
+                        const dx = Math.abs(e.clientX - start.x);
+                        const dy = Math.abs(e.clientY - start.y);
+                        if (dx < 5 && dy < 5) {
+                          setSelectedCardId(card.id);
+                        }
+                      }
+                      dragStartPos.current = null;
+                    }}
                     onDragStart={(event) => onDragStart(event, card.id)}
                   >
                     {card.project && (
@@ -200,7 +247,10 @@ export default function RoadmapPage() {
                     </div>
 
                     <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="text-[9px] font-black uppercase tracking-widest text-muted hover:text-white flex items-center gap-1.5 transition-colors" onClick={() => copyLink(card.id)}>
+                      <button
+                        className="text-[9px] font-black uppercase tracking-widest text-muted hover:text-white flex items-center gap-1.5 transition-colors"
+                        onClick={(e) => { e.stopPropagation(); copyLink(card.id); }}
+                      >
                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" /></svg>
                         Copy Asset Link
                       </button>
@@ -216,6 +266,110 @@ export default function RoadmapPage() {
           </div>
         ))}
       </div>
+
+      {/* Detail panel */}
+      {selectedCardId && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/40 z-40"
+            onClick={() => setSelectedCardId(null)}
+          />
+
+          {/* Panel — desktop: right slide-in, mobile: bottom sheet */}
+          <div className="fixed right-0 top-0 h-full w-full md:w-[420px] z-50 bg-[#0d0d0f] border-l border-white/10 flex flex-col overflow-y-auto translate-x-0 transition-transform duration-300 bottom-0 md:bottom-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 flex-shrink-0">
+              <h2 className="text-sm font-black uppercase tracking-widest text-white/60">Card Details</h2>
+              <button
+                onClick={() => setSelectedCardId(null)}
+                className="text-white/40 hover:text-white transition text-lg leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {selectedCard && (
+              <div className="flex-1 p-6 space-y-5">
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-1">Title</label>
+                  <input
+                    className="input w-full font-semibold"
+                    defaultValue={selectedCard.title}
+                    onBlur={(e) => updateCard({ title: e.target.value.trim() || selectedCard.title })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-1">Description</label>
+                  <textarea
+                    className="input w-full text-sm resize-none"
+                    rows={4}
+                    defaultValue={selectedCard.description}
+                    onBlur={(e) => updateCard({ description: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-1">Tags</label>
+                  <input
+                    className="input w-full text-xs"
+                    defaultValue={selectedCard.tags.join(", ")}
+                    placeholder="comma separated"
+                    onBlur={(e) => updateCard({ tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-1">Due Date</label>
+                  <input
+                    type="date"
+                    className="input w-full text-sm"
+                    defaultValue={selectedCard.dueDate ?? ""}
+                    onChange={(e) => updateCard({ dueDate: e.target.value || null })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-1">Linked Project</label>
+                  <Select
+                    className="w-full"
+                    value={selectedCard.project ?? ""}
+                    onChange={(val) => updateCard({ project: val || null })}
+                    options={[
+                      { value: "", label: "No linked project" },
+                      ...activeProjects.map((p) => ({ value: p.id, label: p.name }))
+                    ]}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-1">Lane</label>
+                  <Select
+                    className="w-full"
+                    value={selectedCard.lane}
+                    onChange={(val) => updateCard({ lane: val as RoadmapLane })}
+                    options={lanes.map((l) => ({ value: l.key, label: l.label }))}
+                  />
+                </div>
+
+                {linkedTasks.length > 0 && (
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-2">Linked Tasks</label>
+                    <div className="space-y-1.5">
+                      {linkedTasks.map((t) => (
+                        <div key={t.id} className="flex items-center gap-2 text-xs text-white/70">
+                          <input type="checkbox" readOnly checked={t.done} className="accent-accent" />
+                          <span className={t.done ? "line-through text-white/30" : ""}>{t.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

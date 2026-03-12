@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type RepoConfig } from "@linkra/shared";
 import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
@@ -22,6 +22,13 @@ import {
   startGithubConnect,
   startGithubReconnect
 } from "../lib/githubAuth";
+
+function heatColor(count: number): string {
+  if (count === 0) return "rgba(255,255,255,0.05)";
+  if (count <= 2) return "#3b1fa8";
+  if (count <= 5) return "#5b35d4";
+  return "#7c5cfc";
+}
 
 interface Commit {
   sha: string;
@@ -429,6 +436,55 @@ export default function CommitsPage() {
     );
   }
 
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+
+  const dailyCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    Object.values(commits).flat().forEach((c) => {
+      const day = c.date.slice(0, 10);
+      map[day] = (map[day] ?? 0) + 1;
+    });
+    return map;
+  }, [commits]);
+
+  const numWeeks = isMobile ? 16 : 52;
+  const totalDays = numWeeks * 7;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Build grid cells: start from (numWeeks * 7) days ago, rounded to Sunday
+  const gridStart = new Date(today);
+  gridStart.setDate(gridStart.getDate() - totalDays + 1);
+  // Align to the Sunday before gridStart
+  const startOffset = gridStart.getDay();
+  gridStart.setDate(gridStart.getDate() - startOffset);
+
+  const gridDays: Date[] = [];
+  for (let i = 0; i < numWeeks * 7; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    gridDays.push(d);
+  }
+
+  // Month labels: find which column each month first appears in
+  const monthLabels: { label: string; col: number }[] = [];
+  gridDays.forEach((d, i) => {
+    if (d.getDate() === 1 || i === 0) {
+      const col = Math.floor(i / 7);
+      const label = d.toLocaleString("default", { month: "short" });
+      if (!monthLabels.length || monthLabels[monthLabels.length - 1].label !== label) {
+        monthLabels.push({ label, col });
+      }
+    }
+  });
+
   // State B — fully connected
   return (
     <div className="space-y-6">
@@ -506,6 +562,72 @@ export default function CommitsPage() {
           </p>
         )}
       </div>
+
+      {Object.keys(dailyCounts).length > 0 && (
+        <div className="panel space-y-3">
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Commit Activity</p>
+          <div className="relative overflow-x-auto">
+            {/* Month labels */}
+            <div className="flex mb-1" style={{ paddingLeft: "0px" }}>
+              {monthLabels.map(({ label, col }) => (
+                <div
+                  key={`${label}-${col}`}
+                  className="text-[10px] text-white/30 absolute"
+                  style={{ left: `${col * 14}px` }}
+                >
+                  {label}
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 relative">
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateRows: "repeat(7, 12px)",
+                  gridAutoFlow: "column",
+                  gap: "2px",
+                  width: "fit-content"
+                }}
+              >
+                {gridDays.map((d, i) => {
+                  const key = d.toISOString().slice(0, 10);
+                  const count = dailyCounts[key] ?? 0;
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 2,
+                        backgroundColor: heatColor(count),
+                        cursor: count > 0 ? "pointer" : "default"
+                      }}
+                      onMouseEnter={(e) => {
+                        if (count > 0) {
+                          setTooltip({
+                            text: `${count} commit${count !== 1 ? "s" : ""} on ${key}`,
+                            x: e.clientX,
+                            y: e.clientY
+                          });
+                        }
+                      }}
+                      onMouseLeave={() => setTooltip(null)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          {tooltip && (
+            <div
+              className="fixed z-50 bg-[#1a1a1f] border border-white/10 text-xs text-white/80 px-2 py-1 rounded shadow-xl pointer-events-none"
+              style={{ left: tooltip.x + 12, top: tooltip.y - 28 }}
+            >
+              {tooltip.text}
+            </div>
+          )}
+        </div>
+      )}
 
       {state.userSettings.selectedRepos.length === 0 && (
         <div className="panel text-sm text-muted text-center py-8">

@@ -20,6 +20,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 import AuthPage from "./pages/AuthPage";
 import { PomodoroProvider } from "./lib/pomodoroContext";
+import { AiQuotaProvider } from "./lib/aiQuotaContext";
 import { finalizeAuthRedirectUrl } from "./lib/githubAuth";
 import { playStartupSoundOnce } from "./lib/sounds";
 
@@ -209,11 +210,13 @@ export default function App() {
   return (
     <ToastProvider>
       <AppStateProvider>
-        <PomodoroProvider>
-          <ErrorBoundary>
-            <Shell />
-          </ErrorBoundary>
-        </PomodoroProvider>
+        <AiQuotaProvider>
+          <PomodoroProvider>
+            <ErrorBoundary>
+              <Shell />
+            </ErrorBoundary>
+          </PomodoroProvider>
+        </AiQuotaProvider>
       </AppStateProvider>
     </ToastProvider>
   );

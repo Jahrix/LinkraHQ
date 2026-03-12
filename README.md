@@ -1,26 +1,53 @@
-# Linkra by Jahrix
+# Linkra ![v2.5.0](https://img.shields.io/badge/version-2.5.0-7c5cfc)
 
-Supabase-backed lock-in dashboard with a premium dark-only UI. The React app owns canonical user state; the localhost server is limited to local tooling, Git helpers, AI planning, and OS integrations.
+**Momentum-first personal project command center.**
 
-## v0.2.4 Highlights
-- GitHub Commits connect/reconnect now uses the Supabase identity flow only; the legacy `/auth/github/start` route is intentionally disabled.
-- Local Git scanning is unified on the current `/api/local-git/*` routes so Settings, Dashboard, and New Project read the same detected repo data.
-- Build My Plan now returns a real Anthropic-generated plan or a clear failure message instead of silently falling back.
-- Daily Goals runtime state is normalized on load/save so today’s goals render reliably.
-- Broken custom dropdown behavior was replaced by one stable shared select pattern.
-- Light mode has been removed from the user-facing app; Linkra is dark-only.
-- The white grid background keeps the same direction, but with a subtler bloom/glow treatment.
+Know what to do next. Reduce confusion. Ship things.
 
-## Prerequisites
+---
+
+## Features
+
+- **Dashboard** — Project cards, task queue, momentum score, AI signals
+- **Daily Goals** — Score your day with time-boxed goal tracking
+- **Weekly Review** — Streak tracking and weekly progress roll-up
+- **Commits** — GitHub activity feed with 52-week heatmap visualization
+- **Roadmap** — Kanban lanes (Active / Pipeline / Backlog / Deployed) with card detail panel
+- **Tools** — Local Git scanner and system integrations
+- **Account Settings** — Profile management with Supabase auth
+- **Build My Plan** — AI-generated daily plan via Anthropic Claude
+- **Signals / Insights** — Automated project health signals with snooze (24h / 7d / Forever)
+
+---
+
+## Tech Stack
+
+| Layer | Tech |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS |
+| Backend | Node.js / Express (localhost tooling server) |
+| Database | Supabase (Postgres + Auth) |
+| AI | Anthropic Claude (Build My Plan) |
+| PWA | vite-plugin-pwa (installable, offline-capable) |
+| Monorepo | npm workspaces |
+
+---
+
+## Getting Started
+
+### Prerequisites
+
 - Node.js 18+
 - npm 9+
+- A [Supabase](https://supabase.com) project
 
-## Setup
+### 1. Install dependencies
+
 ```bash
 npm install
 ```
 
-Create the frontend env file manually with your Supabase project values:
+### 2. Configure the frontend
 
 ```bash
 cat <<'EOF' > apps/web/.env
@@ -29,32 +56,62 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 EOF
 ```
 
-Required frontend env vars:
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-
-Create the server env file for local tooling and AI planning:
+### 3. Configure the server
 
 ```bash
 cp apps/server/.env.example apps/server/.env
+# Edit apps/server/.env:
+#   ANTHROPIC_API_KEY   — enables Build My Plan
+#   PORT                — defaults to 4170
+#   CLIENT_ORIGIN       — defaults to http://localhost:5173
+#   SESSION_SECRET      — recommended for stable local sessions
+#   SUPABASE_URL / SUPABASE_ANON_KEY — AI quota/admin checks
 ```
 
-Important server env vars:
-- `ANTHROPIC_API_KEY` enables Build My Plan
-- `PORT` defaults to `4170`
-- `CLIENT_ORIGIN` defaults to `http://localhost:5173`
-- `SESSION_SECRET` is recommended for stable local sessions
-- Supabase-backed AI quota/admin checks use `SUPABASE_URL` and `SUPABASE_ANON_KEY`
-- For local development, the server also falls back to `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+### 4. Run (dev)
 
-## Supabase Quota/Admin Setup
-- Run the SQL migration in `supabase/migrations/20260309_ai_plan_admin_quota.sql`
-- This creates:
-  - `user_roles`
-  - `ai_plan_quotas`
-  - RPC functions for quota checks
-- If you already applied an older invite-code migration, also run `supabase/migrations/20260309_remove_admin_invite_codes.sql`
-- To grant admin to an account by email in Supabase SQL:
+```bash
+npm run dev
+```
+
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:4170
+
+### 5. Run (local production)
+
+```bash
+npm run build
+npm run start
+```
+
+- App: http://localhost:4170
+
+---
+
+## Architecture
+
+Linkra is a **same-origin Vite proxy** monorepo:
+
+```
+apps/web/     React SPA (Vite, Tailwind)
+apps/server/  Express API (localhost only)
+packages/shared/  Shared types + utilities
+```
+
+In dev, `vite.config.ts` proxies `/api` and `/auth` to `localhost:4170`. In production, the Express server serves the built SPA and handles API routes on the same port.
+
+Canonical app state lives in **Supabase**. The localhost server handles:
+- AI planning (Anthropic)
+- Local Git scanning
+- OS integrations / startup helpers
+
+---
+
+## Supabase Setup
+
+Run migrations in `supabase/migrations/` to set up AI quota and profiles tables.
+
+To grant admin quota to an account:
 
 ```sql
 insert into public.user_roles (user_id, role, granted_by)
@@ -65,100 +122,33 @@ on conflict (user_id) do update
 set role = excluded.role;
 ```
 
-## GitHub Setup
-- Linkra v0.2.4 uses **Supabase GitHub auth/linking** for the Commits flow.
-- Do **not** use or bookmark `/auth/github/start`; that route now returns `410 Gone` on purpose.
-- Enable GitHub as an auth provider in your Supabase project if you want GitHub sign-in/linking.
-- If you want to connect GitHub to an existing account, Supabase manual identity linking must be enabled in **Auth → Configuration → Advanced Settings**.
-- Existing `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` placeholders in `apps/server/.env.example` are legacy leftovers and are not the active Commits auth path in v0.2.4.
+---
 
-## Run (Dev)
-```bash
-npm run dev
-```
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:4170
+## GitHub / Commits
 
-## Run (Local Production)
-```bash
-npm run build
-npm run start
-```
-- App: http://localhost:4170
+- Uses **Supabase GitHub identity linking** — not the legacy `/auth/github/start` route.
+- Enable GitHub as an auth provider in Supabase Auth settings.
+- For linking GitHub to an existing account, enable manual identity linking in **Auth → Configuration → Advanced Settings**.
 
-## Core Flows
+---
 
-### Commits
-- Open **Commits** and use **Connect GitHub**.
-- Connected, disconnected, and reconnect-needed states are handled in-app through Supabase.
-- If GitHub is already linked, Linkra should not send you into an `identity_already_exists` redirect loop.
-- If you need to unlink GitHub, make sure another sign-in method exists first; Supabase blocks unlinking the only remaining identity.
+## v2.5.0 Changelog
 
-### Local Git
-- Open **Settings → Local Git**.
-- Add one or more watch directories that contain Git repositories or parent folders of repositories.
-- Click **Scan Now**.
-- Detected repos are written into the same app state used by:
-  - Settings
-  - Dashboard Local Git
-  - New Project → Local Repo selector
-- If a scan completes with no matches, the app should show a clear empty state instead of a blank/broken panel.
+1. **Profiles table** — Persistent display name/role backed by Supabase; OAuth name auto-populated on signup.
+2. **PWA manifest** — Installable via `vite-plugin-pwa`; offline shell caching via Workbox.
+3. **Momentum score upgrade** — Count-up animation on change; value-based color scale (red → amber → white → purple glow at 86+).
+4. **AI Quota context** — Shared `AiQuotaContext` eliminates per-page quota fetch; header shows live `✦ used/limit` pill.
+5. **Signal snooze UI** — 🔕 button on every insight card opens a dropdown: 24h / 7 days / Forever dismiss.
+6. **Roadmap card detail panel** — Click any card to open a slide-in panel with editable title, description, tags, due date, linked project, lane, and read-only linked tasks. Auto-saves on blur.
+7. **Commit heatmap** — 52-week (desktop) / 16-week (mobile) contribution grid above the commit feed, color-coded by daily commit count.
 
-### Build My Plan
-- Build My Plan calls the local server at `/api/ai/build-plan`.
-- It requires `ANTHROPIC_API_KEY` in `apps/server/.env`.
-- The current flow returns either:
-  - a real plan with task IDs and rationale
-  - a direct error explaining why generation failed
-
-### Daily Goals
-- Daily Goals are sourced from the Supabase-backed app state.
-- On load/save, Linkra normalizes daily state so the current day entry exists and renders cleanly.
-
-### Theme
-- Linkra is dark-only in v0.2.4.
-- There is no supported light mode or appearance toggle in the user-facing app.
-
-## Startup Automation
-Linkra generates user-level startup files locally (no admin required). In-app Settings → Startup:
-- Click **Generate Startup Files**
-- Copy the generated files into the appropriate OS startup folder
-
-### macOS (LaunchAgent)
-1. Copy `~/.linkra/startup/linkra_macos.plist` to `~/Library/LaunchAgents/`.
-2. Run:
-```bash
-launchctl load -w ~/Library/LaunchAgents/linkra_macos.plist
-```
-3. Linkra opens on login.
-
-### Windows (Task Scheduler)
-1. Open Task Scheduler.
-2. Import `~\.linkra\startup\linkra_windows.xml`.
-3. Choose **Run only when user is logged on**.
-
-## Data Model
-- Canonical user-visible app state lives in Supabase.
-- Export/Import/Wipe in Settings operate against that same Supabase-backed state model.
-- The localhost server does not persist competing user app state.
-- Current schema version: `3`.
-- Older exports (`schema_version` 1/2) are auto-migrated on import.
-- Daily local backup files are written to `~/.linkra/backups` (default retention 14 days) from the current Supabase-backed state snapshot.
-
-## Import / Merge Modes
-- `Replace All`: replace local state with imported data.
-- `Merge (Keep Local)`: keep local entities when IDs conflict.
-- `Merge (Overwrite)`: overwrite local entities with imported entities when IDs conflict.
-- Import preview includes counts and diff summary (added/changed/removed).
+---
 
 ## Troubleshooting
-- **Commits tries to open `/auth/github/start`**: you are running a stale build. Rebuild/restart the app and reconnect from Commits.
-- **GitHub linking says manual linking is disabled**: enable manual identity linking in Supabase Auth advanced settings before linking GitHub to an existing account.
-- **GitHub unlink fails**: GitHub is probably your only sign-in method. Add email/password or another provider first, then disconnect it.
-- **Port already in use**: change `PORT` in `apps/server/.env` and restart.
-- **Build My Plan is unavailable**: add `ANTHROPIC_API_KEY` to `apps/server/.env` and restart the server.
-- **Build My Plan returns an error**: confirm there are open tasks to plan from and that the Anthropic key is valid.
-- **Git scan finds zero repos**: check Settings → Local Git, confirm the watch folder path is valid, and scan a folder that contains detectable `.git` repositories.
-- **Git scan or Dashboard Local Git looks empty**: rescan from Settings and confirm the scan completed successfully; Settings, Dashboard, and New Project now read the same repo list.
-- **Daily Goals do not load**: verify `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set correctly and that the web app can reach your Supabase project.
-- **App fails at startup**: verify `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set correctly in `apps/web/.env`.
+
+- **Build My Plan unavailable**: add `ANTHROPIC_API_KEY` to `apps/server/.env` and restart.
+- **GitHub link fails**: enable manual identity linking in Supabase Auth advanced settings.
+- **GitHub unlink blocked**: GitHub is your only sign-in method — add email/password first, then disconnect.
+- **Git scan finds zero repos**: verify the watch folder path in Settings → Local Git contains `.git` directories.
+- **Daily Goals blank**: check `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `apps/web/.env`.
+- **Port conflict**: change `PORT` in `apps/server/.env` and restart.

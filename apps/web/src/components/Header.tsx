@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Pill from "./Pill";
 import GlassPanel from "./GlassPanel";
 import { playGreetingSoundOnce } from "../lib/sounds";
+import { useAiQuota } from "../lib/aiQuotaContext";
 
 export const MOMENTUM_PULSE_MS = 5000;
 
@@ -23,6 +24,13 @@ function getGreeting(hour: number) {
   return "Good Night";
 }
 
+function scoreColor(s: number): { color: string; filter?: string } {
+  if (s >= 86) return { color: "#7c5cfc", filter: "drop-shadow(0 0 8px #7c5cfc)" };
+  if (s >= 61) return { color: "#ffffff" };
+  if (s >= 31) return { color: "#f59e0b" };
+  return { color: "#ef4444" };
+}
+
 export default function Header({
   score,
   momentumSignal,
@@ -40,6 +48,27 @@ export default function Header({
   const [prevSignal, setPrevSignal] = useState(momentumSignal);
   const [now, setNow] = useState(new Date());
   const hasInitializedScore = useRef(false);
+
+  const animRef = useRef<number | null>(null);
+  const [displayScore, setDisplayScore] = useState(score);
+  useEffect(() => {
+    const start = displayScore;
+    const end = score;
+    if (start === end) return;
+    const duration = 400;
+    const startTime = performance.now();
+    const step = (now: number) => {
+      const t = Math.min((now - startTime) / duration, 1);
+      setDisplayScore(Math.round(start + (end - start) * t));
+      if (t < 1) animRef.current = requestAnimationFrame(step);
+    };
+    animRef.current = requestAnimationFrame(step);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+  }, [score]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { quota, isLoading: quotaLoading } = useAiQuota();
+  const usedPct = quota.dailyLimit > 0 ? quota.used / quota.dailyLimit : 0;
+  const quotaColor = usedPct < 0.5 ? "#ffffff" : usedPct < 0.8 ? "#f59e0b" : "#ef4444";
 
   useEffect(() => {
     const tick = setInterval(() => setNow(new Date()), 1000);
@@ -61,11 +90,8 @@ export default function Header({
     return () => clearTimeout(t);
   }, [momentumSignal, prevSignal]);
 
-  const colorClass = pulse === "up"
-    ? "text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)] scale-125"
-    : pulse === "down"
-      ? "text-red-400 drop-shadow-[0_0_12px_rgba(248,113,113,0.8)] scale-90"
-      : "text-white scale-100";
+  const { color, filter } = scoreColor(displayScore);
+  const scaleClass = pulse === "up" ? "scale-125" : pulse === "down" ? "scale-90" : "scale-100";
 
   const greeting = getGreeting(now.getHours());
   const firstName = (userName || "").split(" ")[0] || userName;
@@ -117,11 +143,29 @@ export default function Header({
 
       <div className="flex items-center gap-3 lg:gap-4 flex-shrink-0">
         <div className="flex flex-col items-end">
-          <span className="text-[10px] uppercase font-bold tracking-[0.25em] text-accent">Momentum</span>
-          <div className={`text-2xl lg:text-3xl font-black tracking-tighter tabular-nums leading-none transition-all duration-300 transform-gpu ${colorClass}`}>
-            {score}
+          <span className="text-[10px] uppercase font-bold tracking-[0.25em] text-white/40">Momentum</span>
+          <div
+            className={`text-2xl lg:text-3xl font-black tracking-tighter tabular-nums leading-none transition-all duration-300 transform-gpu ${scaleClass}`}
+            style={{ color, filter }}
+          >
+            {displayScore}
           </div>
         </div>
+
+        {!quotaLoading && (
+          <>
+            <div
+              style={{ color: quotaColor, border: `1px solid ${quotaColor}33` }}
+              className="hidden lg:flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full"
+              title="AI calls remaining today"
+            >
+              ✦ {quota.used}/{quota.dailyLimit}
+            </div>
+            <div className="lg:hidden text-[11px] font-bold" style={{ color: quotaColor }}>
+              ✦ {quota.remaining}
+            </div>
+          </>
+        )}
 
         <div className="w-px h-8 bg-stroke mx-1 hidden lg:block" />
 
