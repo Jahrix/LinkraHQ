@@ -26,6 +26,8 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const targetUrl = `${expressUrl}/api/${path}${url.search}`;
 
+  console.log('Proxying to:', targetUrl);
+
   const headers = new Headers(request.headers);
   headers.delete('host');
 
@@ -38,6 +40,8 @@ export async function onRequest(context) {
         : undefined,
     });
 
+    console.log('Railway response status:', response.status);
+
     const newHeaders = new Headers(response.headers);
     newHeaders.set('Access-Control-Allow-Origin', '*');
     newHeaders.set('Access-Control-Allow-Credentials', 'true');
@@ -47,6 +51,7 @@ export async function onRequest(context) {
       headers: newHeaders,
     });
   } catch (err) {
+    console.error('Fetch error:', err.message, err.cause);
     return new Response(JSON.stringify({ error: 'Proxy error', detail: String(err) }), {
       status: 502,
       headers: { 'Content-Type': 'application/json' },
