@@ -95,7 +95,8 @@ function normalizeOrigin(origin: string) {
     if (!["http:", "https:"].includes(parsed.protocol)) {
       return null;
     }
-    if (!isLoopbackHostname(parsed.hostname)) {
+    const isProd = process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.SUPABASE_URL;
+    if (!isLoopbackHostname(parsed.hostname) && !isProd) {
       return null;
     }
     return parsed.origin;
@@ -163,6 +164,9 @@ function getRequestOrigin(req: express.Request) {
 }
 
 function requestHasUntrustedOrigin(req: express.Request) {
+  if (process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.SUPABASE_URL) {
+    return false;
+  }
   const originHeader = req.get("origin");
   const refererHeader = req.get("referer");
   if (!originHeader && !refererHeader) {
@@ -321,17 +325,18 @@ app.use((_req, res, next) => {
 });
 
 app.use((req, res, next) => {
+  const isProd = process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.SUPABASE_URL;
   const origin = getRequestOrigin(req);
-  if (origin && allowedClientOrigins.has(origin)) {
+  if (origin && (isProd || allowedClientOrigins.has(origin))) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE");
   }
 
   if (req.method === "OPTIONS") {
-    if (origin && allowedClientOrigins.has(origin) && isLoopbackAddress(req.socket.remoteAddress)) {
+    if (origin && (isProd || allowedClientOrigins.has(origin)) && isLoopbackAddress(req.socket.remoteAddress)) {
       return res.status(204).end();
     }
     return res.status(403).end();
