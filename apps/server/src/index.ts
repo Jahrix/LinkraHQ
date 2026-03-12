@@ -348,6 +348,10 @@ app.use(
 
 app.use(express.json({ limit: "2mb" }));
 
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok", version: "2.5.0" });
+});
+
 app.get("/api/state", requireLocalControl, (_req, res) => unavailableCanonicalState(res));
 app.post("/api/state", requireLocalControl, (_req, res) => unavailableCanonicalState(res));
 app.get("/api/export", requireLocalControl, (_req, res) => unavailableCanonicalState(res));
