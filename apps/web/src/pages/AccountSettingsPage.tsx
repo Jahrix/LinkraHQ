@@ -73,7 +73,8 @@ export default function AccountSettingsPage() {
                     .eq("id", u.id)
                     .single();
                 setProfile(profileData);
-                const names = (profileData?.full_name || "").split(" ");
+                const rawFullName = profileData?.full_name || u.user_metadata?.full_name || u.user_metadata?.name || "";
+                const names = rawFullName.split(" ").filter(Boolean);
                 setFirstName(names[0] || "");
                 setLastName(names.slice(1).join(" ") || "");
                 setRole(profileData?.role || "");
@@ -146,8 +147,7 @@ export default function AccountSettingsPage() {
 
         const { error } = await supabase
             .from("profiles")
-            .update({ full_name: name, role, updated_at: new Date().toISOString() })
-            .eq("id", user.id);
+            .upsert({ id: user.id, full_name: name, role, updated_at: new Date().toISOString() });
 
         if (error) {
             push("Failed to update profile.");
@@ -275,7 +275,7 @@ export default function AccountSettingsPage() {
         push("Local data wiped.");
     };
 
-    const displayName = profile?.full_name || "User";
+    const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || "User";
     const initial = firstName[0] || displayName[0] || "U";
 
     const toggleTab = (tab: TabId) => {
@@ -299,18 +299,18 @@ export default function AccountSettingsPage() {
             <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em' }}>First Name</label>
+                        <label style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em' }}>First Name</label>
                         <input
-                            style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '10px 12px', color: '#111827', fontSize: '14px', outline: 'none' }}
+                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px 12px', color: '#ffffff', fontSize: '14px', outline: 'none' }}
                             value={firstName}
                             onChange={(e) => setFirstName(e.target.value)}
                             placeholder="Your first name"
                         />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Last Name</label>
+                        <label style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Last Name</label>
                         <input
-                            style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '10px 12px', color: '#111827', fontSize: '14px', outline: 'none' }}
+                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px 12px', color: '#ffffff', fontSize: '14px', outline: 'none' }}
                             value={lastName}
                             onChange={(e) => setLastName(e.target.value)}
                             placeholder="Your last name"
@@ -318,9 +318,9 @@ export default function AccountSettingsPage() {
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role / Bio</label>
+                    <label style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role / Bio</label>
                     <input
-                        style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '10px 12px', color: '#111827', fontSize: '14px', outline: 'none' }}
+                        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px 12px', color: '#ffffff', fontSize: '14px', outline: 'none' }}
                         value={role}
                         onChange={(e) => setRole(e.target.value)}
                         placeholder="LinkraHQ User"
@@ -330,7 +330,7 @@ export default function AccountSettingsPage() {
                     <button type="submit" style={{ padding: '9px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#7c5cfc', color: '#fff', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}>
                         Save changes
                     </button>
-                    <button type="button" onClick={handleCancelEdit} style={{ padding: '9px 20px', borderRadius: '8px', border: '1px solid #e5e7eb', backgroundColor: 'transparent', color: '#374151', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}>
+                    <button type="button" onClick={handleCancelEdit} style={{ padding: '9px 20px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', backgroundColor: 'transparent', color: 'rgba(255,255,255,0.6)', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}>
                         Cancel
                     </button>
                 </div>
@@ -338,22 +338,24 @@ export default function AccountSettingsPage() {
         );
 
         const profileReadView = (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                <div>
-                    <div style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>First Name</div>
-                    <div style={{ fontSize: '15px', color: '#111827' }}>{firstName || '—'}</div>
-                </div>
-                <div>
-                    <div style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Last Name</div>
-                    <div style={{ fontSize: '15px', color: '#111827' }}>{lastName || '—'}</div>
-                </div>
-                <div>
-                    <div style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Email Address</div>
-                    <div style={{ fontSize: '15px', color: '#111827' }}>{user?.email || '—'}</div>
-                </div>
-                <div>
-                    <div style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Role / Bio</div>
-                    <div style={{ fontSize: '15px', color: '#111827' }}>{profile?.role || 'LinkraHQ User'}</div>
+            <div style={{ backgroundColor: '#1a1a1f', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                    <div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>First Name</div>
+                        <div style={{ fontSize: '15px', color: '#ffffff' }}>{firstName || '—'}</div>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Last Name</div>
+                        <div style={{ fontSize: '15px', color: '#ffffff' }}>{lastName || '—'}</div>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Email Address</div>
+                        <div style={{ fontSize: '15px', color: '#ffffff' }}>{user?.email || '—'}</div>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Role / Bio</div>
+                        <div style={{ fontSize: '15px', color: '#ffffff' }}>{profile?.role || 'LinkraHQ User'}</div>
+                    </div>
                 </div>
             </div>
         );
@@ -361,8 +363,8 @@ export default function AccountSettingsPage() {
         const sectionContent: Record<TabId, React.ReactNode> = {
             Profile: (
                 <div>
-                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: '0 0 24px 0' }}>My Profile</h2>
-                    <hr style={{ border: 'none', borderTop: '1px solid #e5e7eb', margin: '0 0 24px 0' }} />
+                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#ffffff', margin: '0 0 24px 0' }}>My Profile</h2>
+                    <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', margin: '0 0 24px 0' }} />
 
                     {/* Profile card row */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px' }}>
@@ -371,29 +373,29 @@ export default function AccountSettingsPage() {
                                 {initial.toUpperCase()}
                             </div>
                             <div>
-                                <div style={{ fontSize: '17px', fontWeight: '700', color: '#111827' }}>{displayName}</div>
-                                <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '3px' }}>{profile?.role || 'LinkraHQ User'}</div>
+                                <div style={{ fontSize: '17px', fontWeight: '700', color: '#ffffff' }}>{displayName}</div>
+                                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '3px' }}>{profile?.role || 'LinkraHQ User'}</div>
                             </div>
                         </div>
                         {!isEditing && (
                             <button
                                 onClick={() => setIsEditing(true)}
-                                style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: '8px', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: '500', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                style={{ background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#ffffff', cursor: 'pointer', fontSize: '13px', fontWeight: '500', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
                             >
                                 Edit ✏️
                             </button>
                         )}
                     </div>
 
-                    <hr style={{ border: 'none', borderTop: '1px solid #e5e7eb', margin: '0 0 24px 0' }} />
+                    <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', margin: '0 0 24px 0' }} />
 
                     {/* Personal information */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-                        <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#111827', margin: 0 }}>Personal information</h3>
+                        <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#ffffff', margin: 0 }}>Personal information</h3>
                         {!isEditing && (
                             <button
                                 onClick={() => setIsEditing(true)}
-                                style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '13px', fontWeight: '500', padding: '4px 0', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '13px', fontWeight: '500', padding: '4px 0', display: 'flex', alignItems: 'center', gap: '4px' }}
                             >
                                 Edit ✏️
                             </button>
@@ -406,21 +408,21 @@ export default function AccountSettingsPage() {
 
             LockIn: (
                 <div>
-                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: '0 0 8px 0' }}>Lock-in Dashboard Elements</h2>
-                    <p style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 24px 0' }}>Customize the items appearing automatically on the Lock-In view.</p>
-                    <hr style={{ border: 'none', borderTop: '1px solid #e5e7eb', margin: '0 0 24px 0' }} />
+                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#ffffff', margin: '0 0 8px 0' }}>Lock-in Dashboard Elements</h2>
+                    <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)', margin: '0 0 24px 0' }}>Customize the items appearing automatically on the Lock-In view.</p>
+                    <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', margin: '0 0 24px 0' }} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px solid #e5e7eb', cursor: 'pointer' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: '#1a1a1f', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer' }}>
                             <div>
-                                <div style={{ fontSize: '15px', fontWeight: '500', color: '#111827' }}>Daily Goals Tracking</div>
-                                <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>Show active rings and completion steps for today</div>
+                                <div style={{ fontSize: '15px', fontWeight: '500', color: '#ffffff' }}>Daily Goals Tracking</div>
+                                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>Show active rings and completion steps for today</div>
                             </div>
                             <input type="checkbox" checked={!(state?.userSettings.disabledInsightRules?.includes('ui_daily_goals'))} onChange={() => toggleFeature('ui_daily_goals')} style={{ width: '18px', height: '18px', accentColor: '#7c5cfc' }} />
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px solid #e5e7eb', cursor: 'pointer' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: '#1a1a1f', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer' }}>
                             <div>
-                                <div style={{ fontSize: '15px', fontWeight: '500', color: '#111827' }}>Capacity / Burn Down</div>
-                                <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>Monitor available hours scheduled across projects</div>
+                                <div style={{ fontSize: '15px', fontWeight: '500', color: '#ffffff' }}>Capacity / Burn Down</div>
+                                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>Monitor available hours scheduled across projects</div>
                             </div>
                             <input type="checkbox" checked={!(state?.userSettings.disabledInsightRules?.includes('ui_capacity'))} onChange={() => toggleFeature('ui_capacity')} style={{ width: '18px', height: '18px', accentColor: '#7c5cfc' }} />
                         </label>
@@ -430,57 +432,57 @@ export default function AccountSettingsPage() {
 
             Integrations: (
                 <div>
-                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: '0 0 8px 0' }}>Integrations</h2>
-                    <p style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 24px 0' }}>Connect third-party accounts to sync data seamlessly.</p>
-                    <hr style={{ border: 'none', borderTop: '1px solid #e5e7eb', margin: '0 0 24px 0' }} />
+                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#ffffff', margin: '0 0 8px 0' }}>Integrations</h2>
+                    <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)', margin: '0 0 24px 0' }}>Connect third-party accounts to sync data seamlessly.</p>
+                    <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', margin: '0 0 24px 0' }} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: '#1a1a1f', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <div style={{ width: '40px', height: '40px', backgroundColor: '#111827', color: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
                                     <i className="fa-brands fa-github"></i>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '15px', fontWeight: '600', color: '#111827' }}>GitHub</div>
-                                    <div style={{ fontSize: '13px', color: '#6b7280' }}>Sync repos or commit streams</div>
+                                    <div style={{ fontSize: '15px', fontWeight: '600', color: '#ffffff' }}>GitHub</div>
+                                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Sync repos or commit streams</div>
                                 </div>
                             </div>
                             {hasGithubIdentity(user) ? (
                                 <span style={{ fontSize: '13px', color: '#16a34a', fontWeight: '500', padding: '4px 12px', borderRadius: '999px', backgroundColor: '#dcfce7' }}>Connected</span>
                             ) : (
-                                <button onClick={linkGithub} disabled={isLinking} style={{ padding: '6px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', backgroundColor: '#fff', color: '#374151', fontSize: '14px', cursor: 'pointer', fontWeight: '500' }}>
+                                <button onClick={linkGithub} disabled={isLinking} style={{ padding: '6px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', backgroundColor: 'transparent', color: '#ffffff', fontSize: '14px', cursor: 'pointer', fontWeight: '500' }}>
                                     {isLinking ? "Redirecting..." : "Connect"}
                                 </button>
                             )}
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: '#1a1a1f', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ width: '40px', height: '40px', backgroundColor: '#fff', color: '#000', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', border: '1px solid #e5e7eb' }}>
+                                <div style={{ width: '40px', height: '40px', backgroundColor: '#2a2a2f', color: '#000', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', border: '1px solid rgba(255,255,255,0.1)' }}>
                                     <i className="fa-brands fa-google"></i>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '15px', fontWeight: '600', color: '#111827' }}>Google</div>
-                                    <div style={{ fontSize: '13px', color: '#6b7280' }}>Sync identity and metadata</div>
+                                    <div style={{ fontSize: '15px', fontWeight: '600', color: '#ffffff' }}>Google</div>
+                                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Sync identity and metadata</div>
                                 </div>
                             </div>
                             {hasGoogleIdentity(user) ? (
                                 <span style={{ fontSize: '13px', color: '#16a34a', fontWeight: '500', padding: '4px 12px', borderRadius: '999px', backgroundColor: '#dcfce7' }}>Connected</span>
                             ) : (
-                                <button onClick={linkGoogle} disabled={isLinking} style={{ padding: '6px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', backgroundColor: '#fff', color: '#374151', fontSize: '14px', cursor: 'pointer', fontWeight: '500' }}>
+                                <button onClick={linkGoogle} disabled={isLinking} style={{ padding: '6px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', backgroundColor: 'transparent', color: '#ffffff', fontSize: '14px', cursor: 'pointer', fontWeight: '500' }}>
                                     {isLinking ? "Redirecting..." : "Connect"}
                                 </button>
                             )}
                         </div>
 
-                        <div style={{ padding: '16px', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ padding: '16px', backgroundColor: '#1a1a1f', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ width: '40px', height: '40px', backgroundColor: '#fff', color: '#374151', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', border: '1px solid #e5e7eb' }}>
+                                    <div style={{ width: '40px', height: '40px', backgroundColor: '#2a2a2f', color: '#374151', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', border: '1px solid rgba(255,255,255,0.1)' }}>
                                         🔑
                                     </div>
                                     <div>
-                                        <div style={{ fontSize: '15px', fontWeight: '600', color: '#111827' }}>GitHub PAT</div>
-                                        <div style={{ fontSize: '13px', color: '#6b7280' }}>Private repo tracking</div>
+                                        <div style={{ fontSize: '15px', fontWeight: '600', color: '#ffffff' }}>GitHub PAT</div>
+                                        <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Private repo tracking</div>
                                     </div>
                                 </div>
                                 <button onClick={saveGithubPat} style={{ padding: '6px 12px', borderRadius: '8px', border: 'none', backgroundColor: '#7c5cfc', color: '#fff', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
@@ -489,7 +491,7 @@ export default function AccountSettingsPage() {
                             </div>
                             <input
                                 type="password"
-                                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e5e7eb', backgroundColor: '#fff', color: '#111827', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(255,255,255,0.05)', color: '#ffffff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
                                 placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
                                 value={githubPat}
                                 onChange={(e) => setGithubPat(e.target.value)}
@@ -504,15 +506,15 @@ export default function AccountSettingsPage() {
 
             Data: (
                 <div>
-                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: '0 0 8px 0' }}>Data Export</h2>
-                    <p style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 24px 0' }}>Safely export your entire lock-in dataset as JSON or import an existing snapshot.</p>
-                    <hr style={{ border: 'none', borderTop: '1px solid #e5e7eb', margin: '0 0 24px 0' }} />
+                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#ffffff', margin: '0 0 8px 0' }}>Data Export</h2>
+                    <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)', margin: '0 0 24px 0' }}>Safely export your entire lock-in dataset as JSON or import an existing snapshot.</p>
+                    <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', margin: '0 0 24px 0' }} />
 
                     <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}>
                         <button onClick={handleExport} style={{ padding: '9px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#7c5cfc', color: '#fff', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
                             Export JSON
                         </button>
-                        <label style={{ padding: '9px 20px', borderRadius: '8px', border: '1px solid #e5e7eb', backgroundColor: '#fff', color: '#374151', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'inline-block' }}>
+                        <label style={{ padding: '9px 20px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', backgroundColor: 'transparent', color: '#ffffff', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'inline-block' }}>
                             Import JSON
                             <input
                                 type="file"
@@ -528,22 +530,22 @@ export default function AccountSettingsPage() {
                     {importError && <div style={{ marginBottom: '16px', fontSize: '13px', color: '#ef4444' }}>{importError}</div>}
 
                     {preview && (
-                        <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
-                            <div style={{ fontSize: '14px', fontWeight: '600', color: '#111827', marginBottom: '12px' }}>Import Preview</div>
+                        <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#1a1a1f', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                            <div style={{ fontSize: '14px', fontWeight: '600', color: '#ffffff', marginBottom: '12px' }}>Import Preview</div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
-                                <div><div style={{ fontSize: '18px', fontWeight: '700', color: '#111827' }}>{preview.counts.projects}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>Projects</div></div>
-                                <div><div style={{ fontSize: '18px', fontWeight: '700', color: '#111827' }}>{preview.counts.tasks}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>Tasks</div></div>
-                                <div><div style={{ fontSize: '18px', fontWeight: '700', color: '#111827' }}>{preview.counts.goals}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>Goals</div></div>
-                                <div><div style={{ fontSize: '18px', fontWeight: '700', color: '#111827' }}>{preview.counts.localRepos}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>Repos</div></div>
+                                <div><div style={{ fontSize: '18px', fontWeight: '700', color: '#ffffff' }}>{preview.counts.projects}</div><div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>Projects</div></div>
+                                <div><div style={{ fontSize: '18px', fontWeight: '700', color: '#ffffff' }}>{preview.counts.tasks}</div><div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>Tasks</div></div>
+                                <div><div style={{ fontSize: '18px', fontWeight: '700', color: '#ffffff' }}>{preview.counts.goals}</div><div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>Goals</div></div>
+                                <div><div style={{ fontSize: '18px', fontWeight: '700', color: '#ffffff' }}>{preview.counts.localRepos}</div><div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>Repos</div></div>
                             </div>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <button onClick={() => applyImport("replace")} style={{ flex: 1, padding: '8px', borderRadius: '6px', border: 'none', backgroundColor: '#7c5cfc', color: '#fff', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Replace All</button>
-                                <button onClick={() => applyImport("merge_keep")} style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #e5e7eb', backgroundColor: 'transparent', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Merge</button>
+                                <button onClick={() => applyImport("merge_keep")} style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', backgroundColor: 'transparent', color: '#ffffff', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Merge</button>
                             </div>
                         </div>
                     )}
 
-                    <hr style={{ border: 'none', borderTop: '1px solid #e5e7eb', margin: '0 0 20px 0' }} />
+                    <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', margin: '0 0 20px 0' }} />
                     <div style={{ fontSize: '15px', fontWeight: '600', color: '#ef4444', marginBottom: '4px' }}>Danger Zone</div>
                     <div style={{ fontSize: '13px', color: '#9ca3af', marginBottom: '12px' }}>Irreversibly delete all data tracked in the current Linkra instance.</div>
                     <button onClick={handleWipe} style={{ padding: '9px 20px', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.3)', backgroundColor: 'rgba(239,68,68,0.05)', color: '#ef4444', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
@@ -557,15 +559,15 @@ export default function AccountSettingsPage() {
             <div style={{
                 display: 'flex',
                 minHeight: '100%',
-                backgroundColor: '#ffffff',
+                backgroundColor: 'transparent',
                 fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             }}>
                 {/* Left Sidebar */}
                 <div style={{
                     width: '220px',
                     flexShrink: 0,
-                    backgroundColor: '#ffffff',
-                    borderRight: '1px solid #e5e7eb',
+                    backgroundColor: '#111114',
+                    borderRight: '1px solid rgba(255,255,255,0.06)',
                     padding: '32px 0',
                     display: 'flex',
                     flexDirection: 'column',
@@ -581,14 +583,15 @@ export default function AccountSettingsPage() {
                                     style={{
                                         width: '100%',
                                         textAlign: 'left',
-                                        padding: '9px 12px',
+                                        padding: isActive ? '9px 12px 9px 10px' : '9px 12px',
                                         borderRadius: '8px',
                                         border: 'none',
+                                        borderLeft: isActive ? '2px solid #7c5cfc' : '2px solid transparent',
                                         cursor: 'pointer',
                                         fontSize: '14px',
                                         fontWeight: isActive ? '600' : '400',
-                                        color: isActive ? '#7c5cfc' : '#374151',
-                                        backgroundColor: isActive ? 'rgba(124,92,252,0.08)' : 'transparent',
+                                        color: isActive ? '#ffffff' : 'rgba(255,255,255,0.6)',
+                                        backgroundColor: isActive ? 'rgba(124,92,252,0.15)' : 'transparent',
                                         transition: 'background-color 0.15s, color 0.15s',
                                     }}
                                 >
@@ -597,7 +600,7 @@ export default function AccountSettingsPage() {
                             );
                         })}
 
-                        <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '8px 0' }} />
+                        <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.06)', margin: '8px 0' }} />
 
                         <button
                             onClick={() => setActiveTab("Data")}
@@ -626,7 +629,7 @@ export default function AccountSettingsPage() {
                                 width: '100%',
                                 padding: '9px 12px',
                                 borderRadius: '8px',
-                                border: '1px solid rgba(239,68,68,0.25)',
+                                border: '1px solid rgba(239,68,68,0.3)',
                                 backgroundColor: 'transparent',
                                 color: '#ef4444',
                                 fontSize: '14px',
@@ -641,7 +644,7 @@ export default function AccountSettingsPage() {
                 </div>
 
                 {/* Main Content */}
-                <div style={{ flex: 1, padding: '40px 48px', overflowY: 'auto' }}>
+                <div style={{ flex: 1, padding: '40px 48px', overflowY: 'auto', backgroundColor: 'transparent' }}>
                     <div style={{ maxWidth: '600px' }}>
                         {sectionContent[desktopTab]}
                     </div>
