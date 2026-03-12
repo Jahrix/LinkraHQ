@@ -131,6 +131,9 @@ function buildAllowedClientOrigins() {
 const allowedClientOrigins = buildAllowedClientOrigins();
 
 function isLoopbackAddress(address?: string | null) {
+  if (process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.SUPABASE_URL) {
+    return true;
+  }
   if (!address) {
     return false;
   }

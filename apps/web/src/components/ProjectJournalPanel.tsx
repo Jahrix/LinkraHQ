@@ -347,7 +347,7 @@ export default function ProjectJournalPanel({
                       </div>
                     )}
 
-                    {repo?.id === entry.links.repoIds[0] && (
+                    {repo && repo.id === entry.links.repoIds[0] && (
                       <div className="text-xs text-muted">Repo linked: {repo.name}</div>
                     )}
 
