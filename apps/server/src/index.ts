@@ -28,6 +28,7 @@ import {
   consumeAiPlanQuota,
   fetchAiPlanQuotaStatus
 } from "./supabaseQuota.js";
+import os from "node:os";
 
 const __filename_local = fileURLToPath(import.meta.url);
 const __dirname_local = path.dirname(__filename_local);
@@ -35,7 +36,32 @@ dotenv.config({ path: path.resolve(__dirname_local, "../.env") });
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4170);
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+
+function getPersistentSecret(): string {
+  if (process.env.SESSION_SECRET) {
+    return process.env.SESSION_SECRET;
+  }
+  
+  const secretPath = path.join(os.homedir(), ".linkra-secret");
+  try {
+    if (fs.existsSync(secretPath)) {
+      return fs.readFileSync(secretPath, "utf-8").trim();
+    }
+  } catch (err) {
+    console.error("Failed to read persistent secret:", err);
+  }
+
+  const newSecret = crypto.randomBytes(32).toString("hex");
+  try {
+    fs.writeFileSync(secretPath, newSecret, { mode: 0o600 });
+  } catch (err) {
+    console.error("Failed to write persistent secret:", err);
+  }
+  return newSecret;
+}
+
+const SESSION_SECRET = getPersistentSecret();
+
 const DEFAULT_CLIENT_ORIGIN = "http://localhost:5173";
 const SESSION_COOKIE_NAME = "connect.sid";
 
