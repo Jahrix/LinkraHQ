@@ -69,10 +69,55 @@ export default function CommitsPage() {
   // Prevents concurrent loadGithubConnection calls from interleaving state updates.
   const isLoadingGithubRef = useRef(false);
 
-  if (!state) return null;
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" ? window.innerWidth < 768 : false);
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
 
-  const clearLegacyGithubState = async () => {
-    if (!state.github.loggedIn && !state.github.user) return;
+  const dailyCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    Object.values(commits).flat().forEach((c) => {
+      const day = c.date.slice(0, 10);
+      map[day] = (map[day] ?? 0) + 1;
+    });
+    return map;
+  }, [commits]);
+
+  const loadCommits = useCallback(async (silent = false) => {
+    if (!githubUser || !githubToken || !state) return;
+    setLoading(true);
+    setError(null);
+    const results: Record<string, Commit[]> = {};
+    const errors: string[] = [];
+    for (const repo of state.userSettings.selectedRepos) {
+      try {
+        const response = await fetchGithubRepoCommits(githubToken, repo.repo, repo.branch, 12);
+        results[`${repo.repo}#${repo.branch}`] = response.commits as Commit[];
+        if (response.rateLimit) {
+          setRateLimit(response.rateLimit);
+        }
+      } catch (err) {
+        results[`${repo.repo}#${repo.branch}`] = [];
+        const message = err instanceof Error ? err.message : "Failed to load commits";
+        errors.push(`${repo.repo} (${repo.branch}): ${message}`);
+      }
+    }
+    setCommits(results);
+
+    const isAuthExpired = errors.some(e => e.includes("authorization expired"));
+    if (isAuthExpired) {
+      setGithubToken(null);
+      setError("GitHub authorization expired. Please reconnect.");
+    } else {
+      setError(errors.length > 0 ? errors.join(" ") : null);
+      if (!silent && errors.length === 0 && state.userSettings.selectedRepos.length > 0) {
+        playCommitSound();
+      }
+    }
+
+    setLoading(false);
+  }, [githubUser, githubToken, state]);
+
+  const clearLegacyGithubState = useCallback(async () => {
+    if (!state || (!state.github.loggedIn && !state.github.user)) return;
     const next = cloneAppState(state);
     next.github.loggedIn = false;
     next.github.user = null;
@@ -80,9 +125,9 @@ export default function CommitsPage() {
     if (!saved) {
       console.error("Failed to clear legacy GitHub state from Supabase.");
     }
-  };
+  }, [state, save]);
 
-  const loadGithubConnection = async () => {
+  const loadGithubConnection = useCallback(async () => {
     // Guard against concurrent calls (e.g. rapid auth events firing back-to-back).
     if (isLoadingGithubRef.current) return;
     isLoadingGithubRef.current = true;
@@ -138,7 +183,13 @@ export default function CommitsPage() {
       setIsCheckingAuth(false);
       isLoadingGithubRef.current = false;
     }
-  };
+  }, [clearLegacyGithubState]);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     const cleanedUrl = finalizeAuthRedirectUrl(window.location);
@@ -163,7 +214,23 @@ export default function CommitsPage() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [loadGithubConnection, clearLegacyGithubState]);
+
+  // Load commits + set up 60s auto-refresh when connected
+  useEffect(() => {
+    if (!githubUser || !githubToken || !state) return;
+    loadCommits(true);
+
+    autoRefreshRef.current = setInterval(() => {
+      loadCommits(true);
+    }, REFRESH_INTERVAL);
+
+    return () => {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    };
+  }, [loadCommits, githubUser, githubToken, state]);
+
+  if (!state) return null;
 
   const addRepo = async () => {
     if (!repoInput.trim()) return;
@@ -189,55 +256,6 @@ export default function CommitsPage() {
       push("Failed to remove repository.", "error");
     }
   };
-
-  const loadCommits = useCallback(async (silent = false) => {
-    if (!githubUser || !githubToken) return;
-    setLoading(true);
-    setError(null);
-    const results: Record<string, Commit[]> = {};
-    const errors: string[] = [];
-    for (const repo of state.userSettings.selectedRepos) {
-      try {
-        const response = await fetchGithubRepoCommits(githubToken, repo.repo, repo.branch, 12);
-        results[`${repo.repo}#${repo.branch}`] = response.commits as Commit[];
-        if (response.rateLimit) {
-          setRateLimit(response.rateLimit);
-        }
-      } catch (err) {
-        results[`${repo.repo}#${repo.branch}`] = [];
-        const message = err instanceof Error ? err.message : "Failed to load commits";
-        errors.push(`${repo.repo} (${repo.branch}): ${message}`);
-      }
-    }
-    setCommits(results);
-
-    const isAuthExpired = errors.some(e => e.includes("authorization expired"));
-    if (isAuthExpired) {
-      setGithubToken(null);
-      setError("GitHub authorization expired. Please reconnect.");
-    } else {
-      setError(errors.length > 0 ? errors.join(" ") : null);
-      if (!silent && errors.length === 0 && state.userSettings.selectedRepos.length > 0) {
-        playCommitSound();
-      }
-    }
-
-    setLoading(false);
-  }, [githubUser, githubToken, state.userSettings.selectedRepos]);
-
-  // Load commits + set up 60s auto-refresh when connected
-  useEffect(() => {
-    if (!githubUser || !githubToken) return;
-    loadCommits(true);
-
-    autoRefreshRef.current = setInterval(() => {
-      loadCommits(true);
-    }, REFRESH_INTERVAL);
-
-    return () => {
-      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
-    };
-  }, [loadCommits]);
 
   const handleConnect = async () => {
     setAuthActionLoading(true);
@@ -435,24 +453,6 @@ export default function CommitsPage() {
       </div>
     );
   }
-
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
-
-  const dailyCounts = useMemo(() => {
-    const map: Record<string, number> = {};
-    Object.values(commits).flat().forEach((c) => {
-      const day = c.date.slice(0, 10);
-      map[day] = (map[day] ?? 0) + 1;
-    });
-    return map;
-  }, [commits]);
 
   const numWeeks = isMobile ? 16 : 52;
   const totalDays = numWeeks * 7;

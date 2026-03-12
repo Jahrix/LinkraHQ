@@ -19,19 +19,25 @@ export default function DailyGoalsPage() {
   const [templateCategory, setTemplateCategory] = useState("Focus");
   const [templatePoints, setTemplatePoints] = useState(1);
 
-  if (!state) return null;
   const key = todayKey();
+
+  const archive = useMemo(
+    () => {
+      if (!state) return [];
+      return Object.values(state.dailyGoalsByDate).filter((entry) => entry.date !== key).sort((a, b) => b.date.localeCompare(a.date));
+    },
+    [state, key]
+  );
+
+  if (!state) return null;
   const todayEntry = state.dailyGoalsByDate[key];
+
   if (!todayEntry) {
     return <div className="flex items-center justify-center min-h-[400px] text-muted animate-pulse">Initializing Daily Directive...</div>;
   }
+
   const todayLabel = formatDay(new Date());
   const totalPoints = todayEntry.goals.reduce((sum, goal) => sum + goal.points, 0);
-
-  const archive = useMemo(
-    () => Object.values(state.dailyGoalsByDate).filter((entry) => entry.date !== key).sort((a, b) => b.date.localeCompare(a.date)),
-    [state, key]
-  );
 
   const updateGoal = async (goalId: string, done: boolean) => {
     if (!todayEntry) return;

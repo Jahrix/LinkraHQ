@@ -27,13 +27,8 @@ export default function RoadmapPage() {
   // Track mousedown position to avoid triggering click on drag
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
 
-  if (!state) return null;
-
-  const selectedCard = selectedCardId
-    ? state.roadmapCards.find((c) => c.id === selectedCardId) ?? null
-    : null;
-
   const filteredCards = useMemo(() => {
+    if (!state) return [];
     const lower = query.toLowerCase();
     return state.roadmapCards.filter((card) => {
       if (!lower) return true;
@@ -43,7 +38,14 @@ export default function RoadmapPage() {
         card.tags.some((tag) => tag.toLowerCase().includes(lower))
       );
     });
-  }, [state.roadmapCards, query]);
+  }, [state?.roadmapCards, query]);
+
+  const selectedCard = useMemo(() => {
+    if (!state || !selectedCardId) return null;
+    return state.roadmapCards.find((c) => c.id === selectedCardId) ?? null;
+  }, [state?.roadmapCards, selectedCardId]);
+
+  if (!state) return null;
 
   const addCard = async () => {
     if (!title.trim()) return;

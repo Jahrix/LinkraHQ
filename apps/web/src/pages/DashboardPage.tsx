@@ -98,18 +98,16 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const duplicateWarnings = useRef(new Set<string>());
 
-  if (!state) return null;
-
-  const dedupedProjects = dedupeById(state.projects);
+  const dedupedProjects = dedupeById(state?.projects || []);
   const projects = dedupedProjects.items;
-  const dedupedLocalRepos = dedupeLocalRepos(state.localRepos ?? []);
+  const dedupedLocalRepos = dedupeLocalRepos(state?.localRepos ?? []);
   const uniqueRepos = dedupedLocalRepos.items;
   const repoByPath = new Map(uniqueRepos.map((repo) => [repo.path, repo]));
   const repoById = new Map(uniqueRepos.map((repo) => [repo.id, repo]));
-  const disabledInsightRules = new Set(state.userSettings.disabledInsightRules ?? []);
+  const disabledInsightRules = new Set(state?.userSettings.disabledInsightRules ?? []);
 
   const now = Date.now();
-  const activeInsights = dedupeById(state.insights ?? []).items.filter((item) => {
+  const activeInsights = dedupeById(state?.insights ?? []).items.filter((item) => {
     if (disabledInsightRules.has(item.ruleId)) return false;
     if (item.dismissedUntil && new Date(item.dismissedUntil).getTime() > now) return false;
     if (!showArchived && item.projectId) {
@@ -129,7 +127,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const selectedTasks = selectedProject ? dedupeById(selectedProject.tasks).items : [];
   const selectedProjectInsights = activeInsights.filter((insight) => insight.projectId === selectedProject?.id);
-  const todayEntry = state.dailyGoalsByDate[todayKey()];
+  const todayEntry = state?.dailyGoalsByDate[todayKey()];
   const lastScanAt =
     uniqueRepos
       .map((repo) => repo.scannedAt)
@@ -149,6 +147,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   );
 
   const resolveGithubToken = async () => {
+    if (!state) return null;
     const pat = state.userSettings.githubPat?.trim();
     if (pat) {
       return pat;
@@ -184,7 +183,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const groupedInsights = useMemo(() => groupInsights(filteredInsights), [filteredInsights]);
 
-  const filteredRoadmap = state.roadmapCards.filter((card) =>
+  const filteredRoadmap = (state?.roadmapCards || []).filter((card) =>
     isRoadmapCardForProject(card, selectedProject, projects)
   );
 
@@ -983,6 +982,8 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     text: topPlanTaskEntry.task.text,
     projectName: topPlanTaskEntry.project.name
   } : null;
+
+  if (!state) return null;
 
   return (
     <>

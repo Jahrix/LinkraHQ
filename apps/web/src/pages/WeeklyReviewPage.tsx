@@ -81,42 +81,68 @@ export default function WeeklyReviewPage() {
   const [weekStart, setWeekStart] = useState(startOfWeek(new Date()));
   const [review, setReview] = useState<WeeklyReview | null>(null);
 
-  if (!state) return null;
+  const { weekEnd } = useMemo(() => weekBounds(weekStart), [weekStart]);
 
-  const { weekEnd } = weekBounds(weekStart);
-  const liveReview = useMemo(() => generateWeeklyReview(state, weekStart), [state, weekStart]);
-  const activeReview = review?.weekStart === weekStart ? review : liveReview;
+  const liveReview = useMemo(() => {
+    if (!state) return null;
+    return generateWeeklyReview(state, weekStart);
+  }, [state, weekStart]);
 
-  const dedupedJournalEntries = dedupeById(state.journalEntries);
-  const weekJournalEntries = dedupedJournalEntries.items.filter((entry) => isBetween(entry.ts, weekStart, weekEnd));
+  const activeReview = useMemo(() => {
+    const base = review?.weekStart === weekStart ? review : liveReview;
+    if (base) return base;
+    return {
+      id: "",
+      weekStart,
+      weekEnd,
+      goalsCompleted: 0,
+      points: 0,
+      tasksDone: 0,
+      tasksCreated: 0,
+      roadmapMoved: 0,
+      commitsCount: 0,
+      focusMinutes: 0,
+      journalCount: 0,
+      perProject: [],
+      highlights: [],
+      markdown: "",
+      stats: {
+        goalsCompleted: 0,
+        points: 0,
+        tasksDone: 0,
+        tasksCreated: 0,
+        roadmapMoved: 0,
+        commitsCount: 0,
+        focusMinutes: 0,
+        journalCount: 0
+      }
+    } as WeeklyReview;
+  }, [review, weekStart, weekEnd, liveReview]);
+
+  const weekJournalEntries = useMemo(() => {
+    if (!state) return [];
+    const dedupedJournalEntries = dedupeById(state.journalEntries);
+    return dedupedJournalEntries.items.filter((entry) => isBetween(entry.ts, weekStart, weekEnd));
+  }, [state, weekStart, weekEnd]);
 
   const reviewHistory = useMemo(() => {
+    if (!state) return { items: [], duplicates: [] };
     return dedupeByKey(
       [...state.weeklyReviews].sort((a, b) => (a.weekStart < b.weekStart ? 1 : -1)),
       (item) => item.weekStart
     );
-  }, [state.weeklyReviews]);
+  }, [state?.weeklyReviews]);
 
   const snapshotHistory = useMemo(() => {
+    if (!state) return { items: [], duplicates: [] };
     return dedupeByKey(
       [...state.weeklySnapshots].sort((a, b) => (a.weekStart < b.weekStart ? 1 : -1)),
       (item) => item.weekStart
     );
-  }, [state.weeklySnapshots]);
-
-  const duplicateWarnings = [
-    reviewHistory.duplicates.length > 0
-      ? `Weekly review history had ${reviewHistory.duplicates.length} duplicate week entries. The latest week copy is shown.`
-      : null,
-    snapshotHistory.duplicates.length > 0
-      ? `Weekly snapshot history had ${snapshotHistory.duplicates.length} duplicate week entries. The latest week copy is shown.`
-      : null,
-    dedupedJournalEntries.duplicates.length > 0
-      ? `Journal had ${dedupedJournalEntries.duplicates.length} duplicate IDs during recap generation. Counts were deduped.`
-      : null
-  ].filter((item): item is string => Boolean(item));
+  }, [state?.weeklySnapshots]);
 
   const breakdown = useMemo(() => {
+    if (!state) return [];
     return activeReview.perProject.map((item) => {
       const project = state.projects.find((candidate) => candidate.id === item.projectId) ?? null;
       const projectEntries = weekJournalEntries.filter((entry) => entry.projectId === item.projectId);
@@ -142,7 +168,13 @@ export default function WeeklyReviewPage() {
         activity
       };
     }).sort((a, b) => b.activity - a.activity);
-  }, [activeReview.perProject, state.projects, weekJournalEntries]);
+  }, [activeReview.perProject, state, weekJournalEntries]);
+
+  useEffect(() => {
+    setReview((current) => (current?.weekStart === weekStart ? current : null));
+  }, [weekStart]);
+
+  if (!state) return null;
 
   const statCards = [
     { label: "Goals", value: activeReview.stats.goalsCompleted },
@@ -155,9 +187,19 @@ export default function WeeklyReviewPage() {
     { label: "Journal", value: activeReview.stats.journalCount }
   ];
 
-  useEffect(() => {
-    setReview((current) => (current?.weekStart === weekStart ? current : null));
-  }, [weekStart]);
+  const dedupedJournalEntries = dedupeById(state.journalEntries);
+
+  const duplicateWarnings = [
+    reviewHistory.duplicates.length > 0
+      ? `Weekly review history had ${reviewHistory.duplicates.length} duplicate week entries. The latest week copy is shown.`
+      : null,
+    snapshotHistory.duplicates.length > 0
+      ? `Weekly snapshot history had ${snapshotHistory.duplicates.length} duplicate week entries. The latest week copy is shown.`
+      : null,
+    dedupedJournalEntries.duplicates.length > 0
+      ? `Journal had ${dedupedJournalEntries.duplicates.length} duplicate IDs during recap generation. Counts were deduped.`
+      : null
+  ].filter((item): item is string => Boolean(item));
 
   const generateReview = () => {
     setReview(liveReview);
