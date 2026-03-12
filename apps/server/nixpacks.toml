@@ -1,0 +1,14 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm install --prefix ../.."]
+
+[phases.build]
+cmds = [
+  "npm run build --workspace=@linkra/shared --prefix ../..",
+  "npm run build --workspace=@linkra/server --prefix ../.."
+]
+
+[start]
+cmd = "node dist/index.js"
