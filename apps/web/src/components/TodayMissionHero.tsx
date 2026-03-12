@@ -19,6 +19,7 @@ export default function TodayMissionHero({
     onStartFocus,
     onToggleClosed,
     onBuildPlan,
+    onFillMyDay,
     onSaveNotes,
     initialNotes = "",
 }: {
@@ -33,6 +34,7 @@ export default function TodayMissionHero({
     onStartFocus: (taskId: string) => void;
     onToggleClosed?: () => void;
     onBuildPlan?: () => void;
+    onFillMyDay?: () => void;
     onSaveNotes?: (notes: string) => void;
     initialNotes?: string;
 }) {
@@ -121,6 +123,16 @@ export default function TodayMissionHero({
                             <span className="text-[8px] font-black uppercase tracking-[0.3em] mb-1 group-hover/ai:text-accent transition-colors">Generate</span>
                             <span className="text-xs uppercase tracking-widest">AI Plan</span>
                         </button>
+
+                        {onFillMyDay && (
+                            <button
+                                onClick={onFillMyDay}
+                                className="col-span-2 flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm text-white transition-opacity"
+                                style={{ background: "#7c5cfc" }}
+                            >
+                                Fill My Day ✦
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

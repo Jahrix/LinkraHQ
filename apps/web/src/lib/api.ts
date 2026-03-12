@@ -1,4 +1,18 @@
 import type { AppState, LocalRepo, WeeklyReview, SuggestedAction } from "@linkra/shared";
+
+export interface SuggestedGoal {
+  title: string;
+  category: string;
+  points: number;
+  projectId: string | null;
+  taskId: string | null;
+}
+
+export interface QuotaInfo {
+  used: number;
+  remaining: number;
+  dailyLimit: number;
+}
 import { supabase } from "./supabase";
 
 export const API_BASE = import.meta.env.VITE_API_URL || "";
@@ -171,5 +185,10 @@ export const api = {
         method: "POST"
       }
     ),
+  fillMyDay: (state: AppState) =>
+    request<{ goals: SuggestedGoal[]; quota: QuotaInfo }>("/api/fill-my-day", {
+      method: "POST",
+      body: JSON.stringify({ state })
+    }),
   logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" })
 };

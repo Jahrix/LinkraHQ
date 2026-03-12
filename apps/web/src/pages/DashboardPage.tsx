@@ -64,6 +64,7 @@ import {
   getGithubProviderToken,
   hasGithubIdentity
 } from "../lib/githubAuth";
+import FillMyDaySheet from "../components/FillMyDaySheet";
 
 const tabs = ["Tasks", "Roadmap", "Journal", "Project Settings"];
 const uiStatuses = ["Not Started", "In Progress", "Review", "On Hold", "Done", "Archived"] as const;
@@ -95,6 +96,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const [todayPlanDraft, setTodayPlanDraft] = useState<string[]>([]);
   const [todayPlanNotes, setTodayPlanNotes] = useState("");
   const { quota: aiPlanQuota, isLoading: isLoadingQuota, setQuota: setAiPlanQuota } = useAiQuota();
+  const [fillDaySheetOpen, setFillDaySheetOpen] = useState(false);
 
   const duplicateWarnings = useRef(new Set<string>());
 
@@ -991,6 +993,8 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   return (
     <>
+      <FillMyDaySheet open={fillDaySheetOpen} onClose={() => setFillDaySheetOpen(false)} />
+
       <div className="mb-6">
         {pomodoroStatus !== "idle" ? (
           <PomodoroTimer />
@@ -1003,6 +1007,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
             isClosed={!!todayEntry?.isClosed}
             onStartFocus={startFocus}
             onToggleClosed={toggleDayClosed}
+            onFillMyDay={() => setFillDaySheetOpen(true)}
           />
         )}
       </div>
