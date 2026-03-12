@@ -89,7 +89,7 @@ function toProjectStatus(status: unknown) {
   return "Not Started" as const;
 }
 
-function migrateStateToCurrent(state: any): AppState {
+export function migrateStateToCurrent(state: any): AppState {
   const now = new Date().toISOString();
   const rawProjects = Array.isArray(state?.projects) ? state.projects : [];
 

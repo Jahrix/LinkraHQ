@@ -222,7 +222,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   );
   const tasksProgress = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  const todayPlan = state.todayPlanByDate?.[todayKey()] ?? null;
+  const todayPlan = state?.todayPlanByDate?.[todayKey()] ?? null;
   const selectedProjectTaskDone = selectedTasks.filter((task) => task.done).length;
   const selectedProjectTaskProgress = selectedTasks.length
     ? Math.round((selectedProjectTaskDone / selectedTasks.length) * 100)
@@ -268,6 +268,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     mutate: (draft: AppState) => void,
     failureMessage = "Failed to save changes."
   ) => {
+    if (!state) return null;
     const next = cloneAppState(state);
     mutate(next);
     const saved = await save(next);
@@ -298,10 +299,10 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
   }, [selectedProject?.id]);
 
-  const savedPlanTaskIdsString = JSON.stringify(state.todayPlanByDate?.[todayKey()]?.taskIds ?? null);
+  const savedPlanTaskIdsString = JSON.stringify(state?.todayPlanByDate?.[todayKey()]?.taskIds ?? null);
   
   useEffect(() => {
-    const saved = state.todayPlanByDate?.[todayKey()];
+    const saved = state?.todayPlanByDate?.[todayKey()];
     setTodayPlanNotes(saved?.notes ?? "");
     if (saved && saved.taskIds.length > 0) {
       setTodayPlanDraft(saved.taskIds);
@@ -366,7 +367,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const saveNewProject = async (draft: any) => {
     const created = createProjectFromDraft(
       draft,
-      projectColors[state.projects.length % projectColors.length] ?? projectColors[0]
+      projectColors[(state?.projects ?? []).length % projectColors.length] ?? projectColors[0]
     );
     const saved = await persistState((next) => {
       next.projects.unshift(created);
@@ -558,7 +559,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const updateTaskStatus = async (taskId: string, status: "todo" | "doing" | "done") => {
-    if (!selectedProject) return;
+    if (!selectedProject || !state) return;
     const next = cloneAppState(state);
     const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
     if (!project) return;
@@ -668,7 +669,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const updateTaskDependencies = async (taskId: string, deps: string[]) => {
-    if (!selectedProject) return;
+    if (!selectedProject || !state) return;
     const next = cloneAppState(state);
     const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
     if (!project) return;
@@ -682,7 +683,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const updateTaskPriority = async (taskId: string, priority: "low" | "med" | "high") => {
-    if (!selectedProject) return;
+    if (!selectedProject || !state) return;
     const next = cloneAppState(state);
     const project = next.projects.find((candidate) => candidate.id === selectedProject.id);
     if (!project) return;
@@ -725,7 +726,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const loadLocalCommits = async () => {
-    if (!selectedProject?.localRepoPath) return;
+    if (!selectedProject?.localRepoPath || !state) return;
     const isLocal = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
     if (!isLocal) return;
     try {
@@ -774,6 +775,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       throw new Error("Add tasks to Today's Queue before using Build My Plan.");
     }
 
+    if (!state) throw new Error("State not loaded.");
     try {
       const result = await api.buildMyPlan(state, prompt, queueTaskIds);
       setAiPlanQuota(result.quota);
@@ -824,6 +826,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   };
 
   const applyInsightActionLocally = async (group: InsightGroup, action: SuggestedAction) => {
+    if (!state) return false;
     const next = cloneAppState(state);
 
     if (action.type === "CREATE_TASK") {
@@ -959,6 +962,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
     try {
       if (action.type === "OPEN_REPO") {
+        if (!state) return;
         await api.insightAction(state, action);
         push(successMessageForInsightAction(action.type), "success");
         return;

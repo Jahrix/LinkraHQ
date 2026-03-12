@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { AppStateSchema, type AppState } from "@linkra/shared";
+import { AppStateSchema, SCHEMA_VERSION, migrateStateToCurrent, type AppState } from "@linkra/shared";
 import { supabase } from "./supabase";
 import { cloneAppState, createDefaultAppState, normalizeRuntimeAppState } from "./appStateModel";
 
@@ -78,15 +78,30 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         const normalized = normalizeRuntimeAppState(fresh);
         stateRef.current = normalized;
         setState(normalized);
+      } else if (!data) {
+        // New user: no state row exists yet — create default and sync
+        const fresh = createDefaultAppState();
+        const { error: insertError } = await supabase.rpc("sync_app_state", { state_json: fresh });
+        if (insertError) {
+          console.warn("Failed to sync initial state:", insertError);
+        }
+        const normalized = normalizeRuntimeAppState(fresh);
+        stateRef.current = normalized;
+        setState(normalized);
       } else {
         let loaded = data as any;
         if (loaded.metadata?.schema_version !== SCHEMA_VERSION) {
           loaded = migrateStateToCurrent(loaded);
         }
-        const parsed = AppStateSchema.parse(loaded);
-        const normalized = normalizeRuntimeAppState(parsed);
-        stateRef.current = normalized;
-        setState(normalized);
+        const parsed = AppStateSchema.safeParse(loaded);
+        if (parsed.success) {
+          const normalized = normalizeRuntimeAppState(parsed.data);
+          stateRef.current = normalized;
+          setState(normalized);
+        } else {
+          console.error("Failed to parse app state:", parsed.error);
+          throw new Error("Schema validation failed. Check console for details.");
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load state");

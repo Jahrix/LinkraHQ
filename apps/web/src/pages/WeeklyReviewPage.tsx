@@ -95,6 +95,8 @@ export default function WeeklyReviewPage() {
       id: "",
       weekStart,
       weekEnd,
+      createdAt: new Date().toISOString(),
+      closedAt: null,
       goalsCompleted: 0,
       points: 0,
       tasksDone: 0,
@@ -114,7 +116,8 @@ export default function WeeklyReviewPage() {
         roadmapMoved: 0,
         commitsCount: 0,
         focusMinutes: 0,
-        journalCount: 0
+        journalCount: 0,
+        streakDelta: 0
       }
     } as WeeklyReview;
   }, [review, weekStart, weekEnd, liveReview]);
