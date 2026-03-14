@@ -165,9 +165,6 @@ function getRequestOrigin(req: express.Request) {
 }
 
 function requestHasUntrustedOrigin(req: express.Request) {
-  if (process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.SUPABASE_URL) {
-    return false;
-  }
   const originHeader = req.get("origin");
   const refererHeader = req.get("referer");
   if (!originHeader && !refererHeader) {
@@ -326,9 +323,8 @@ app.use((_req, res, next) => {
 });
 
 app.use((req, res, next) => {
-  const isProd = process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.SUPABASE_URL;
   const origin = getRequestOrigin(req);
-  if (origin && (isProd || allowedClientOrigins.has(origin))) {
+  if (origin && allowedClientOrigins.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -337,7 +333,7 @@ app.use((req, res, next) => {
   }
 
   if (req.method === "OPTIONS") {
-    if (origin && (isProd || allowedClientOrigins.has(origin)) && isLoopbackAddress(req.socket.remoteAddress)) {
+    if (origin && allowedClientOrigins.has(origin) && isLoopbackAddress(req.socket.remoteAddress)) {
       return res.status(204).end();
     }
     return res.status(403).end();
@@ -345,6 +341,8 @@ app.use((req, res, next) => {
 
   next();
 });
+
+const isProdEnv = !!(process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT || process.env.RENDER);
 
 app.use(
   session({
@@ -355,7 +353,7 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      secure: false
+      secure: isProdEnv
     }
   })
 );
@@ -1622,6 +1620,14 @@ app.get("/api/habits/:id/completions", requireLocalControl, async (req, res) => 
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to fetch completions";
     res.status(msg === "Authentication required." ? 401 : 500).json({ error: msg });
+  }
+});
+
+// Global error handler — must be registered before static serving
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("Unhandled error:", err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
