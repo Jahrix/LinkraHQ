@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { AppStateProvider, useAppState } from "./lib/state";
 import Sidebar, { type NavItem } from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
@@ -17,7 +17,9 @@ import AccountSettingsPage from "./pages/AccountSettingsPage";
 import WeeklyReviewPage from "./pages/WeeklyReviewPage";
 import BuildPage from "./pages/BuildPage";
 import HabitsPage from "./pages/HabitsPage";
-import { computeStreak, todayKey } from "@linkra/shared";
+import { computeStreak, todayKey, isHabitDueToday, computeDecay } from "@linkra/shared";
+import { calculateMomentum } from "./lib/momentum";
+import MomentumBreakdownSheet from "./components/MomentumBreakdownSheet";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 import AuthPage from "./pages/AuthPage";
@@ -35,9 +37,15 @@ function Shell() {
   const [session, setSession] = useState<Session | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
-  const { completedTodayIds } = useHabitContext();
-  const todayHabitCount = completedTodayIds.size;
+  const { habits, completedTodayIds } = useHabitContext();
+  const [isMomentumSheetOpen, setIsMomentumSheetOpen] = useState(false);
   const [lastGPress, setLastGPress] = useState(0);
+
+  const totalActiveHabitsToday = useMemo(() => {
+    return habits.filter((h) => !h.archivedAt && isHabitDueToday(h)).length;
+  }, [habits]);
+  const todayHabitCompletedCount = completedTodayIds.size;
+  const prevMomentumRef = useRef(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -179,8 +187,15 @@ function Shell() {
     (acc, project) => acc + project.tasks.filter((task) => task.done).length,
     0
   );
-  const momentumSignal = score + completedTaskCount + (todayHabitCount * 3);
-  const streak = state ? computeStreak(Object.values(state.dailyGoalsByDate)) : 0;
+  const decay = state ? computeDecay(state.dailyGoalsByDate) : 0;
+  const finalMomentum = score + completedTaskCount + (todayHabitCompletedCount * 3) + decay;
+
+  const momentumData = useMemo(() => {
+    if (!state) return { score: 0, streak: 0, dailyGoalProgress: 0, roadmapProgress: 0, habitsProgress: 0, history: [] };
+    return calculateMomentum(state, todayHabitCompletedCount, totalActiveHabitsToday);
+  }, [state, todayHabitCompletedCount, totalActiveHabitsToday]);
+
+  const streak = momentumData.streak;
 
   const displayName =
     session?.user?.user_metadata?.full_name ||
@@ -215,10 +230,11 @@ function Shell() {
       <main className="flex-1 px-3 lg:px-6 py-3 lg:py-6 pb-24 lg:pb-6 flex flex-col gap-4 lg:gap-6 overflow-x-hidden min-w-0">
         <div className="sticky-header">
           <Header
-            score={score}
-            momentumSignal={momentumSignal}
+            score={finalMomentum}
+            momentumSignal={finalMomentum}
             userName={displayName}
             onOpenCommand={() => setCommandOpen(true)}
+            onMomentumClick={() => setIsMomentumSheetOpen(true)}
             hideGreeting={active === "Dashboard"}
           />
         </div>
@@ -257,6 +273,16 @@ function Shell() {
       </main>
       <CommandPalette open={commandOpen} commands={commands} onClose={() => setCommandOpen(false)} />
       <ToastHost />
+      <MomentumBreakdownSheet
+        open={isMomentumSheetOpen}
+        onClose={() => setIsMomentumSheetOpen(false)}
+        currentMomentum={finalMomentum}
+        streak={momentumData.streak}
+        dailyGoalProgress={momentumData.dailyGoalProgress}
+        roadmapProgress={momentumData.roadmapProgress}
+        habitsProgress={momentumData.habitsProgress}
+        history={momentumData.history}
+      />
     </div>
   );
 }

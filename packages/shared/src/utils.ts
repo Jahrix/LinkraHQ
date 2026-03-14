@@ -124,3 +124,32 @@ export function normalizeRepo(repoStr: string | null | undefined): string {
   clean = clean.replace(/\/$/, "");
   return clean;
 }
+
+export function computeDecay(
+  dailyGoalsByDate: Record<string, DailyGoalsEntry>
+): number {
+  // Only decay after 2+ consecutive completely inactive days
+  // Max decay: -15 (3 decaying days * 5)
+  let consecutiveInactiveDays = 0
+
+  for (let i = 1; i <= 5; i++) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    const key = d.toISOString().slice(0, 10)
+    const entry = dailyGoalsByDate[key]
+    const wasActive = entry && (
+      entry.score > 0 ||
+      entry.goals.some(g => g.done)
+    )
+    if (!wasActive) {
+      consecutiveInactiveDays++
+    } else {
+      break
+    }
+  }
+
+  // Only start decaying after 2 full inactive days
+  const decayDays = Math.max(0, consecutiveInactiveDays - 1)
+  return -(Math.min(decayDays, 3) * 5)  // max -15
+}
+
