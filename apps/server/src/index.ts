@@ -32,6 +32,7 @@ import {
   readSupabaseAppState,
   writeSupabaseAppState,
   getUserIdFromToken,
+  supabaseRest,
   createAgentConversation,
   updateConversationTitle,
   touchConversation,
@@ -332,7 +333,7 @@ app.use((req, res, next) => {
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS,DELETE");
   }
 
   if (req.method === "OPTIONS") {
@@ -953,10 +954,10 @@ app.post("/api/ai/build-plan", requireLocalControl, aiRateLimit, async (req, res
 
 // ── Agent helpers ─────────────────────────────────────────────────────────────
 
-function buildAgentStateContext(state: AppState): string {
+async function buildAgentStateContext(state: AppState, req: express.Request): Promise<string> {
   const todayStr = new Date().toISOString().split("T")[0];
   const todayGoals = state.dailyGoalsByDate[todayStr];
-  const summary = {
+  const summary: Record<string, unknown> = {
     projects: state.projects
       .filter((p) => p.status !== "Archived")
       .map((p) => ({
@@ -981,6 +982,57 @@ function buildAgentStateContext(state: AppState): string {
       .slice(0, 5)
       .map((s) => ({ id: s.id, text: s.text, project: s.project, ts: s.ts }))
   };
+
+  try {
+    const habits = await supabaseRest<Record<string, unknown>[]>(
+      req, "habits?archived_at=is.null&order=created_at.desc", "GET"
+    );
+    const since30 = new Date();
+    since30.setDate(since30.getDate() - 31);
+    const sinceStr = since30.toISOString().split("T")[0];
+    const completions = await supabaseRest<Record<string, unknown>[]>(
+      req, `habit_completions?date=gte.${sinceStr}&select=habit_id,date`, "GET"
+    );
+    const todayCompletedSet = new Set(
+      completions.filter((c) => c.date === todayStr).map((c) => c.habit_id as string)
+    );
+    const byHabit = new Map<string, string[]>();
+    for (const c of completions) {
+      const hid = c.habit_id as string;
+      if (!byHabit.has(hid)) byHabit.set(hid, []);
+      byHabit.get(hid)!.push(c.date as string);
+    }
+    const day = new Date().getDay();
+    summary.habits = (habits ?? []).map((h) => {
+      const freq = h.frequency as string;
+      const customDays = (h.custom_days as number[] | null) ?? [];
+      let dueToday = false;
+      if (freq === "daily") dueToday = true;
+      else if (freq === "weekdays") dueToday = day >= 1 && day <= 5;
+      else if (freq === "custom") dueToday = customDays.includes(day);
+      const dates = byHabit.get(h.id as string) ?? [];
+      const sorted = [...dates].sort().reverse();
+      let streak = 0;
+      if (sorted.length) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yday = yesterday.toISOString().split("T")[0];
+        if (sorted[0] === todayStr || sorted[0] === yday) {
+          streak = 1;
+          for (let i = 1; i < sorted.length; i++) {
+            const prev = new Date(sorted[i - 1]);
+            const curr = new Date(sorted[i]);
+            if (Math.round((prev.getTime() - curr.getTime()) / 86400000) === 1) streak++;
+            else break;
+          }
+        }
+      }
+      return { id: h.id, title: h.title, streak, completedToday: todayCompletedSet.has(h.id as string), dueToday };
+    });
+  } catch {
+    // habits fetch failed — agent still works without it
+  }
+
   return JSON.stringify(summary, null, 2);
 }
 
@@ -988,6 +1040,18 @@ async function executeAgentAction(
   req: express.Request,
   action: { type: string; payload: Record<string, unknown> }
 ) {
+  if (action.type === "COMPLETE_HABIT") {
+    const { habitId, date } = action.payload;
+    const userId = getUserIdFromToken(req);
+    const todayStr = new Date().toISOString().split("T")[0];
+    await supabaseRest(req, "habit_completions", "POST", {
+      habit_id: String(habitId),
+      user_id: userId,
+      date: date ? String(date) : todayStr
+    }, { Prefer: "resolution=ignore-duplicates,return=representation" });
+    return;
+  }
+
   const stateData = await readSupabaseAppState(req);
   const parsed = AppStateSchema.safeParse(stateData);
   if (!parsed.success) throw new Error("Invalid app state from Supabase");
@@ -1155,6 +1219,7 @@ COMPLETE_GOAL — { "goalId": string }
 MOVE_ROADMAP_CARD — { "cardId": string, "lane": "now"|"next"|"later"|"shipped" }
 CREATE_ROADMAP_CARD — { "title": string, "lane": "now"|"next"|"later", "description": string, "projectId": string|null }
 LOG_SESSION — { "text": string, "project": string|null }
+COMPLETE_HABIT — { "habitId": string, "date": string }
 
 Rules:
 - Always read state first before taking any action so you have current context
@@ -1269,7 +1334,7 @@ app.post("/api/agent", requireLocalControl, aiRateLimit, async (req, res) => {
 
         if (action.type === "READ_STATE") {
           const stateData = await readSupabaseAppState(req);
-          const stateContext = buildAgentStateContext(stateData as AppState);
+          const stateContext = await buildAgentStateContext(stateData as AppState, req);
           const messagesWithContext = [
             ...messages,
             { role: "assistant", content: rawText },
@@ -1389,6 +1454,168 @@ app.delete("/api/agent/conversations/:id", requireLocalControl, async (req, res)
     const message = error instanceof Error ? error.message : "Failed to delete conversation.";
     const httpStatus = message === "Authentication required." ? 401 : 503;
     res.status(httpStatus).json({ error: message });
+  }
+});
+
+// ── Habit Engine routes ────────────────────────────────────────────────────────
+
+function habitFromRow(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    title: row.title,
+    frequency: row.frequency,
+    customDays: (row.custom_days as number[] | null) ?? [],
+    color: row.color,
+    icon: row.icon,
+    linkedProjectId: row.linked_project_id ?? null,
+    targetStreak: row.target_streak,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    archivedAt: row.archived_at ?? null
+  };
+}
+
+function completionFromRow(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    habitId: row.habit_id,
+    date: row.date,
+    createdAt: row.created_at
+  };
+}
+
+app.get("/api/habits", requireLocalControl, async (req, res) => {
+  try {
+    const rows = await supabaseRest<Record<string, unknown>[]>(
+      req, "habits?archived_at=is.null&order=created_at.desc", "GET"
+    );
+    res.json((rows ?? []).map(habitFromRow));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to fetch habits";
+    res.status(msg === "Authentication required." ? 401 : 500).json({ error: msg });
+  }
+});
+
+// Must be registered BEFORE /:id/completions to avoid route ambiguity
+app.get("/api/habits/completions/today", requireLocalControl, async (req, res) => {
+  try {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const rows = await supabaseRest<Record<string, unknown>[]>(
+      req, `habit_completions?date=eq.${todayStr}&select=habit_id`, "GET"
+    );
+    res.json((rows ?? []).map(r => r.habit_id));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to fetch today completions";
+    res.status(msg === "Authentication required." ? 401 : 500).json({ error: msg });
+  }
+});
+
+app.post("/api/habits", requireLocalControl, async (req, res) => {
+  try {
+    const userId = getUserIdFromToken(req);
+    const { title, frequency, customDays, color, icon, linkedProjectId, targetStreak } = req.body as Record<string, unknown>;
+    if (!title || typeof title !== "string") return res.status(400).json({ error: "title required" });
+    const rows = await supabaseRest<Record<string, unknown>[]>(req, "habits", "POST", {
+      user_id: userId,
+      title,
+      frequency: frequency ?? "daily",
+      custom_days: Array.isArray(customDays) ? customDays : null,
+      color: color ?? "#7c5cfc",
+      icon: icon ?? "⚡",
+      linked_project_id: linkedProjectId ?? null,
+      target_streak: targetStreak ?? 30
+    });
+    res.json(habitFromRow(rows[0]));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to create habit";
+    res.status(msg === "Authentication required." ? 401 : 500).json({ error: msg });
+  }
+});
+
+app.put("/api/habits/:id", requireLocalControl, async (req, res) => {
+  try {
+    const userId = getUserIdFromToken(req);
+    const { id } = req.params;
+    const { title, frequency, customDays, color, icon, linkedProjectId, targetStreak } = req.body as Record<string, unknown>;
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (title !== undefined) patch.title = title;
+    if (frequency !== undefined) patch.frequency = frequency;
+    if (customDays !== undefined) patch.custom_days = Array.isArray(customDays) ? customDays : null;
+    if (color !== undefined) patch.color = color;
+    if (icon !== undefined) patch.icon = icon;
+    if (linkedProjectId !== undefined) patch.linked_project_id = linkedProjectId;
+    if (targetStreak !== undefined) patch.target_streak = targetStreak;
+    const rows = await supabaseRest<Record<string, unknown>[]>(
+      req, `habits?id=eq.${id}&user_id=eq.${userId}`, "PATCH", patch
+    );
+    res.json(habitFromRow(rows[0]));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to update habit";
+    res.status(msg === "Authentication required." ? 401 : 500).json({ error: msg });
+  }
+});
+
+app.delete("/api/habits/:id", requireLocalControl, async (req, res) => {
+  try {
+    const userId = getUserIdFromToken(req);
+    const { id } = req.params;
+    await supabaseRest(req, `habits?id=eq.${id}&user_id=eq.${userId}`, "PATCH", {
+      archived_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+    res.json({ success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to archive habit";
+    res.status(msg === "Authentication required." ? 401 : 500).json({ error: msg });
+  }
+});
+
+app.post("/api/habits/:id/complete", requireLocalControl, async (req, res) => {
+  try {
+    const userId = getUserIdFromToken(req);
+    const habitId = req.params.id;
+    const { date } = req.body as { date?: string };
+    if (!date) return res.status(400).json({ error: "date required" });
+    await supabaseRest(req, "habit_completions", "POST", {
+      habit_id: habitId,
+      user_id: userId,
+      date
+    }, { Prefer: "resolution=ignore-duplicates,return=representation" });
+    res.json({ success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to complete habit";
+    res.status(msg === "Authentication required." ? 401 : 500).json({ error: msg });
+  }
+});
+
+app.delete("/api/habits/:id/complete", requireLocalControl, async (req, res) => {
+  try {
+    const userId = getUserIdFromToken(req);
+    const habitId = req.params.id;
+    const { date } = req.body as { date?: string };
+    if (!date) return res.status(400).json({ error: "date required" });
+    await supabaseRest(
+      req, `habit_completions?habit_id=eq.${habitId}&user_id=eq.${userId}&date=eq.${date}`, "DELETE"
+    );
+    res.json({ success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to uncomplete habit";
+    res.status(msg === "Authentication required." ? 401 : 500).json({ error: msg });
+  }
+});
+
+app.get("/api/habits/:id/completions", requireLocalControl, async (req, res) => {
+  try {
+    const userId = getUserIdFromToken(req);
+    const habitId = req.params.id;
+    const since = req.query.since as string | undefined;
+    let path = `habit_completions?habit_id=eq.${habitId}&user_id=eq.${userId}&order=date.desc`;
+    if (since) path += `&date=gte.${since}`;
+    const rows = await supabaseRest<Record<string, unknown>[]>(req, path, "GET");
+    res.json((rows ?? []).map(completionFromRow));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to fetch completions";
+    res.status(msg === "Authentication required." ? 401 : 500).json({ error: msg });
   }
 });
 

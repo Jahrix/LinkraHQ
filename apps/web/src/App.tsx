@@ -16,6 +16,7 @@ import SettingsPage from "./pages/SettingsPage";
 import AccountSettingsPage from "./pages/AccountSettingsPage";
 import WeeklyReviewPage from "./pages/WeeklyReviewPage";
 import BuildPage from "./pages/BuildPage";
+import HabitsPage from "./pages/HabitsPage";
 import { computeStreak, todayKey } from "@linkra/shared";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
@@ -24,6 +25,7 @@ import { PomodoroProvider } from "./lib/pomodoroContext";
 import { AiQuotaProvider } from "./lib/aiQuotaContext";
 import { finalizeAuthRedirectUrl } from "./lib/githubAuth";
 import { playStartupSoundOnce } from "./lib/sounds";
+import { api } from "./lib/api";
 
 function Shell() {
   const { state, loading, error, refresh } = useAppState();
@@ -32,6 +34,7 @@ function Shell() {
   const [session, setSession] = useState<Session | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [todayHabitCount, setTodayHabitCount] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -55,6 +58,7 @@ function Shell() {
       return;
     }
     playStartupSoundOnce(userId);
+    api.getAllCompletionsToday().then(ids => setTodayHabitCount(ids.length)).catch(() => {});
   }, [session?.user?.id]);
 
   useEffect(() => {
@@ -70,7 +74,7 @@ function Shell() {
         setProjectId(hash.split("/")[1]);
         setActive("Dashboard");
       } else if (hash) {
-        const match = ["Dashboard", "Daily Goals", "Roadmap", "Weekly Review", "Build", "Commits", "Tools", "Settings", "Account"].find(
+        const match = ["Dashboard", "Daily Goals", "Habits", "Roadmap", "Weekly Review", "Build", "Commits", "Tools", "Settings", "Account"].find(
           (item) => item.toLowerCase().replace(" ", "-") === hash
         ) as NavItem | undefined;
         if (match) {
@@ -113,6 +117,7 @@ function Shell() {
     return [
       { label: "Go to Dashboard", action: () => setActive("Dashboard") },
       { label: "Go to Daily Goals", action: () => setActive("Daily Goals") },
+      { label: "Go to Habits", action: () => setActive("Habits") },
       { label: "Go to Roadmap", action: () => setActive("Roadmap") },
       { label: "Go to Weekly Review", action: () => setActive("Weekly Review") },
       { label: "Go to Build", action: () => setActive("Build") },
@@ -128,7 +133,7 @@ function Shell() {
     (acc, project) => acc + project.tasks.filter((task) => task.done).length,
     0
   );
-  const momentumSignal = score + completedTaskCount;
+  const momentumSignal = score + completedTaskCount + (todayHabitCount * 3);
   const streak = state ? computeStreak(Object.values(state.dailyGoalsByDate)) : 0;
 
   const displayName =
@@ -194,6 +199,7 @@ function Shell() {
             {active === "Daily Goals" && <DailyGoalsPage />}
             {active === "Roadmap" && <RoadmapPage />}
             {active === "Weekly Review" && <WeeklyReviewPage />}
+            {active === "Habits" && <HabitsPage />}
             {active === "Build" && <BuildPage />}
             {active === "Commits" && <CommitsPage />}
             {active === "Tools" && <ToolsPage />}

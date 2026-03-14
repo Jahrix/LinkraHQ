@@ -1,4 +1,4 @@
-import type { AppState, LocalRepo, WeeklyReview, SuggestedAction } from "@linkra/shared";
+import type { AppState, LocalRepo, WeeklyReview, SuggestedAction, Habit, HabitCompletion } from "@linkra/shared";
 
 export interface SuggestedGoal {
   title: string;
@@ -251,5 +251,36 @@ export const api = {
       quota: { used: number; limit: number; reset_in_minutes: number } | null;
     };
   },
-  logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" })
+  logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" }),
+
+  // ── Habit Engine ────────────────────────────────────────────────────────────
+  getHabits: () =>
+    request<Habit[]>("/api/habits"),
+
+  createHabit: (habit: Omit<Habit, "id" | "createdAt" | "updatedAt">) =>
+    request<Habit>("/api/habits", { method: "POST", body: JSON.stringify(habit) }),
+
+  updateHabit: (id: string, patch: Partial<Habit>) =>
+    request<Habit>(`/api/habits/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
+
+  deleteHabit: (id: string) =>
+    request<{ success: true }>(`/api/habits/${id}`, { method: "DELETE" }),
+
+  completeHabit: (habitId: string, date: string) =>
+    request<{ success: true }>(`/api/habits/${habitId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ date })
+    }),
+
+  uncompleteHabit: (habitId: string, date: string) =>
+    request<{ success: true }>(`/api/habits/${habitId}/complete`, {
+      method: "DELETE",
+      body: JSON.stringify({ date })
+    }),
+
+  getHabitCompletions: (habitId: string, since: string) =>
+    request<HabitCompletion[]>(`/api/habits/${habitId}/completions?since=${since}`),
+
+  getAllCompletionsToday: () =>
+    request<string[]>("/api/habits/completions/today")
 };

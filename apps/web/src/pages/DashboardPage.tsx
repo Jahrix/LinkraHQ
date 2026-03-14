@@ -10,7 +10,10 @@ import {
   type RoadmapCard,
   type RoadmapLane,
   type SuggestedAction,
-  normalizeRepo
+  normalizeRepo,
+  type Habit,
+  isHabitDueToday,
+  computeHabitStreak
 } from "@linkra/shared";
 import { useAppState } from "../lib/state";
 import ProgressRing from "../components/ProgressRing";
@@ -65,6 +68,7 @@ import {
   hasGithubIdentity
 } from "../lib/githubAuth";
 import FillMyDaySheet from "../components/FillMyDaySheet";
+import HabitRing from "../components/HabitRing";
 
 const tabs = ["Tasks", "Roadmap", "Journal", "Project Settings"];
 const uiStatuses = ["Not Started", "In Progress", "Review", "On Hold", "Done", "Archived"] as const;
@@ -92,6 +96,10 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
   const [localCommitFeed, setLocalCommitFeed] = useState<any[]>([]);
 
   const [insightFilter, setInsightFilter] = useState<"priority" | "all" | "crit" | "warn">("priority");
+
+  const [todayHabits, setTodayHabits] = useState<Habit[]>([]);
+  const [habitCompletedIds, setHabitCompletedIds] = useState<Set<string>>(new Set());
+  const [habitStreaks, setHabitStreaks] = useState<Record<string, number>>({});
 
   const [todayPlanDraft, setTodayPlanDraft] = useState<string[]>([]);
   const [todayPlanNotes, setTodayPlanNotes] = useState("");
@@ -287,6 +295,22 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
       return;
     }
   }, [selectedProjectId, selection.selectedProjectId]);
+
+  useEffect(() => {
+    const since60 = (() => { const d = new Date(); d.setDate(d.getDate() - 61); return d.toISOString().slice(0, 10); })();
+    Promise.all([api.getHabits(), api.getAllCompletionsToday()]).then(([allHabits, todayIds]) => {
+      const due = allHabits.filter(isHabitDueToday);
+      setTodayHabits(due);
+      setHabitCompletedIds(new Set(todayIds));
+      Promise.all(due.map(h =>
+        api.getHabitCompletions(h.id, since60).then(cs => ({ id: h.id, streak: computeHabitStreak(cs.map(c => c.date)) }))
+      )).then(results => {
+        const map: Record<string, number> = {};
+        results.forEach(({ id, streak }) => { map[id] = streak; });
+        setHabitStreaks(map);
+      }).catch(() => {});
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setCommitFeed([]);
@@ -981,6 +1005,29 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
   };
 
+  const handleHabitToggleDashboard = async (habit: Habit) => {
+    const today = todayKey();
+    const isCompleted = habitCompletedIds.has(habit.id);
+    setHabitCompletedIds(prev => {
+      const next = new Set(prev);
+      if (isCompleted) next.delete(habit.id); else next.add(habit.id);
+      return next;
+    });
+    try {
+      if (isCompleted) {
+        await api.uncompleteHabit(habit.id, today);
+      } else {
+        await api.completeHabit(habit.id, today);
+      }
+    } catch {
+      setHabitCompletedIds(prev => {
+        const next = new Set(prev);
+        if (isCompleted) next.add(habit.id); else next.delete(habit.id);
+        return next;
+      });
+    }
+  };
+
   const topPlanTaskId = todayPlanDraft[0] ?? null;
   const topPlanTaskEntry = topPlanTaskId ? allTaskLookup.get(topPlanTaskId) : null;
   const topTask = topPlanTaskEntry ? {
@@ -1011,6 +1058,29 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
           />
         )}
       </div>
+
+      {/* Habits Today row */}
+      {todayHabits.length > 0 && (
+        <div className="px-1">
+          {todayHabits.every(h => habitCompletedIds.has(h.id)) ? (
+            <div className="text-sm font-bold text-green-400 flex items-center gap-2">
+              <span>Habits ✓</span>
+            </div>
+          ) : (
+            <div className="flex gap-4 overflow-x-auto pb-1">
+              {todayHabits.map(h => (
+                <HabitRing
+                  key={h.id}
+                  habit={h}
+                  completed={habitCompletedIds.has(h.id)}
+                  streak={habitStreaks[h.id] ?? 0}
+                  onToggle={() => handleHabitToggleDashboard(h)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <ProjectRail
         projects={dashboardProjects}

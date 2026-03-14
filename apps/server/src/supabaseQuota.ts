@@ -151,7 +151,7 @@ export function getUserIdFromToken(req: express.Request): string {
   return payload.sub as string;
 }
 
-async function supabaseRest<T>(
+export async function supabaseRest<T>(
   req: express.Request,
   path: string,
   method: string,

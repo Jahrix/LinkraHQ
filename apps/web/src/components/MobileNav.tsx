@@ -5,7 +5,7 @@ const mainNavItems = [
   { id: "Dashboard", icon: "❖", label: "Home" },
   { id: "Daily Goals", icon: "✓", label: "Goals" },
   { id: "Menu", icon: "☰", label: "Menu" },
-  { id: "Commits", icon: "⎇", label: "Commits" },
+  { id: "Habits", icon: "⚡", label: "Habits" },
   { id: "Account", icon: "👤", label: "Profile" }
 ] as const;
 
@@ -13,6 +13,7 @@ const menuSheetItems = [
   { id: "Roadmap", icon: "◫", label: "Roadmap" },
   { id: "Weekly Review", icon: "📅", label: "Review" },
   { id: "Build", icon: "🏗️", label: "Build" },
+  { id: "Commits", icon: "⎇", label: "Commits" },
   { id: "Tools", icon: "🔧", label: "Tools" },
   { id: "Settings", icon: "⚙️", label: "Settings" }
 ] as const;

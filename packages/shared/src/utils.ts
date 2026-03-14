@@ -1,4 +1,4 @@
-import { DailyGoalsEntry, Goal, STREAK_THRESHOLD } from "./schema.js";
+import { DailyGoalsEntry, Goal, Habit, STREAK_THRESHOLD } from "./schema.js";
 
 export function todayKey(date: Date = new Date()): string {
   const year = date.getFullYear();
@@ -45,6 +45,38 @@ function shiftDate(date: string, deltaDays: number) {
   current.setDate(current.getDate() + deltaDays);
   return todayKey(current);
 }
+// ── Habit Engine helpers ───────────────────────────────────────────────────────
+
+export function computeHabitStreak(completionDates: string[]): number {
+  const sorted = [...completionDates].sort().reverse();
+  if (!sorted.length) return 0;
+  const today = todayKey();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = todayKey(yesterday);
+  if (sorted[0] !== today && sorted[0] !== yesterdayStr) return 0;
+  let streak = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1]);
+    const curr = new Date(sorted[i]);
+    const diffDays = Math.round((prev.getTime() - curr.getTime()) / 86400000);
+    if (diffDays === 1) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+export function isHabitDueToday(habit: Habit): boolean {
+  const day = new Date().getDay();
+  if (habit.frequency === "daily") return true;
+  if (habit.frequency === "weekdays") return day >= 1 && day <= 5;
+  if (habit.frequency === "custom") return habit.customDays.includes(day);
+  return false;
+}
+
 export function normalizeRepo(repoStr: string | null | undefined): string {
   if (!repoStr) return "";
   let clean = repoStr.trim();

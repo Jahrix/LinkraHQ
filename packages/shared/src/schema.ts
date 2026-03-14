@@ -346,3 +346,30 @@ export const ExportBundleSchema = z.object({
 });
 
 export type ExportBundle = z.infer<typeof ExportBundleSchema>;
+
+// ── Habit Engine ───────────────────────────────────────────────────────────────
+
+export const HabitSchema = z.object({
+  id: z.string(),
+  title: z.string().min(1),
+  frequency: z.enum(["daily", "weekdays", "custom"]).default("daily"),
+  customDays: z.array(z.number()).default([]),
+  color: z.string().default("#7c5cfc"),
+  icon: z.string().default("⚡"),
+  linkedProjectId: z.string().nullable().default(null),
+  targetStreak: z.number().default(30),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  archivedAt: z.string().nullable().default(null)
+});
+
+export type Habit = z.infer<typeof HabitSchema>;
+
+export const HabitCompletionSchema = z.object({
+  id: z.string(),
+  habitId: z.string(),
+  date: z.string(),
+  createdAt: z.string()
+});
+
+export type HabitCompletion = z.infer<typeof HabitCompletionSchema>;
