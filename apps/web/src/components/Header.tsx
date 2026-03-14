@@ -36,12 +36,14 @@ export default function Header({
   momentumSignal,
   userName,
   onOpenCommand,
+  onMomentumClick,
   hideGreeting = false
 }: {
   score: number;
   momentumSignal: number;
   userName: string;
   onOpenCommand: () => void;
+  onMomentumClick: () => void;
   hideGreeting?: boolean;
 }) {
   const [pulse, setPulse] = useState<"up" | "down" | null>(null);
@@ -142,15 +144,19 @@ export default function Header({
       )}
 
       <div className="flex items-center gap-3 lg:gap-4 flex-shrink-0">
-        <div className="flex flex-col items-end">
-          <span className="text-[10px] uppercase font-bold tracking-[0.25em] text-white/40">Momentum</span>
+        <button
+          className="flex flex-col items-end hover:opacity-80 transition-opacity active:scale-95 transform-gpu group"
+          onClick={onMomentumClick}
+          title="View Momentum Breakdown"
+        >
+          <span className="text-[10px] uppercase font-bold tracking-[0.25em] text-white/40 group-hover:text-white/60 transition-colors">Momentum</span>
           <div
             className={`text-2xl lg:text-3xl font-black tracking-tighter tabular-nums leading-none transition-all duration-300 transform-gpu ${scaleClass}`}
             style={{ color, filter }}
           >
             {displayScore}
           </div>
-        </div>
+        </button>
 
         {!quotaLoading && (
           <>
