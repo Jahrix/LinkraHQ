@@ -44,7 +44,10 @@ function Shell() {
   const totalActiveHabitsToday = useMemo(() => {
     return habits.filter((h) => !h.archivedAt && isHabitDueToday(h)).length;
   }, [habits]);
-  const todayHabitCompletedCount = completedTodayIds.size;
+  const todayHabitCompletedCount = useMemo(() => {
+    const activeHabitIds = new Set(habits.filter((h) => !h.archivedAt && isHabitDueToday(h)).map((h) => h.id));
+    return [...completedTodayIds].filter((id) => activeHabitIds.has(id)).length;
+  }, [habits, completedTodayIds]);
   const prevMomentumRef = useRef(0);
 
   useEffect(() => {

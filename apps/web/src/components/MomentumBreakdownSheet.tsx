@@ -90,7 +90,7 @@ export default function MomentumBreakdownSheet({
             <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col items-center justify-center text-center">
               <span className="text-sm text-white/40 mb-1">Daily Capacity</span>
               <span className="text-2xl font-bold text-white">
-                {Math.round(dailyGoalProgress + roadmapProgress + habitsProgress)}%
+                {Math.min(100, Math.round(dailyGoalProgress + roadmapProgress + habitsProgress))}%
               </span>
             </div>
           </div>
