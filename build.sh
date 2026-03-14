@@ -12,3 +12,7 @@ npm ci
 
 # 3. Build the web app — Vite resolves @linkra/shared directly from packages/shared/src
 npm run build --workspace apps/web
+
+# 4. Verify _routes.json made it into the dist output
+echo "Checking _routes.json..."
+cat apps/web/dist/_routes.json

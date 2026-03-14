@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
+import { copyFileSync } from "fs";
 
 export default defineConfig({
   plugins: [
@@ -35,6 +36,23 @@ export default defineConfig({
   resolve: {
     alias: {
       "@linkra/shared": path.resolve(__dirname, "../../packages/shared/src/index.ts")
+    }
+  },
+  build: {
+    rollupOptions: {
+      plugins: [
+        {
+          name: "copy-routes",
+          closeBundle() {
+            try {
+              copyFileSync("public/_routes.json", "dist/_routes.json");
+              console.log("✓ _routes.json copied to dist");
+            } catch (e: unknown) {
+              console.warn("_routes.json copy failed:", (e as Error).message);
+            }
+          }
+        }
+      ]
     }
   },
   server: {
