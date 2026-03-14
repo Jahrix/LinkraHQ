@@ -18,6 +18,7 @@ export default function HabitRing({ habit, completed, streak, onToggle }: HabitR
       onClick={onToggle}
       className="flex flex-col items-center gap-1 flex-shrink-0 focus:outline-none"
       style={{ WebkitTapHighlightColor: "transparent", width: 72 }}
+      data-habit-id={habit.id}
     >
       <div className="w-[72px] h-[72px] md:w-[80px] md:h-[80px] relative">
         <svg

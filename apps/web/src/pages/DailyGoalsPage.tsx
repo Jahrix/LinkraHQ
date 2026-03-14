@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { computeGoalMetrics, todayKey, type Goal } from "@linkra/shared";
 import { cloneAppState } from "../lib/appStateModel";
 import { useAppState } from "../lib/state";
@@ -20,6 +20,13 @@ export default function DailyGoalsPage() {
   const [templateCategory, setTemplateCategory] = useState("Focus");
   const [templatePoints, setTemplatePoints] = useState(1);
   const [fillSheetOpen, setFillSheetOpen] = useState(false);
+
+  useEffect(() => {
+    const handleOpenSheet = () => setFillSheetOpen(true);
+    window.addEventListener("open-fill-day-sheet", handleOpenSheet);
+    return () => window.removeEventListener("open-fill-day-sheet", handleOpenSheet);
+  }, []);
+
 
   const key = todayKey();
 

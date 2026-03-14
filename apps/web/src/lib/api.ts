@@ -254,8 +254,8 @@ export const api = {
   logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" }),
 
   // ── Habit Engine ────────────────────────────────────────────────────────────
-  getHabits: () =>
-    request<Habit[]>("/api/habits"),
+  getHabits: (archived?: boolean) =>
+    request<Habit[]>(archived ? "/api/habits?archived=true" : "/api/habits"),
 
   createHabit: (habit: Omit<Habit, "id" | "createdAt" | "updatedAt">) =>
     request<Habit>("/api/habits", { method: "POST", body: JSON.stringify(habit) }),

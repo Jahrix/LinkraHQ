@@ -55,6 +55,7 @@ import { useAiQuota } from "../lib/aiQuotaContext";
 import { cloneAppState } from "../lib/appStateModel";
 import { resolveProjectSelection } from "../lib/dashboardSelection";
 import { useToast } from "../lib/toast";
+import { useHabitContext } from "../lib/habitContext";
 import { computeTodayPlan, isTaskBlocked } from "../lib/taskRules";
 import { formatDate } from "../lib/date";
 import { dedupeById, dedupeLocalRepos } from "../lib/collections";
@@ -97,14 +98,20 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
 
   const [insightFilter, setInsightFilter] = useState<"priority" | "all" | "crit" | "warn">("priority");
 
-  const [todayHabits, setTodayHabits] = useState<Habit[]>([]);
-  const [habitCompletedIds, setHabitCompletedIds] = useState<Set<string>>(new Set());
-  const [habitStreaks, setHabitStreaks] = useState<Record<string, number>>({});
+  const { habits, completedTodayIds: habitCompletedIds, streaks: habitStreaks, toggleHabit: handleHabitToggleDashboard } = useHabitContext();
+  const todayHabits = useMemo(() => habits.filter(isHabitDueToday), [habits]);
 
   const [todayPlanDraft, setTodayPlanDraft] = useState<string[]>([]);
   const [todayPlanNotes, setTodayPlanNotes] = useState("");
   const { quota: aiPlanQuota, isLoading: isLoadingQuota, setQuota: setAiPlanQuota } = useAiQuota();
   const [fillDaySheetOpen, setFillDaySheetOpen] = useState(false);
+
+  useEffect(() => {
+    const handleOpenSheet = () => setFillDaySheetOpen(true);
+    window.addEventListener("open-fill-day-sheet", handleOpenSheet);
+    return () => window.removeEventListener("open-fill-day-sheet", handleOpenSheet);
+  }, []);
+
 
   const duplicateWarnings = useRef(new Set<string>());
 
@@ -296,21 +303,6 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
   }, [selectedProjectId, selection.selectedProjectId]);
 
-  useEffect(() => {
-    const since60 = (() => { const d = new Date(); d.setDate(d.getDate() - 61); return d.toISOString().slice(0, 10); })();
-    Promise.all([api.getHabits(), api.getAllCompletionsToday()]).then(([allHabits, todayIds]) => {
-      const due = allHabits.filter(isHabitDueToday);
-      setTodayHabits(due);
-      setHabitCompletedIds(new Set(todayIds));
-      Promise.all(due.map(h =>
-        api.getHabitCompletions(h.id, since60).then(cs => ({ id: h.id, streak: computeHabitStreak(cs.map(c => c.date)) }))
-      )).then(results => {
-        const map: Record<string, number> = {};
-        results.forEach(({ id, streak }) => { map[id] = streak; });
-        setHabitStreaks(map);
-      }).catch(() => {});
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => {
     setCommitFeed([]);
@@ -1005,28 +997,7 @@ export default function DashboardPage({ projectId }: { projectId?: string | null
     }
   };
 
-  const handleHabitToggleDashboard = async (habit: Habit) => {
-    const today = todayKey();
-    const isCompleted = habitCompletedIds.has(habit.id);
-    setHabitCompletedIds(prev => {
-      const next = new Set(prev);
-      if (isCompleted) next.delete(habit.id); else next.add(habit.id);
-      return next;
-    });
-    try {
-      if (isCompleted) {
-        await api.uncompleteHabit(habit.id, today);
-      } else {
-        await api.completeHabit(habit.id, today);
-      }
-    } catch {
-      setHabitCompletedIds(prev => {
-        const next = new Set(prev);
-        if (isCompleted) next.add(habit.id); else next.delete(habit.id);
-        return next;
-      });
-    }
-  };
+
 
   const topPlanTaskId = todayPlanDraft[0] ?? null;
   const topPlanTaskEntry = topPlanTaskId ? allTaskLookup.get(topPlanTaskId) : null;

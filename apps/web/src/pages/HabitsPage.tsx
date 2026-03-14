@@ -1,104 +1,105 @@
-import React, { useEffect, useState } from "react";
-import { type Habit, computeHabitStreak, isHabitDueToday, todayKey } from "@linkra/shared";
-import { api } from "../lib/api";
+import React, { useState, useEffect } from "react";
+import { type Habit, isHabitDueToday } from "@linkra/shared";
 import { useAppState } from "../lib/state";
+import { useHabitContext } from "../lib/habitContext";
+import { useToast } from "../lib/toast";
 import GlassPanel from "../components/GlassPanel";
 import HabitRing from "../components/HabitRing";
 import HabitSheet from "../components/HabitSheet";
+import { api } from "../lib/api";
 
 export default function HabitsPage() {
   const { state } = useAppState();
-  const [habits, setHabits] = useState<Habit[]>([]);
-  const [completedTodayIds, setCompletedTodayIds] = useState<Set<string>>(new Set());
-  const [streaks, setStreaks] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
+  const { habits, completedTodayIds, streaks, brokenStreaks, isLoading: loading, toggleHabit, recoverStreak, saveHabit, archiveHabit, deleteHabit, refreshHabits } = useHabitContext();
+  const { push: toast } = useToast();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [hoveredHabitId, setHoveredHabitId] = useState<string | null>(null);
 
-  const today = todayKey();
-  const since60 = (() => { const d = new Date(); d.setDate(d.getDate() - 61); return d.toISOString().slice(0, 10); })();
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedHabits, setArchivedHabits] = useState<Habit[]>([]);
+  const [loadingArchived, setLoadingArchived] = useState(false);
 
-  useEffect(() => { loadAll(); }, []);
+  const activeHabits = habits.filter(h => !h.archivedAt);
 
-  async function loadAll() {
-    setLoading(true);
-    try {
-      const [habitsData, todayIds] = await Promise.all([api.getHabits(), api.getAllCompletionsToday()]);
-      setHabits(habitsData);
-      setCompletedTodayIds(new Set(todayIds));
-      const results = await Promise.all(
-        habitsData.map(h =>
-          api.getHabitCompletions(h.id, since60).then(cs => ({
-            id: h.id,
-            streak: computeHabitStreak(cs.map(c => c.date))
-          }))
-        )
-      );
-      const map: Record<string, number> = {};
-      results.forEach(({ id, streak }) => { map[id] = streak; });
-      setStreaks(map);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleToggle(habit: Habit) {
-    const isCompleted = completedTodayIds.has(habit.id);
-    setCompletedTodayIds(prev => {
-      const next = new Set(prev);
-      if (isCompleted) next.delete(habit.id); else next.add(habit.id);
-      return next;
-    });
-    try {
-      if (isCompleted) {
-        await api.uncompleteHabit(habit.id, today);
-        setStreaks(prev => ({ ...prev, [habit.id]: Math.max(0, (prev[habit.id] || 0) - 1) }));
-      } else {
-        await api.completeHabit(habit.id, today);
-        setStreaks(prev => ({ ...prev, [habit.id]: (prev[habit.id] || 0) + 1 }));
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA" || sheetOpen) {
+        return;
       }
-    } catch {
-      setCompletedTodayIds(prev => {
-        const next = new Set(prev);
-        if (isCompleted) next.add(habit.id); else next.delete(habit.id);
-        return next;
-      });
+      if (!hoveredHabitId) return;
+
+      if (e.key === "Backspace" || e.key === "Delete") {
+        const h = activeHabits.find(h => h.id === hoveredHabitId);
+        if (h) {
+          e.preventDefault();
+          if (window.confirm(`Delete habit "${h.title}" forever?`)) {
+            deleteHabit(h.id);
+          }
+        }
+      } else if (e.key.toLowerCase() === "e") {
+        const h = activeHabits.find(h => h.id === hoveredHabitId);
+        if (h) {
+          e.preventDefault();
+          archiveHabit(h.id);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [hoveredHabitId, activeHabits, sheetOpen, deleteHabit, archiveHabit]);
+
+  useEffect(() => {
+    if (showArchived) {
+      setLoadingArchived(true);
+      api.getHabits(true).then(setArchivedHabits).finally(() => setLoadingArchived(false));
+    }
+  }, [showArchived]);
+
+  async function handleRestore(h: Habit) {
+    if (!h.id) return;
+    
+    // Optimistic update
+    setArchivedHabits(prev => prev.filter(x => x.id !== h.id));
+    
+    try {
+      await saveHabit({ archivedAt: null }, h.id);
+      toast(`"${h.title}" has been restored to active habits.`, "success");
+    } catch (err) {
+      toast("Failed to restore habit.", "error");
+      refreshHabits();
     }
   }
 
   async function handleSave(data: Partial<Omit<Habit, "id" | "createdAt" | "updatedAt">>) {
-    try {
-      if (editingHabit) {
-        const updated = await api.updateHabit(editingHabit.id, data);
-        setHabits(prev => prev.map(h => h.id === editingHabit.id ? updated : h));
-      } else {
-        const created = await api.createHabit(data as Omit<Habit, "id" | "createdAt" | "updatedAt">);
-        setHabits(prev => [created, ...prev]);
-      }
-      setSheetOpen(false);
-      setEditingHabit(null);
-    } catch (e) {
-      console.error(e);
-    }
+    await saveHabit(data, editingHabit?.id);
+    setSheetOpen(false);
+    setEditingHabit(null);
+  }
+
+  async function handleAutoSave(data: Partial<Omit<Habit, "id" | "createdAt" | "updatedAt">>) {
+    if (!editingHabit) return;
+    await saveHabit(data, editingHabit.id);
   }
 
   async function handleArchive() {
     if (!editingHabit) return;
-    try {
-      await api.deleteHabit(editingHabit.id);
-      setHabits(prev => prev.filter(h => h.id !== editingHabit.id));
-      setSheetOpen(false);
-      setEditingHabit(null);
-    } catch (e) {
-      console.error(e);
-    }
+    await archiveHabit(editingHabit.id);
+    setSheetOpen(false);
+    setEditingHabit(null);
   }
 
-  const todayHabits = habits.filter(isHabitDueToday);
+  async function handleDelete() {
+    if (!editingHabit) return;
+    await deleteHabit(editingHabit.id);
+    setSheetOpen(false);
+    setEditingHabit(null);
+  }
+
+  const todayHabits = activeHabits.filter(isHabitDueToday);
   const allDoneToday = todayHabits.length > 0 && todayHabits.every(h => completedTodayIds.has(h.id));
-  const maxStreak = Math.max(0, ...Object.values(streaks).filter(s => s >= 7));
+  const maxStreak = Math.max(0, ...activeHabits.map(h => streaks[h.id] ?? 0).filter(s => s >= 7));
 
   const projectOptions = (state?.projects ?? [])
     .filter(p => p.status !== "Archived")
@@ -145,7 +146,7 @@ export default function HabitsPage() {
                   habit={h}
                   completed={completedTodayIds.has(h.id)}
                   streak={streaks[h.id] ?? 0}
-                  onToggle={() => handleToggle(h)}
+                  onToggle={() => toggleHabit(h)}
                 />
               ))}
             </div>
@@ -154,7 +155,7 @@ export default function HabitsPage() {
       )}
 
       {/* All Habits */}
-      {habits.length === 0 && !loading ? (
+      {activeHabits.length === 0 && !loading ? (
         <GlassPanel variant="standard" className="p-12 flex flex-col items-center text-center gap-3">
           <span className="text-5xl">⚡</span>
           <p className="text-white/60 font-bold">No habits yet.</p>
@@ -169,14 +170,19 @@ export default function HabitsPage() {
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">All Habits</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {habits.map(h => {
+            {activeHabits.map(h => {
               const streak = streaks[h.id] ?? 0;
               const progress = Math.min(100, Math.round((streak / h.targetStreak) * 100));
               return (
                 <button
                   key={h.id}
                   onClick={() => openEdit(h)}
-                  className="text-left bg-[#1a1a1f] border border-white/5 rounded-2xl p-4 hover:border-white/10 transition-all relative overflow-hidden"
+                  onMouseEnter={() => setHoveredHabitId(h.id)}
+                  onMouseLeave={() => setHoveredHabitId(null)}
+                  onFocus={() => setHoveredHabitId(h.id)}
+                  onBlur={() => setHoveredHabitId(null)}
+                  className="text-left bg-[#1a1a1f] border border-white/5 rounded-2xl p-4 hover:border-white/10 transition-all relative overflow-hidden focus:outline-none focus:ring-2 focus:ring-white/20"
+                  data-habit-id={h.id}
                 >
                   <div
                     className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl"
@@ -204,6 +210,19 @@ export default function HabitsPage() {
                         {streak}/{h.targetStreak}
                       </span>
                     </div>
+                    {brokenStreaks[h.id] ? (
+                      <div className="mt-3 pt-3 border-t border-white/5 flex gap-2 items-center justify-between">
+                        <span className="text-xs text-white/60">
+                          Streak of {brokenStreaks[h.id]} lost yesterday
+                        </span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); recoverStreak(h); }}
+                          className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white rounded-lg px-3 py-1 transition-colors"
+                        >
+                          Recover
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </button>
               );
@@ -212,12 +231,58 @@ export default function HabitsPage() {
         </>
       )}
 
+      {/* Archived Habits Toggle */}
+      <div className="flex justify-center mt-4">
+        <button
+          onClick={() => setShowArchived(p => !p)}
+          className="text-white/30 hover:text-white/60 text-xs font-bold transition-colors"
+        >
+          {showArchived ? "Hide Archived" : "Show Archived"}
+        </button>
+      </div>
+
+      {showArchived && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Archived</span>
+          </div>
+          {loadingArchived ? (
+            <div className="text-white/30 text-xs text-center py-4">Loading...</div>
+          ) : archivedHabits.length === 0 ? (
+            <div className="text-white/30 text-xs text-center py-4">No archived habits.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {archivedHabits.map(h => (
+                <div
+                  key={h.id}
+                  className="bg-[#1a1a1f] border border-white/5 rounded-2xl p-4 flex items-center justify-between opacity-50 relative overflow-hidden"
+                >
+                  <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl" style={{ backgroundColor: h.color }} />
+                  <div className="pl-3 flex items-center gap-2">
+                    <span className="text-lg leading-none">{h.icon}</span>
+                    <span className="font-bold text-white text-sm line-through">{h.title}</span>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleRestore(h); }}
+                    className="button-secondary text-xs px-3 py-1 bg-white/5 hover:bg-white/10"
+                  >
+                    Restore
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <HabitSheet
         open={sheetOpen}
         habit={editingHabit}
         projectOptions={projectOptions}
         onSave={handleSave}
+        onAutoSave={handleAutoSave}
         onArchive={editingHabit ? handleArchive : undefined}
+        onDelete={editingHabit ? handleDelete : undefined}
         onClose={() => { setSheetOpen(false); setEditingHabit(null); }}
       />
     </div>

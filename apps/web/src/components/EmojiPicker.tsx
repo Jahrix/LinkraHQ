@@ -159,7 +159,7 @@ export default function EmojiPicker({
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 z-30 mt-2 rounded-2xl border border-muted bg-[#0a0d14]/95 p-3 shadow-2xl backdrop-blur">
+        <div className="absolute left-0 z-30 mt-2 min-w-[280px] rounded-2xl border border-muted bg-[#0a0d14]/95 p-3 shadow-2xl backdrop-blur">
           <input
             className="input"
             value={query}
@@ -172,7 +172,11 @@ export default function EmojiPicker({
               <button
                 key={group.name}
                 type="button"
-                className={activeGroup === group.name && !query.trim() ? "button-primary" : "button-secondary"}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                  activeGroup === group.name && !query.trim()
+                    ? "bg-white text-black"
+                    : "bg-white/10 text-white/50 hover:bg-white/20 hover:text-white"
+                }`}
                 onClick={() => {
                   setActiveGroup(group.name);
                   setQuery("");
@@ -183,15 +187,16 @@ export default function EmojiPicker({
               </button>
             ))}
           </div>
-          <div className="mt-3 grid max-h-56 grid-cols-6 gap-2 overflow-auto rounded-xl border border-muted bg-black/20 p-3 md:grid-cols-8">
+          <div className="mt-2 flex h-[200px] flex-wrap content-start gap-1 overflow-y-auto rounded-xl border border-muted bg-black/20 p-2">
             {activeItems.map((entry) => (
               <button
                 key={entry.emoji}
                 type="button"
-                className={`rounded-xl border px-2 py-2 text-center ${
+                title={entry.label}
+                className={`flex h-[36px] w-[36px] items-center justify-center rounded-lg border p-1 shrink-0 ${
                   value === entry.emoji
                     ? "border-[color:var(--accent)] bg-white/15"
-                    : "border-muted bg-subtle hover:border-white/30"
+                    : "border-transparent bg-transparent hover:bg-white/10 hover:border-white/30"
                 }`}
                 onClick={() => {
                   rememberRecentEmoji(entry.emoji);
@@ -201,8 +206,7 @@ export default function EmojiPicker({
                 }}
                 aria-label={`Choose ${entry.label}`}
               >
-                <div className="text-xl">{entry.emoji}</div>
-                <div className="mt-1 text-[10px] text-muted">{entry.label}</div>
+                <div className="text-[22px] leading-none">{entry.emoji}</div>
               </button>
             ))}
             {activeItems.length === 0 && (

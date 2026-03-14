@@ -26,6 +26,7 @@ import { AiQuotaProvider } from "./lib/aiQuotaContext";
 import { finalizeAuthRedirectUrl } from "./lib/githubAuth";
 import { playStartupSoundOnce } from "./lib/sounds";
 import { api } from "./lib/api";
+import { HabitContextProvider, useHabitContext } from "./lib/habitContext";
 
 function Shell() {
   const { state, loading, error, refresh } = useAppState();
@@ -34,7 +35,9 @@ function Shell() {
   const [session, setSession] = useState<Session | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [todayHabitCount, setTodayHabitCount] = useState(0);
+  const { completedTodayIds } = useHabitContext();
+  const todayHabitCount = completedTodayIds.size;
+  const [lastGPress, setLastGPress] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -58,7 +61,6 @@ function Shell() {
       return;
     }
     playStartupSoundOnce(userId);
-    api.getAllCompletionsToday().then(ids => setTodayHabitCount(ids.length)).catch(() => {});
   }, [session?.user?.id]);
 
   useEffect(() => {
@@ -102,6 +104,45 @@ function Shell() {
   }, []);
 
   useEffect(() => {
+    const handleSequence = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement ||
+        (e.target as HTMLElement).isContentEditable
+      ) {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+      const now = Date.now();
+
+      if (key === "g") {
+        setLastGPress(now);
+        return;
+      }
+
+      if (now - lastGPress < 500) {
+        if (key === "h") setActive("Habits");
+        else if (key === "d") setActive("Dashboard");
+        else if (key === "g") setActive("Daily Goals");
+        else if (key === "r") setActive("Roadmap");
+        else if (key === "c") setActive("Commits");
+        else if (key === "b") {
+          setActive("Dashboard");
+          setTimeout(() => window.dispatchEvent(new CustomEvent("open-fill-day-sheet")), 50);
+        }
+        else if (key === "w") setActive("Weekly Review");
+        
+        setLastGPress(0);
+      }
+    };
+    window.addEventListener("keydown", handleSequence);
+    return () => window.removeEventListener("keydown", handleSequence);
+  }, [lastGPress, setActive]);
+
+
+  useEffect(() => {
     const hash = active.toLowerCase().replace(" ", "-");
     const newHash = projectId && active === "Dashboard" ? `project/${projectId}` : hash;
     window.history.replaceState(null, "", `#${newHash}`);
@@ -124,9 +165,14 @@ function Shell() {
       { label: "Go to Commits", action: () => setActive("Commits") },
       { label: "Go to Tools", action: () => setActive("Tools") },
       { label: "Go to Settings", action: () => setActive("Settings") },
-      { label: "Refresh Data", action: () => refresh() }
+      { label: "Refresh Data", action: () => refresh() },
+      { label: "Plan Day (Fill My Day)", action: () => {
+          setActive("Dashboard");
+          setTimeout(() => window.dispatchEvent(new CustomEvent("open-fill-day-sheet")), 50);
+        }
+      }
     ];
-  }, [refresh]);
+  }, [refresh, setActive]);
 
   const score = Object.values(state?.dailyGoalsByDate || {}).reduce((acc, entry) => acc + entry.score, 0);
   const completedTaskCount = (state?.projects || []).reduce(
@@ -221,9 +267,11 @@ export default function App() {
       <AppStateProvider>
         <AiQuotaProvider>
           <PomodoroProvider>
-            <ErrorBoundary>
-              <Shell />
-            </ErrorBoundary>
+            <HabitContextProvider>
+              <ErrorBoundary>
+                <Shell />
+              </ErrorBoundary>
+            </HabitContextProvider>
           </PomodoroProvider>
         </AiQuotaProvider>
       </AppStateProvider>

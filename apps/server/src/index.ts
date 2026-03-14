@@ -1486,8 +1486,13 @@ function completionFromRow(row: Record<string, unknown>) {
 
 app.get("/api/habits", requireLocalControl, async (req, res) => {
   try {
+    const isArchived = req.query.archived === "true";
+    const query = isArchived 
+      ? "habits?archived_at=not.is.null&order=created_at.desc"
+      : "habits?archived_at=is.null&order=created_at.desc";
+
     const rows = await supabaseRest<Record<string, unknown>[]>(
-      req, "habits?archived_at=is.null&order=created_at.desc", "GET"
+      req, query, "GET"
     );
     res.json((rows ?? []).map(habitFromRow));
   } catch (err) {
@@ -1536,7 +1541,7 @@ app.put("/api/habits/:id", requireLocalControl, async (req, res) => {
   try {
     const userId = getUserIdFromToken(req);
     const { id } = req.params;
-    const { title, frequency, customDays, color, icon, linkedProjectId, targetStreak } = req.body as Record<string, unknown>;
+    const { title, frequency, customDays, color, icon, linkedProjectId, targetStreak, archivedAt } = req.body as Record<string, unknown>;
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (title !== undefined) patch.title = title;
     if (frequency !== undefined) patch.frequency = frequency;
@@ -1545,6 +1550,7 @@ app.put("/api/habits/:id", requireLocalControl, async (req, res) => {
     if (icon !== undefined) patch.icon = icon;
     if (linkedProjectId !== undefined) patch.linked_project_id = linkedProjectId;
     if (targetStreak !== undefined) patch.target_streak = targetStreak;
+    if (archivedAt !== undefined) patch.archived_at = archivedAt;
     const rows = await supabaseRest<Record<string, unknown>[]>(
       req, `habits?id=eq.${id}&user_id=eq.${userId}`, "PATCH", patch
     );

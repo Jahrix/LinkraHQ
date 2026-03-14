@@ -69,6 +69,42 @@ export function computeHabitStreak(completionDates: string[]): number {
   return streak;
 }
 
+export function computeHabitBrokenStreak(completionDates: string[]): number | null {
+  const sorted = [...completionDates].sort().reverse();
+  if (!sorted.length) return null;
+  
+  const todayStr = todayKey();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = todayKey(yesterday);
+  
+  const dayBeforeYesterday = new Date();
+  dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
+  const dayBeforeYesterdayStr = todayKey(dayBeforeYesterday);
+
+  // If completed today or yesterday, the streak is NOT broken yesterday.
+  if (sorted[0] === todayStr || sorted[0] === yesterdayStr) return null;
+
+  // If the most recent completion was exactly the day before yesterday,
+  // it means they broke the streak yesterday.
+  if (sorted[0] === dayBeforeYesterdayStr) {
+    let streak = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = new Date(sorted[i - 1]);
+      const curr = new Date(sorted[i]);
+      const diffDays = Math.round((prev.getTime() - curr.getTime()) / 86400000);
+      if (diffDays === 1) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    // Only return broken streak if it was >= 3 or something? No, any streak > 0 is fine.
+    return streak;
+  }
+  return null;
+}
+
 export function isHabitDueToday(habit: Habit): boolean {
   const day = new Date().getDay();
   if (habit.frequency === "daily") return true;
